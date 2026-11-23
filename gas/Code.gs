@@ -10,8 +10,12 @@ function ref_(v){return /^\d{12}$/.test(String(v||'').trim())?String(v).trim():'
 function must_(ok,message){if(!ok)throw Error(message)}
 function locked_(fn){const l=LockService.getScriptLock();l.waitLock(24000);try{return fn()}finally{try{SpreadsheetApp.flush()}finally{l.releaseLock()}}}
 function book_(){return SpreadsheetApp.openById(props_().getProperty('BOOK'))}
-function onOpen(){
+function onOpen(e){
   SpreadsheetApp.getUi().createMenu('Poker Night').addItem('Set up club desk','setupEvent').addToUi();
+  if(e && e.source && e.source.getId()===props_().getProperty('BOOK')){
+    const staff=e.source.getSheetByName('Staff');
+    if(staff)locked_(()=>syncStaffLinks_(staff));
+  }
 }
 function setupEvent(){
   // Only the signed-in owner may initialize the private club resources.
@@ -30,14 +34,22 @@ function init_(who){
   Object.keys(headers).forEach(n=>{const s=b.getSheetByName(n)||b.insertSheet(n);if(!s.getLastRow()){s.appendRow(headers[n]);s.setFrozenRows(1);}});
   const staff=b.getSheetByName('Staff');
   if(staff.getLastRow()===1)staff.appendRow([who,'admin',rand_()+rand_().slice(0,8),'yes']);
+  syncStaffLinks_(staff);
   const settings=b.getSheetByName('Settings');
   if(settings.getLastRow()===1)settings.getRange(2,1,3,2).setValues([['Receiving UPI ID',''],['Recipient name',''],['Registration open','no']]);
   if(!p.getProperty('FOLDER'))p.setProperty('FOLDER',preset.folder||DriveApp.createFolder('Poker Night · private payment screenshots').getId());
   return b.getUrl();
 }
 function doGet(e){
-  const t=HtmlService.createTemplateFromFile('App');const q=e&&e.parameter||{};
-  t.route=['register','staff','board','pass'].includes(q.view)?q.view:'register';
+  const q=e&&e.parameter||{};
+  const route=['register','staff','board','pass'].includes(q.view)?q.view:'register';
+  if(route==='staff'&&!validStaffInvite_(q.invite)){
+    return HtmlService.createHtmlOutput('<main style="font:1rem system-ui;margin:3rem"><h1>Page unavailable</h1><a target="_top" href="https://meherpraveen.github.io/imt-ecell-poker-night/">Return to Poker Night</a></main>')
+      .setTitle('Page unavailable').addMetaTag('viewport','width=device-width, initial-scale=1');
+  }
+  const t=HtmlService.createTemplateFromFile('App');
+  t.route=route;
+  t.invite=route==='staff'?q.invite:'';
   t.pass=/^[A-Z0-9-]{12,24}$/.test(q.p||'')?q.p:'';
   return t.evaluate().setTitle('Poker Night · E-Cell').addMetaTag('viewport','width=device-width, initial-scale=1');
 }
@@ -65,10 +77,53 @@ function commit_(st,action,actor,patch){
   book_().getSheetByName('Journal').appendRow([Date.now(),action,actor,json]);SpreadsheetApp.flush();apply_(st,patch);
 }
 function staffList_(){const s=book_().getSheetByName('Staff'),n=s.getLastRow()-1;return n?s.getRange(2,1,n,4).getDisplayValues():[]}
-function staffLogin(key){
+function activeStaff_(row){return row[3].toLowerCase()==='yes'&&ROLE.includes(row[1])&&/^[a-z0-9]{40}$/i.test(row[2])}
+function staffInvite_(key){
+  const signature=Utilities.computeHmacSha256Signature('poker-night:staff-link:v1',key);
+  return Utilities.base64EncodeWebSafe(signature).replace(/=+$/,'');
+}
+function validStaffInvite_(invite){
+  if(typeof invite!=='string'||!/^[A-Za-z0-9_-]{43}$/.test(invite))return false;
+  return staffList_().some(row=>activeStaff_(row)&&staffInvite_(row[2])===invite);
+}
+function deskBaseUrl_(){
+  const url=(typeof CLUB_RESOURCES==='object'&&CLUB_RESOURCES.webAppUrl)||ScriptApp.getService().getUrl()||'';
+  return /^https:\/\/script\.google\.com\/(?:a\/macros\/[a-z0-9.-]+\/s|macros\/s)\/[\w-]+\/exec$/.test(url)?url:'';
+}
+function staffDeskLink_(base,key){return base+'?view=staff&invite='+staffInvite_(key)}
+function ensureStaffLinks_(){
+  // Upgrade pre-invitation workbooks once. All inputs come from the club's own configuration.
+  const properties=props_();
+  if(properties.getProperty('STAFF_LINKS_V1'))return;
+  locked_(()=>{
+    if(properties.getProperty('STAFF_LINKS_V1'))return;
+    const staff=book_().getSheetByName('Staff');
+    if(staff&&syncStaffLinks_(staff))properties.setProperty('STAFF_LINKS_V1','ready');
+  });
+}
+function syncStaffLinks_(sheet){
+  const base=deskBaseUrl_();
+  if(!base)return false;
+  const title='Private desk link';
+  const headers=sheet.getRange(1,1,1,Math.max(sheet.getLastColumn(),4)).getDisplayValues()[0];
+  const existing=headers.indexOf(title);
+  const column=existing<0?headers.length+1:existing+1;
+  if(existing<0)sheet.getRange(1,column).setValue(title);
+  const count=sheet.getLastRow()-1;
+  if(count<=0)return true;
+  const staff=sheet.getRange(2,1,count,4).getDisplayValues();
+  const range=sheet.getRange(2,column,count,1);
+  const current=range.getDisplayValues();
+  const links=staff.map(row=>[activeStaff_(row)?staffDeskLink_(base,row[2]):'']);
+  if(links.some((cell,i)=>cell[0]!==current[i][0]))range.setValues(links);
+  return true;
+}
+function staffLogin(key,invite){
   key=String(key||'').trim();must_(/^[a-z0-9]{40}$/i.test(key),'Check your staff key.');
-  const row=staffList_().find(r=>r[2]===key&&r[3].toLowerCase()==='yes'&&ROLE.includes(r[1]));
-  must_(row,'Check your staff key with the coordinator.');
+  must_(typeof invite==='string'&&staffInvite_(key)===invite,'Use the private link and key issued to you.');
+  const row=staffList_().find(r=>r[2]===key&&activeStaff_(r));
+  must_(row,'Check your staff access with the coordinator.');
+  if(row[1]==='admin')locked_(()=>syncStaffLinks_(book_().getSheetByName('Staff')));
   const id=hash_(key).slice(0,24),expiry=Date.now()+8*3600000,base=id+'.'+expiry;
   return {token:base+'.'+mac_('session:'+base),role:row[1],label:row[0]};
 }
@@ -99,7 +154,7 @@ function eligibility_(st,roll,kind,now){
   else must_(!mine.some(a=>issued_(a)),'This roll has played already. The desk can check retry eligibility.');
 }
 function newAttempt_(roll,kind,w,now){return {id:rand_().slice(0,16),roll,kind,fee:FEES[kind],wave:w,created:now,expires:now+HOLD,status:w<0?'WAITLIST':'HOLD',used:false,delivery:''}}
-function publicInfo(){const x=settings_();return {open:x.open&&!!x.upi&&!!x.name&&Date.now()<NEW_CLOSE}}
+function publicInfo(){const x=settings_();ensureStaffLinks_();return {open:x.open&&!!x.upi&&!!x.name&&Date.now()<NEW_CLOSE}}
 function playerStart(roll,previous){
   roll=roll_(roll);return locked_(()=>{
     const set=settings_(),st=ledger_(),now=Date.now();

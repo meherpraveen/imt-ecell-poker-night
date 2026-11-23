@@ -85,9 +85,17 @@ function adminSettings(token,upi,name,open){
   return locked_(()=>{must_(!open||Object.keys(roster_()).length,'Import the student directory before opening.');const st=ledger_();
     book_().getSheetByName('Settings').getRange(2,2,3,1).setValues([[upi],[name],[open?'yes':'no']]);commit_(st,'Payment settings updated',s.name,{note:open?'Open':'Closed'});return true;});
 }
-function adminAddStaff(token,label,role){
+function adminAddStaff(token,label,role,includeLink){
   const s=staff_(token,[]);label=String(label||'').trim();must_(/^[\p{L}\p{N}][\p{L}\p{N} ._-]{1,60}$/u.test(label)&&ROLE.includes(role),'Enter a staff name and role.');
-  return locked_(()=>{const key=rand_()+rand_().slice(0,8);book_().getSheetByName('Staff').appendRow([label,role,key,'yes']);commit_(ledger_(),'Staff key issued',s.name,{note:role});return key});
+  return locked_(()=>{
+    const base=deskBaseUrl_();
+    must_(base,'Publish the web app before inviting staff.');
+    const key=rand_()+rand_().slice(0,8),sheet=book_().getSheetByName('Staff');
+    sheet.appendRow([label,role,key,'yes']);
+    syncStaffLinks_(sheet);
+    commit_(ledger_(),'Staff key issued',s.name,{note:role});
+    return includeLink===true?{key,url:staffDeskLink_(base,key)}:key;
+  });
 }
 function deskStudent(token,roll,name,email,phone,checked){
   const staff=staff_(token,['desk']);roll=roll_(roll);name=String(name||'').trim();email=String(email||'').trim().toLowerCase();phone=String(phone||'').replace(/[ +()-]/g,'');

@@ -14,6 +14,71 @@ function fixture(){
 function hold(f,roll='123456789'){return f.ctx.playerStart(roll,'')}
 function pending(f,roll='123456789',tail='6789'){const r=hold(f,roll);Object.assign(f.st.attempts[r.id],{status:'REVIEW',suffix:tail});return r}
 function pay(f,roll='123456789',ref='123456786789'){const r=pending(f,roll,ref.slice(-4));f.ctx.staffApprove('admin',r.id,ref,true);return f.st.attempts[r.id]}
+function staffFixture(){
+  const {ctx,actualStaff}=fixture();
+  const rows=[['Volunteer A','gate','a'.repeat(40),'yes'],['Volunteer B','floor','b'.repeat(40),'yes']];
+  ctx.Utilities.computeHmacSha256Signature=(message,key)=>crypto.createHmac('sha256',key).update(message).digest();
+  ctx.Utilities.base64EncodeWebSafe=bytes=>Buffer.from(bytes).toString('base64url');
+  ctx.hash_=value=>crypto.createHash('sha256').update(value).digest('base64url');
+  ctx.staffList_=()=>rows;
+  ctx.staff_=actualStaff;
+  const page={evaluate(){return this},setTitle(title){this.title=title;return this},addMetaTag(){return this}};
+  ctx.HtmlService={createHtmlOutput:html=>({...page,html}),createTemplateFromFile:()=>({...page})};
+  return {ctx,rows};
+}
+test('public views work without staff access and the old desk URL returns an unavailable page',()=>{
+  const {ctx}=staffFixture();
+  ctx.staffList_=()=>{throw Error('Unexpected staff directory read')};
+  for(const view of ['register','board','pass'])assert.equal(ctx.doGet({parameter:{view}}).route,view);
+  assert.equal(ctx.doGet({parameter:{view:'staff'}}).title,'Page unavailable');
+  assert.equal(ctx.doGet({parameter:{view:'staff',invite:'invalid'}}).title,'Page unavailable');
+});
+test('private invitations are bound to the matching active staff key and role',()=>{
+  const {ctx,rows}=staffFixture(),key=rows[0][2],invite=ctx.staffInvite_(key);
+  const visit=()=>ctx.doGet({parameter:{view:'staff',invite}});
+  assert.equal(visit().route,'staff');
+  assert.equal(visit().invite,invite);
+  assert.equal(ctx.doGet({parameter:{view:'staff',invite:'Z'.repeat(43)}}).title,'Page unavailable');
+  assert.throws(()=>ctx.staffLogin(key));
+  assert.throws(()=>ctx.staffLogin(rows[1][2],invite));
+  const session=ctx.staffLogin(key,invite);
+  assert.equal(ctx.staff_(session.token,['gate']).role,'gate');
+  assert.throws(()=>ctx.staff_(session.token,['desk']));
+  rows[0][3]='no';
+  assert.equal(visit().title,'Page unavailable');
+  assert.throws(()=>ctx.staffLogin(key,invite));
+  assert.throws(()=>ctx.staff_(session.token,['gate']));
+});
+test('the one-time staff link migration can be retried and returns only public registration status',()=>{
+  const {ctx}=fixture(),properties=new Map(),staff={};
+  ctx.props_=()=>({getProperty:k=>properties.get(k),setProperty:(k,v)=>properties.set(k,v)});
+  ctx.book_=()=>({getSheetByName:name=>name==='Staff'?staff:null});
+  let runs=0;
+  ctx.syncStaffLinks_=sheet=>{assert.equal(sheet,staff);return ++runs>1};
+  for(let n=0;n<3;n++)assert.equal(JSON.stringify(ctx.publicInfo()),'{"open":true}');
+  assert.equal(runs,2);
+});
+test('existing staff receive private links alongside their keys without replacing other columns',()=>{
+  const {ctx,rows}=staffFixture(),base='https://script.google.com/macros/s/example/exec';
+  ctx.deskBaseUrl_=()=>base;
+  const data=[['Label','Role','Private sign-in key','Active','Notes'],[...rows[0],'Keep'],[...rows[1],'Keep']];
+  const sheet={
+    getLastRow:()=>data.length,getLastColumn:()=>data[0].length,
+    getRange(row,column,height=1,width=1){
+      return {
+        getDisplayValues:()=>Array.from({length:height},(_,r)=>Array.from({length:width},(_,c)=>data[row+r-1][column+c-1]||'')),
+        setValue:value=>{data[row-1][column-1]=value},
+        setValues:values=>values.forEach((cells,r)=>{data[row+r-1][column-1]=cells[0]})
+      };
+    }
+  };
+  ctx.syncStaffLinks_(sheet);ctx.syncStaffLinks_(sheet);
+  assert.equal(data[0][5],'Private desk link');assert.equal(data[0].length,6);
+  assert.equal(data[1][4],'Keep');assert.equal(data[1][2],rows[0][2]);
+  assert.equal(data[1][5],base+'?view=staff&invite='+ctx.staffInvite_(rows[0][2]));
+  assert.ok(!data[1][5].includes(rows[0][2]));assert.notEqual(data[1][5],data[2][5]);
+  data[1][3]='no';ctx.syncStaffLinks_(sheet);assert.equal(data[1][5],'');
+});
 test('roll-only lookup creates one private hold without revealing contact or pass',()=>{const f=fixture(),r=hold(f);assert.equal(r.fee,149);assert.equal(r.wave,1);assert.ok(r.ticket);assert.ok(!('code' in r||'email' in r||'phone' in r));assert.throws(()=>hold(f));assert.equal(f.ctx.playerStart('123456789',r.ticket).id,r.id);assert.throws(()=>f.ctx.playerStatus(r.id+'.forged'));});
 test('partial references never approve and a wrong visible suffix blocks approval',()=>{const f=fixture(),r=pending(f);for(const ref of ['6789','000000001234'])assert.throws(()=>f.ctx.staffApprove('admin',r.id,ref,true));assert.throws(()=>f.ctx.staffApprove('admin',r.id,'000000006789',false));assert.equal(f.sent.length,0)});
 test('approval is idempotent, mails only registered contact and rejects a reused bank reference',()=>{const f=fixture(),a=pay(f);assert.equal(f.sent.length,1);assert.equal(f.sent[0][0],'sample@example.test');f.ctx.staffApprove('admin',a.id,a.utr,true);assert.equal(f.sent.length,1);const r=pending(f,'987654321');assert.throws(()=>f.ctx.staffApprove('admin',r.id,a.utr,true));assert.throws(()=>f.ctx.staffApprove('gate',r.id,a.utr,true))});

@@ -9,6 +9,11 @@ const library=fs.readFileSync(require.resolve('qrcode-generator',{paths:[root,..
 const out=path.join(root,'.deploy');
 fs.mkdirSync(out,{recursive:true});
 for(const f of ['appsscript.json','Code.gs','Floor.gs'])fs.copyFileSync(path.join(root,'gas',f),path.join(out,f));
-const page=read('web/App.html').replace('/* BASE_STYLES */',()=>read('docs/assets/site.css')).replace('/* QR_LIBRARY */',()=>library).replace('/* APP_CODE */',()=>read('web/app.js'));
+const page=read('web/App.html')
+  .replace('/* BASE_STYLES */',()=>read('docs/assets/site.css'))
+  .replace('/* QR_LIBRARY */',()=>library)
+  .replace('/* COMMON_CODE */',()=>read('web/common.js'))
+  .replace('/* STAFF_CODE */',()=>read('web/staff.js'))
+  .replace('/* APP_CODE */',()=>read('web/app.js'));
 fs.writeFileSync(path.join(out,'App.html'),page);
 console.log('Apps Script files ready in .deploy');
