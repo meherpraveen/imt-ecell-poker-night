@@ -36,6 +36,8 @@ Keep the Google files restricted to the club. Share individual staff keys throug
 
 ## Testing
 
+The build combines the public player scripts and styles into two versioned assets. Edit the source files in **docs/assets**, then run the build and include the generated assets and updated **event.html** when publishing.
+
 Run `npm ci` and `npx playwright install chromium` once. Use `npm test` for the server regression suite and `npm run test:e2e` for browser journeys. The browser suite runs the real event code against isolated student records, simulated Google storage and a test mailbox. It covers email recovery, duplicate submissions, payment review, entry QR, offline gate sync, desk retries, waitlist offers, table scoring and the public floor. To use installed Chrome, set the environment variable `POKER_BROWSER_CHANNEL` to `chrome`.
 
 After publishing Pages and Apps Script, run `npm run test:deploy`. This read-only smoke test checks the live routes, mobile layout, backend availability and public access boundaries. Live email delivery requires an explicitly requested send to the intended mailbox.

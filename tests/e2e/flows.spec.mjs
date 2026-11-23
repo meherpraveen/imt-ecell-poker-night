@@ -36,7 +36,7 @@ async function gateAction(page,mode,value){
 test('first paint accepts typed input before scripts arrive and sends one request',async({page,site})=>{
   let release;
   const paused=new Promise(resolve=>{release=resolve});
-  await page.route('**/assets/player.js*',async route=>{await paused;await route.continue()});
+  await page.route('**/assets/event-app.js*',async route=>{await paused;await route.continue()});
   await page.goto(site.register,{waitUntil:'commit'});
   const identifier=page.getByLabel('Roll number or registered email');
   await identifier.fill(player.roll);await identifier.press('Enter');
@@ -176,6 +176,8 @@ test('a no-show frees a seat and the payment desk can offer it to a waitlisted p
 test('phone, tablet and desktop layouts fit, and a desk poll preserves an unsaved payment edit',async({page,site})=>{
   for(const width of [320,768,1366]){
     await page.setViewportSize({width,height:844});await page.goto(site.origin);
+    const art=await page.locator('.art').evaluate(element=>getComputedStyle(element).backgroundImage);
+    expect(art).toContain(width<=720?'table-art-mobile.webp':'table-art.webp');
     await page.getByRole('link',{name:'Sign in to register'}).click();
     await expect(button(page,'Send code')).toBeVisible();
     expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);

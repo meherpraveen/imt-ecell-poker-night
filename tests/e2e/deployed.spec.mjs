@@ -12,9 +12,10 @@ test('published navigation, mobile startup, live floor and backend validation @d
   await expect(page.getByLabel('Roll number or registered email')).toBeVisible();
   await page.waitForFunction(()=>window.pokerReady===true);
   expect(actions).toEqual([]);
-  const metrics=await page.evaluate(()=>({domContentLoadedMs:Math.round(performance.getEntriesByType('navigation')[0].domContentLoadedEventEnd),initialLayoutShift:window.layoutShift,horizontalOverflow:document.documentElement.scrollWidth>innerWidth}));
+  const metrics=await page.evaluate(()=>({domContentLoadedMs:Math.round(performance.getEntriesByType('navigation')[0].domContentLoadedEventEnd),initialLayoutShift:window.layoutShift,horizontalOverflow:document.documentElement.scrollWidth>innerWidth,
+    startupAssets:performance.getEntriesByType('resource').filter(r=>/\/assets\/[^/?]+\.(js|css)(\?|$)/.test(r.name)).length}));
   console.log('Published mobile registration',JSON.stringify(metrics));
-  expect(metrics.horizontalOverflow).toBe(false);expect(metrics.initialLayoutShift).toBeLessThan(0.05);
+  expect(metrics.horizontalOverflow).toBe(false);expect(metrics.initialLayoutShift).toBeLessThan(0.05);expect(metrics.startupAssets).toBe(2);
   await page.getByLabel('Roll number or registered email').fill('invalid');
   await page.getByRole('button',{name:'Send code',exact:true}).click();await expect(page.locator('#msg')).toContainText('nine-digit');
   await page.goto(site+'event.html?view=board');await expect(page.locator('#clock')).toBeVisible({timeout:35000});

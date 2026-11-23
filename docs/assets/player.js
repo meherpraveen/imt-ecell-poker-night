@@ -21,7 +21,7 @@ function signInPage(keepForm=false){
 }
 function codePage(){
   heading('PLAYER REGISTRATION','Check your email');
-  const form=signInForm('verifyCode','<p>Check the email on your student record, including Spam. A code works for 10 minutes. Resending a valid code keeps the same six digits.</p>'+
+  const form=signInForm('verifyCode','<p>Search your registered inbox, Spam or Junk for <strong>Your E-Cell Poker Night sign-in code</strong>. A code works for 10 minutes. A resend keeps the same active code.</p>'+
     codeInput()+checkbox('remember','Remember this device for 7 days'),'Verify and continue');
   const help='<details><summary>Email hasn’t arrived?</summary><p>Check which inbox matches your roll number. We can only send to the address already on your student record.</p>'+
     signInForm('matchMail',rollField('matchRoll')+input('matchEmail','Email on your student record','type="email" autocomplete="email" required maxlength="254"'),'Check details and send code')+'</details>';

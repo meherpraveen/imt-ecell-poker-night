@@ -25,8 +25,11 @@ export const test=base.extend({
           res.setHeader('content-type','text/html; charset=utf-8');
           return res.end(event.get(Object.fromEntries(u.searchParams)).replace('</head>',staffTransport+'</head>'));
         }
-        if(u.pathname==='/assets/config.js'){
-          res.setHeader('content-type','text/javascript');return res.end('window.POKER_NIGHT_WEB_APP="'+testEndpoint+'";');
+        if(u.pathname==='/assets/event-app.js'){
+          const bundle=await readFile(new URL('assets/event-app.js',docs),'utf8');
+          const config=await readFile(new URL('assets/config.js',docs),'utf8');
+          res.setHeader('content-type','text/javascript; charset=utf-8');
+          return res.end(bundle.replace(config.trim(),'window.POKER_NIGHT_WEB_APP="'+testEndpoint+'";'));
         }
         const path=u.pathname==='/'?'index.html':u.pathname.slice(1);
         if(!/^(index\.html|event\.html|assets\/[\w.-]+)$/.test(path)){res.statusCode=404;return res.end()}
