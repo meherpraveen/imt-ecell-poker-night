@@ -27,7 +27,7 @@ export const test=base.extend({
         }
         if(u.pathname==='/assets/event-app.js'){
           const bundle=await readFile(new URL('assets/event-app.js',docs),'utf8');
-          const config=await readFile(new URL('assets/config.js',docs),'utf8');
+          const config=await readFile(new URL('../../web/config.js',import.meta.url),'utf8');
           res.setHeader('content-type','text/javascript; charset=utf-8');
           return res.end(bundle.replace(config.trim(),'window.POKER_NIGHT_WEB_APP="'+testEndpoint+'";'));
         }

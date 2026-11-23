@@ -6,7 +6,7 @@ The event homepage, player registration and live floor run on GitHub Pages. To r
 
 1. Import the private workbook into Google Sheets. The **Students** tab uses the columns **Roll Number**, **Name**, **Mail ID** and **Number**. Preserve roll numbers and phone numbers as text.
 2. Run `npm install` and `npm run build`. Deploy the contents of `.deploy/` to the club’s Apps Script project. For an existing private Sheet and screenshot folder, add a deployment-only server file containing `const CLUB_RESOURCES = {book: 'SPREADSHEET_ID', folder: 'DRIVE_FOLDER_ID', owner: 'CLUB_EMAIL'};`. Omit that file to let setup create a new private Sheet and folder, then import the directory into its Students tab.
-3. When the project is attached to the private Sheet, reload the Sheet as the club owner and choose **Poker Night → Set up club desk**. You can also select **setupEvent** and **Run** in the Apps Script editor. Authorize Sheets, Drive and event email delivery. Deploy as a **Web app**, executing as the owner, accessible to **Anyone**. Put its published HTTPS `/exec` URL in `docs/assets/config.js`. GitHub Pages publishes only the `docs/` folder.
+3. When the project is attached to the private Sheet, reload the Sheet as the club owner and choose **Poker Night → Set up club desk**. You can also select **setupEvent** and **Run** in the Apps Script editor. Authorize Sheets, Drive and event email delivery. Deploy as a **Web app**, executing as the owner, accessible to **Anyone**. Set the published HTTPS `/exec` URL in `web/config.js` and rebuild. GitHub Pages publishes the `docs/` folder.
 4. In the private Sheet’s **Staff** tab, the owner opens their **Private desk link**, selects **Send code to club email** and enters the code from the club inbox. Only the configured club owner can use admin settings. In **Settings → Registration and payments**, enter the recipient name, add a UPI ID or upload a payment QR, then select **Publish payment details to players** and save. The club stores the QR in its private Drive folder.
 5. Under **Settings → Volunteer access**, the owner can issue a desk, gate or floor invitation. Give each volunteer their own link and key privately. Set **Active** to **no** in their Staff row to revoke access.
 
@@ -36,7 +36,7 @@ Keep the Google files restricted to the club. Share individual staff keys throug
 
 ## Testing
 
-The build combines the public player scripts and styles into two versioned assets. Edit the source files in **docs/assets**, then run the build and include the generated assets and updated **event.html** when publishing.
+Edit the event scripts and styles in `web/`. The homepage stylesheet and images live in `docs/assets/`. Run `npm run build` to regenerate the two public bundles and the Apps Script package.
 
 Run `npm ci` and `npx playwright install chromium` once. Use `npm test` for the server regression suite and `npm run test:e2e` for browser journeys. The browser suite runs the real event code against isolated student records, simulated Google storage and a test mailbox. It covers email recovery, duplicate submissions, payment review, entry QR, offline gate sync, desk retries, waitlist offers, table scoring and the public floor. To use installed Chrome, set the environment variable `POKER_BROWSER_CHANNEL` to `chrome`.
 
