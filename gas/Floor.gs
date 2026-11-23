@@ -89,3 +89,16 @@ function adminAddStaff(token,label,role){
   const s=staff_(token,[]);label=String(label||'').trim();must_(/^[\p{L}\p{N}][\p{L}\p{N} ._-]{1,60}$/u.test(label)&&ROLE.includes(role),'Enter a staff name and role.');
   return locked_(()=>{const key=rand_()+rand_().slice(0,8);book_().getSheetByName('Staff').appendRow([label,role,key,'yes']);commit_(ledger_(),'Staff key issued',s.name,{note:role});return key});
 }
+function deskStudent(token,roll,name,email,phone,checked){
+  const staff=staff_(token,['desk']);roll=roll_(roll);name=String(name||'').trim();email=String(email||'').trim().toLowerCase();phone=String(phone||'').replace(/[ +()-]/g,'');
+  must_(checked===true&&name&&name.length<=100&&!/^[=+@-]/.test(name),'Check the college ID and enter the student’s name.');
+  must_((!email||/^[a-z0-9][a-z0-9._+%-]*@[a-z0-9.-]+\.[a-z]{2,}$/.test(email))&&(!phone||/^\d{10,15}$/.test(phone))&&(email||phone),'Enter a valid delivery email or mobile number.');
+  return locked_(()=>{const sheet=book_().getSheetByName('Students'),count=sheet.getLastRow()-1;
+    const data=count?sheet.getRange(2,1,count,4).getDisplayValues():[],i=data.findIndex(r=>r[0].trim()===roll);
+    const existing=i>=0?data[i]:null;
+    if(existing)must_((!existing[2]||!email||existing[2].toLowerCase()===email)&&(!existing[3]||!phone||existing[3].replace(/\D/g,'')===phone),'An existing contact differs. The coordinator must resolve it in the private directory.');
+    const row=i>=0?i+2:sheet.getLastRow()+1;
+    sheet.getRange(row,1,1,4).setNumberFormat('@').setValues([[roll,existing?.[1]||name,existing?.[2]||email,existing?.[3]||phone]]);
+    commit_(ledger_(),'Directory contact verified',staff.name,{note:roll});return true;
+  });
+}

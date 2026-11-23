@@ -57,7 +57,7 @@ function staffView(){
   const savedFind=val('find'),savedFilter=el('filter')?.value||'REVIEW';
   const stats=Object.entries({Inside:s.stats.inside,Outside:s.stats.out,'Checked in':s.stats.checked,'No-shows':s.stats.noShow,'To review':s.stats.pending}).map(([k,v])=>'<div class="stat"><strong>'+v+'</strong>'+k+'</div>').join('');
   let out='<div class="stats">'+stats+'</div><div class="tabs">'+allowed.map(t=>'<button data-do="tab" data-id="'+t+'" aria-current="'+(t===tab)+'">'+t+'</button>').join('')+btn('refresh','Refresh')+btn('logout','Sign out')+'</div>';
-  if(tab==='Review')out+='<div class="button-row">'+btn('deskform','Walk-in or paid retry','primary')+'</div>'+panel('Payment queue',input('find','Search by roll, name, phone or reference digits','type="search"')+'<label for="filter">Show</label><select id="filter"><option value="REVIEW">Awaiting review</option><option value="all">All attempts</option><option value="WAITLIST">Waitlist</option><option value="PAID">Paid</option><option value="REJECTED">Rejected</option></select><div id="records" class="reviewlist"></div>');
+  if(tab==='Review')out+='<div class="button-row">'+btn('deskform','Walk-in or paid retry','primary')+btn('studentform','Add missing student details')+'</div>'+panel('Payment queue',input('find','Search by roll, name, phone or reference digits','type="search"')+'<label for="filter">Show</label><select id="filter"><option value="REVIEW">Awaiting review</option><option value="all">All attempts</option><option value="WAITLIST">Waitlist</option><option value="PAID">Paid</option><option value="REJECTED">Rejected</option></select><div id="records" class="reviewlist"></div>');
   if(tab==='Gate')out+=panel('Gate scanner','<label for="gateMode">Action</label><select id="gateMode"><option value="admit">Admit with a single-use code</option><option value="exit">Record exit by roll number</option><option value="return">Record wristband return by roll number</option></select>'+input('gateValue','Entry code or roll number','autocapitalize="characters" autocomplete="off"')+checkbox('gateID','I checked the college ID or assigned wristband.')+btn('gate','Record at gate','primary')+btn('camera','Scan QR')+'<div id="pending"></div>')+panel('Player lookup',input('find','Search by roll, name or phone','type="search"')+'<div id="records" class="reviewlist"></div>');
   if(tab==='Tables'){const g=s.game;out+=panel(g.active?'Stage controls':'Next seating',g.active?g.active.tables.map((t,i)=>btn('table','Enter '+(i+1)+' · '+s.board.tables[i].name,'',String(i))).join('')+btn('finish','Close stage','primary'):g.next<8?btn('preview','Review next draw','primary'):'Tournament complete');out+=board(s.board);}
   if(tab==='Settings'){const p=s.settings;out+=panel('Receiving account',input('upi','Coordinator’s UPI ID','value="'+esc(p.upi)+'"')+input('payname','Recipient name in the UPI app','value="'+esc(p.name)+'"')+'<label class="check"><input id="open" type="checkbox" '+(p.open?'checked':'')+'>Open student registration</label>'+btn('save','Save payment settings','primary'))+
@@ -78,12 +78,28 @@ function inspect(id){
   detail(s);
 }
 function deskForm(){detail('<h2>Verify a desk payment</h2>'+rollField('deskroll')+'<label for="kind">Purchase</label><select id="kind"><option value="walk">Walk-in · ₹199</option><option value="retry">Round 1 retry · ₹149</option></select>'+reference('deskref')+checkbox('deskcheck','I checked the college ID and the full incoming payment.')+btn('deskpay','Approve and send code','primary'))}
-function qread(){try{return JSON.parse(durable.get('gate-queue')||'[]')}catch{return []}}
+function queueKey(){return 'gate-queue-'+String(token).split('.')[0]}
+function qread(){try{return JSON.parse(durable.get(queueKey())||'[]')}catch{return []}}
+function qsave(list){durable.set(queueKey(),JSON.stringify(list))}
 function queueLabel(){el('pending').textContent=qread().length?qread().length+' unsynced gate actions. Wait for confirmation before admitting.':''}
-async function syncGate(){if(!token||!navigator.onLine)return;const pending=qread();for(const a of pending){try{await api('gateAction',token,a.mode,a.value,a.id)}catch(e){msg('Queued gate action needs desk review. '+e.message,true);break}const left=qread().filter(x=>x.id!==a.id);durable.set('gate-queue',JSON.stringify(left))}if(el('pending'))queueLabel()}
+let gateSync=null;
+function transient(e){return !navigator.onLine||/network|offline|connection|timeout|timed out|temporar|service unavailable|failed to fetch|server error|lock timeout/i.test(e?.message||'')}
+async function syncGate(){
+  if(!token||!navigator.onLine)return;if(gateSync)return gateSync;
+  const owner=token;
+  gateSync=(async()=>{let last='';for(const a of qread()){
+    if(token!==owner)break;
+    try{last=await api('gateAction',owner,a.mode,a.value,a.id)}
+    catch(e){if(transient(e)){last='Queued on this device. Wait for server confirmation.';break}
+      if(/sign in|staff role/i.test(e.message))throw e;
+      qsave(qread().filter(x=>x.id!==a.id));throw e}
+    qsave(qread().filter(x=>x.id!==a.id));
+  }return last})();try{return await gateSync}finally{gateSync=null;if(el('pending'))queueLabel()}
+}
 async function gateOp(){if(!el('gateID').checked)throw Error('Check the college ID or wristband first.');const a={mode:val('gateMode'),value:val('gateValue'),id:crypto.randomUUID()};if(!a.value)throw Error('Enter a code or roll number.');
-  if(!navigator.onLine){durable.set('gate-queue',JSON.stringify([...qread(),a]));queueLabel();msg('Queued on this device. Entry is pending until sync.');return}
-  const response=await api('gateAction',token,a.mode,a.value,a.id);msg(response);await refresh();
+  const queued=qread();if(!queued.some(v=>v.mode===a.mode&&v.value===a.value))qsave([...queued,a]);queueLabel();
+  if(!navigator.onLine){msg('Queued on this device. Entry is pending until sync.');return}
+  const response=await syncGate();msg(response||'Gate action pending.');if(!qread().length)await refresh();
 }
 async function camera(){if(!window.BarcodeDetector||!navigator.mediaDevices?.getUserMedia)throw Error('Camera scanning is unavailable here. Enter the code printed below the QR.');
   detail('<h2>Scan entry QR</h2><video id="cam" autoplay playsinline muted></video>');stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}});el('cam').srcObject=stream;const reader=new BarcodeDetector({formats:['qr_code']});scanTimer=setInterval(async()=>{try{const v=el('cam');if(!v||v.readyState<2)return;const hits=await reader.detect(v);if(hits[0]){el('gateValue').value=hits[0].rawValue;closeDetail();msg('Code read. Check the student ID before recording entry.')}}catch{}},350)}
@@ -97,6 +113,8 @@ async function action(name,id){
   if(name==='login'){const auth=await api('staffLogin',val('staffkey'));token=auth.token;mem.set('staff',token);await refresh();return}
   if(name==='logout'){mem.set('staff','');token='';snapshot=null;login();return}
   if(name==='refresh'){await refresh();return}if(name==='inspect'){inspect(id);return}if(name==='deskform'){deskForm();return}
+  if(name==='studentform'){detail('<h2>Verify directory details</h2>'+rollField('newroll')+input('newname','Name on college ID')+input('newmail','Delivery email','type="email"')+input('newphone','WhatsApp number','type="tel"')+checkbox('newid','I verified the college ID and the contact with the student.')+btn('student','Save missing details','primary'));return}
+  if(name==='student'){await api('deskStudent',token,val('newroll'),val('newname'),val('newmail'),val('newphone'),el('newid').checked);closeDetail();msg('Directory details saved.');await refresh();return}
   if(name==='image'){const pic=await api('proofImage',token,opened);const im=document.createElement('img');im.className='shot';im.alt='Private payment screenshot';im.src=pic;el('imgslot').replaceChildren(im);return}
   if(name==='approve'){const r=await api('staffApprove',token,opened,val('full'),el('verified').checked);closeDetail();msg('Payment approved. '+r.status);await refresh();return}
   if(name==='deskpay'){const r=await api('deskPayment',token,val('deskroll'),val('kind'),val('deskref'),el('deskcheck').checked);closeDetail();msg('Attempt verified. '+r.status);await refresh();return}
@@ -126,9 +144,10 @@ async function launch(){try{
   startPlayer();const ticket=durable.get('receipt');if(ticket){try{showReceipt(await api('playerStatus',ticket));return}catch{durable.set('receipt','')}}
   const p=await api('publicInfo');if(!p.open)msg('Online registration is currently closed. The club will open payments here.');
 }catch(e){msg(e.message||'The club desk is temporarily unavailable.',true)}}
-addEventListener('online',()=>{el('net').textContent='';if(mode==='staff')syncGate()});addEventListener('offline',()=>{el('net').textContent='Offline. Payment approvals and admission confirmations need a connection.'});
+addEventListener('online',()=>{el('net').textContent='';if(mode==='staff')syncGate().then(t=>{if(t)msg(t)}).catch(e=>msg(e.message,true))});addEventListener('offline',()=>{el('net').textContent='Offline. Payment approvals and admission confirmations need a connection.'});
 setInterval(tick,1000);setInterval(async()=>{if(document.hidden||busy||el('dialog').open||!navigator.onLine)return;try{
   if(mode==='board'){el('content').innerHTML=board(await api('liveFloor'));tick()}
+  else if(mode==='staff'&&token&&qread().length){const status=await syncGate();if(status)msg(status)}
   else if(mode==='staff'&&token&&!['INPUT','SELECT','TEXTAREA'].includes(document.activeElement?.tagName)&&!['Gate','Settings'].includes(tab))await refresh();
 }catch{el('net').textContent='Connection interrupted. Showing the last update.'}},15000);
 launch();
