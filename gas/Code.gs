@@ -28,7 +28,9 @@ function setupEvent(){
 }
 function init_(who){
   const p=props_(),preset=typeof CLUB_RESOURCES==='object'?CLUB_RESOURCES:{},configured=p.getProperty('BOOK')||preset.book;
-  if(preset.owner)must_(who===preset.owner,'Run setup from the designated club account.');
+  const owner=clubOwner_();
+  must_(emailAddress_(who)&&(!owner||who===owner),'Run setup from the designated club account.');
+  if(!owner)p.setProperty('EVENT_OWNER',who);
   const b=configured?SpreadsheetApp.openById(configured):SpreadsheetApp.create('Poker Night · private club desk');
   p.setProperty('BOOK',b.getId());
   if(!p.getProperty('KEY'))p.setProperty('KEY',rand_()+rand_());
@@ -46,12 +48,15 @@ function init_(who){
 function doGet(e){
   const q=e&&e.parameter||{};
   const route=['register','staff','board','pass'].includes(q.view)?q.view:'register';
-  if(route==='staff'&&!validStaffInvite_(q.invite)){
+  const staff=route==='staff'?invitedStaff_(q.invite):null;
+  if(route==='staff'&&!staff){
     return HtmlService.createHtmlOutput('<main style="font:1rem system-ui;margin:3rem"><h1>Page unavailable</h1><a target="_top" href="https://meherpraveen.github.io/imt-ecell-poker-night/">Return to Poker Night</a></main>')
       .setTitle('Page unavailable').addMetaTag('viewport','width=device-width, initial-scale=1');
   }
   const t=HtmlService.createTemplateFromFile('App');
   t.route=route;
+  t.ownerLogin=!!staff&&staff[1]==='admin';
+  t.ownerEmail=t.ownerLogin?clubOwner_():'';
   t.invite=route==='staff'?q.invite:'';
   t.pass=/^[A-Z0-9-]{12,24}$/.test(q.p||'')?q.p:'';
   return t.evaluate().setTitle('Poker Night · E-Cell').addMetaTag('viewport','width=device-width, initial-scale=1');
@@ -64,12 +69,13 @@ function doPost(event){
     const request=JSON.parse(body);
     const methods=new Map([
       ['publicInfo',[publicInfo,0]],['liveFloor',[liveFloor,0]],
-      ['playerStart',[playerStart,3]],['playerStatus',[playerStatus,1]],['playerCheckout',[playerCheckout,1]],['playerUpload',[playerUpload,3]]
+      ['requestPlayerCode',[requestPlayerCode,1]],['verifyPlayerCode',[verifyPlayerCode,2]],['playerLogout',[playerLogout,1]],
+      ['playerHome',[playerHome,2]],['playerStart',[playerStart,3]],['playerStatus',[playerStatus,2]],
+      ['playerCheckout',[playerCheckout,2]],['playerUpload',[playerUpload,4]]
     ]);
     const method=request&&methods.get(request.action);
     must_(method&&Array.isArray(request.args)&&request.args.every(arg=>typeof arg==='string'),'Invalid event request.');
-    const withVersion=['playerStart','playerStatus'].includes(request.action)&&request.args.length===method[1]+1&&request.args[method[1]]==='2';
-    must_(request.args.length===method[1]||withVersion,'Invalid event request.');
+    must_(request.args.length===method[1], 'Refresh the event page and sign in to continue.');
     result={ok:true,value:method[0](...request.args)};
   }catch(error){
     const validation=error.name==='EventValidationError';
@@ -125,14 +131,14 @@ function commit_(st,action,actor,patch){
   book_().getSheetByName('Journal').appendRow([Date.now(),action,actor,json]);SpreadsheetApp.flush();apply_(st,patch);
 }
 function staffList_(){const s=book_().getSheetByName('Staff'),n=s.getLastRow()-1;return n?s.getRange(2,1,n,4).getDisplayValues():[]}
-function activeStaff_(row){return row[3].toLowerCase()==='yes'&&ROLE.includes(row[1])&&/^[a-z0-9]{40}$/i.test(row[2])}
+function activeStaff_(row){return row[3].toLowerCase()==='yes'&&ROLE.includes(row[1])&&/^[a-z0-9]{40}$/i.test(row[2])&&(row[1]!=='admin'||(!!emailAddress_(row[0])&&emailAddress_(row[0])===clubOwner_()))}
 function staffInvite_(key){
   const signature=Utilities.computeHmacSha256Signature('poker-night:staff-link:v1',key);
   return Utilities.base64EncodeWebSafe(signature).replace(/=+$/,'');
 }
-function validStaffInvite_(invite){
-  if(typeof invite!=='string'||!/^[A-Za-z0-9_-]{43}$/.test(invite))return false;
-  return staffList_().some(row=>activeStaff_(row)&&staffInvite_(row[2])===invite);
+function invitedStaff_(invite){
+  if(typeof invite!=='string'||!/^[A-Za-z0-9_-]{43}$/.test(invite))return null;
+  return staffList_().find(row=>activeStaff_(row)&&staffInvite_(row[2])===invite);
 }
 function deskBaseUrl_(){
   const url=(typeof CLUB_RESOURCES==='object'&&CLUB_RESOURCES.webAppUrl)||ScriptApp.getService().getUrl()||'';
@@ -171,14 +177,13 @@ function staffLogin(key,invite){
   must_(typeof invite==='string'&&staffInvite_(key)===invite,'Use the private link and key issued to you.');
   const row=staffList_().find(r=>r[2]===key&&activeStaff_(r));
   must_(row,'Check your staff access with the coordinator.');
-  if(row[1]==='admin')locked_(()=>syncStaffLinks_(book_().getSheetByName('Staff')));
-  const id=hash_(key).slice(0,24),expiry=Date.now()+8*3600000,base=id+'.'+expiry;
-  return {token:base+'.'+mac_('session:'+base),role:row[1],label:row[0]};
+  must_(row[1]!=='admin','Open the owner’s private desk link and sign in with the emailed code.');
+  return staffSession_(row);
 }
 function staff_(token,roles){
-  const [id,until,sig]=String(token||'').split('.');
-  must_(id&&Number(until)>Date.now()&&sig===mac_('session:'+id+'.'+until),'Sign in to the staff desk again.');
-  const r=staffList_().find(x=>x[3].toLowerCase()==='yes'&&hash_(x[2]).slice(0,24)===id);
+  const session=authSession_(token,'staff');
+  must_(session,STAFF_SIGN_IN);
+  const r=staffList_().find(x=>activeStaff_(x)&&x[1]===session.role&&hash_(x[2]).slice(0,24)===session.staffId);
   must_(r&&(r[1]==='admin'||roles.includes(r[1])),'Your staff role cannot perform that action.');
   return {name:r[0],role:r[1]};
 }
@@ -212,20 +217,28 @@ function publicInfo(){
   });
   return signupInfo_(settings,Date.now());
 }
-function playerStart(roll,previous,requestId,version='1'){
+function playerHome(session,preferred){
+  const roll=playerRoll_(session);
+  return locked_(()=>{
+    const st=ledger_(),set=settings_(),now=Date.now(),saved=fromReceipt_(st,preferred);
+    const latest=Object.values(st.attempts).filter(a=>a.roll===roll).sort((a,b)=>b.created-a.created)[0];
+    const attempt=saved&&saved.roll===roll?saved:latest;
+    return {...signupInfo_(set,now),fee:now<DESK_OPENS?FEES.pre:FEES.walk,receipt:attempt?receipt_(attempt,set):null};
+  });
+}
+function playerStart(session,previous,requestId){
+  const roll=playerRoll_(session);
   must_(!requestId||(typeof requestId==='string'&&/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(requestId)),'Refresh the page and try again.');
-  roll=roll_(roll);return locked_(()=>{
+  return locked_(()=>{
     const set=settings_(),st=ledger_(),now=Date.now();
-    if(previous){const a=fromReceipt_(st,previous);if(a&&a.roll===roll)return receipt_(a,set,version);}
+    if(previous){const a=fromReceipt_(st,previous);if(a&&a.roll===roll)return receipt_(a,set);}
     const startHash=requestId?hash_('seat-request:'+requestId):'';
     if(startHash){
       const existing=Object.values(st.attempts).find(a=>a.roll===roll&&a.startHash===startHash);
-      if(existing)return receipt_(existing,set,version);
+      if(existing)return receipt_(existing,set);
     }
     const info=signupInfo_(set,now);
     must_(info.open,info.message);
-    must_(version==='2'||(info.paymentsReady&&set.upi),'Refresh the registration page to use the current payment options.');
-    must_(roster_()[roll],'Check the roll number on your college ID, or speak to the desk.');
     const kind=now>=DESK_OPENS?'walk':'pre';
     const wait=Object.values(st.attempts).find(a=>a.roll===roll&&a.status==='WAITLIST');
     must_(!wait,'This roll is already on the waitlist. Open your original receipt page or ask the desk.');
@@ -233,23 +246,31 @@ function playerStart(roll,previous,requestId,version='1'){
     const a=newAttempt_(roll,kind,info.paymentsReady?waveFor_(st,roll,now):-1,now);
     if(!info.paymentsReady){a.status='REGISTERED';a.expires=0}
     if(startHash)a.startHash=startHash;
-    commit_(st,a.status==='REGISTERED'?'Registration saved':'Seat request','Player',{attempts:[a],note:a.id});return receipt_(a,set,version);
+    commit_(st,a.status==='REGISTERED'?'Registration saved':'Seat request','Player',{attempts:[a],note:a.id});return receipt_(a,set);
   });
 }
 function fromReceipt_(st,t){const [id,sig]=String(t||'').split('.');return st.attempts[id]&&sig===mac_('receipt:'+id)?st.attempts[id]:null}
-function receipt_(a,set,version='2'){
+function ownReceipt_(st,ticket,roll){
+  const attempt=fromReceipt_(st,ticket);
+  must_(attempt&&attempt.roll===roll,'This receipt is unavailable for your account.');
+  return attempt;
+}
+function receipt_(a,set){
   const now=Date.now(),hold=a.status==='HOLD'&&now<a.expires,ready=paymentsReady_(set);
   const payable=hold&&ready;
-  must_(version==='2'||(a.status!=='REGISTERED'&&(!hold||(payable&&set.upi))),'Refresh the registration page to see your current receipt.');
   return {ticket:a.id+'.'+mac_('receipt:'+a.id),id:a.id,fee:a.fee,wave:a.wave+1,status:a.status==='HOLD'&&!hold?'EXPIRED':a.status,
     expires:a.expires,upi:payable?set.upi:'',name:payable?set.name:'',paymentQr:payable&&set.qrFile?paymentQrData_(set.qrFile):'',
-    canCheckout:a.status==='REGISTERED'&&ready&&now<NEW_CLOSE,checkoutEnded:now>=NEW_CLOSE,delivery:a.delivery||'',reason:a.reason||''};
+    canCheckout:a.status==='REGISTERED'&&ready&&now<NEW_CLOSE,checkoutEnded:now>=NEW_CLOSE,delivery:a.delivery||'',reason:a.reason||'',
+    entryCode:a.status==='PAID'&&!a.used?pass_(a.id):''};
 }
-function playerStatus(token,version='1'){return locked_(()=>{const st=ledger_(),a=fromReceipt_(st,token);must_(a,'Open the receipt on the device you registered with.');return receipt_(a,settings_(),version)})}
-function playerCheckout(ticket){
+function playerStatus(session,ticket){
+  const roll=playerRoll_(session);
+  return locked_(()=>receipt_(ownReceipt_(ledger_(),ticket,roll),settings_()));
+}
+function playerCheckout(session,ticket){
+  const roll=playerRoll_(session);
   return locked_(()=>{
-    const st=ledger_(),a=fromReceipt_(st,ticket),set=settings_(),now=Date.now();
-    must_(a,'Open your original registration receipt.');
+    const st=ledger_(),a=ownReceipt_(st,ticket,roll),set=settings_(),now=Date.now();
     if(a.status!=='REGISTERED')return receipt_(a,set);
     must_(now<NEW_CLOSE,'New payment holds have ended. Contact E-Cell if you already paid.');
     must_(paymentsReady_(set),'The club has not published payment details yet. Your registration is saved.');
@@ -266,9 +287,10 @@ function imageBytes_(data){
   must_(bytes.length>=20&&bytes.length<=1800000&&(m[1]==='png'?head.join(',')==='137,80,78,71,13,10,26,10':head[0]===255&&head[1]===216&&head[2]===255),'The image format is invalid.');
   return {bytes,mime:'image/'+m[1],ext:m[1]==='png'?'png':'jpg'};
 }
-function playerUpload(token,suffix,data){
+function playerUpload(session,ticket,suffix,data){
+  const roll=playerRoll_(session);
   suffix=String(suffix||'').trim();must_(!suffix||/^\d{4,12}$/.test(suffix),'Enter the final 4–12 visible bank-reference digits, or leave the field blank.');
-  return locked_(()=>{const st=ledger_(),a=fromReceipt_(st,token);must_(a,'Invalid receipt.');
+  return locked_(()=>{const st=ledger_(),a=ownReceipt_(st,ticket,roll);
     if(a.status==='REVIEW'||issued_(a))return receipt_(a,settings_());
     must_(a.status==='HOLD'&&Date.now()<a.expires,'Your seat hold ended. If you already paid, show the receipt to the desk before paying again.');
     const im=imageBytes_(data),digest=Utilities.base64EncodeWebSafe(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256,im.bytes));
@@ -285,7 +307,7 @@ function passInfo(code){const a=byCode_(ledger_(),code);must_(a,'This pass could
 function proofImage(token,id){staff_(token,['desk']);const a=ledger_().attempts[id];must_(a&&a.file,'No screenshot was uploaded for this attempt.');const b=DriveApp.getFileById(a.file).getBlob();return 'data:'+b.getContentType()+';base64,'+Utilities.base64Encode(b.getBytes())}
 function mailCode_(st,a,person,actor){
   let delivery='Desk delivery needed';
-  if(person&&/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(person.email)&&MailApp.getRemainingDailyQuota()>0){
+  if(person&&emailAddress_(person.email)&&MailApp.getRemainingDailyQuota()>1){
     try{const code=pass_(a.id),url=ScriptApp.getService().getUrl();
       MailApp.sendEmail(person.email,'E-Cell Poker Night · '+(a.kind==='retry'?'retry':'entry')+' pass',
         'Your ₹'+a.fee+' payment is verified. Round 1 wave '+(a.wave+1)+'.\n\nYour single-use code is '+code+'\n'+(url?url+'?view=pass&p='+code+'\n':'')+'\nBring your college ID. Show this pass only to event staff.',{name:'IMT E-Cell Poker Night'});

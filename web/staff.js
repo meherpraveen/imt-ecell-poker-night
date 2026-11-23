@@ -8,7 +8,18 @@ function stopCamera(){clearInterval(scanTimer);if(stream)stream.getTracks().forE
 function closeDetail(){stopCamera();el('dialog').close();opened=null}
 el('dialog').addEventListener('close',stopCamera);
 function nameOf(k){return {pre:'Pre-registration',walk:'Walk-in',retry:'Round 1 retry'}[k]||k}
-function login(){heading('STAFF ACCESS','Event desk');el('content').innerHTML='<div class="narrow">'+panel('Staff sign-in',input('staffkey','Private staff key','type="password" autocomplete="current-password"')+'<p class="sub">The coordinator issues individual keys from the private club desk.</p>'+btn('login','Sign in','primary'))+'</div>'}
+function login(){
+  heading('STAFF ACCESS','Event desk');
+  const owner=document.body.dataset.ownerLogin==='yes';
+  const body=owner?signInForm('ownerCode','<p>Send a six-digit sign-in code to <strong>'+esc(document.body.dataset.ownerEmail)+'</strong>.</p>','Send code to club email'):
+    signInForm('login',input('staffkey','Private staff key','type="password" required autocomplete="current-password"')+'<p class="sub">Use the individual key issued by the coordinator.</p>','Sign in');
+  el('content').innerHTML='<div class="narrow login-card">'+panel(owner?'Admin sign-in':'Staff sign-in',body)+'</div>';
+}
+function ownerCodePage(delay){
+  const form=signInForm('verifyOwner','<p>Enter the latest code from the club Gmail inbox. It expires in 10 minutes.</p>'+codeInput(),'Verify and open desk');
+  el('content').innerHTML='<div class="narrow login-card">'+panel('Check the club inbox',form+btn('resendCode','Resend code'))+'</div>';
+  startResendTimer(Date.now()+delay*1000);el('loginCode').focus();
+}
 const roles={Review:['admin','desk'],Gate:['admin','desk','gate'],Tables:['admin','floor'],Settings:['admin'],Audit:['admin']};
 function paymentSettingsForm(p){
   return '<label class="check"><input id="open" type="checkbox" '+(p.open?'checked':'')+'>Accept registrations</label>'+
@@ -35,7 +46,7 @@ function staffView(){
   if(tab==='Gate')out+=panel('Gate scanner','<label for="gateMode">Action</label><select id="gateMode"><option value="admit">Admit with a single-use code</option><option value="exit">Record exit by roll number</option><option value="return">Record wristband return by roll number</option></select>'+input('gateValue','Entry code or roll number','autocapitalize="characters" autocomplete="off"')+checkbox('gateID','I checked the college ID or assigned wristband.')+btn('gate','Record at gate','primary')+btn('camera','Scan QR')+'<div id="pending"></div>')+panel('Player lookup',input('find','Search by roll, name or phone','type="search"')+'<div id="records" class="reviewlist"></div>');
   if(tab==='Tables'){const g=s.game;out+=panel(g.active?'Stage controls':'Next seating',g.active?g.active.tables.map((t,i)=>btn('table','Enter '+(i+1)+' · '+s.board.tables[i].name,'',String(i))).join('')+btn('finish','Close stage','primary'):g.next<8?btn('preview','Review next draw','primary'):'Tournament complete');out+=board(s.board);}
   if(tab==='Settings'){out+=panel('Registration and payments',paymentSettingsForm(s.settings))+
-    panel('Volunteer access',input('label','Volunteer name')+'<label for="role">Role</label><select id="role"><option value="desk">Registration desk</option><option value="gate">Gate</option><option value="floor">Floor manager</option><option value="admin">Administrator</option></select>'+btn('newkey','Create staff invitation')+'<p class="sub">Revoke a key by changing Active to no in the private Staff tab.</p>');}
+    panel('Volunteer access',input('label','Volunteer name')+'<label for="role">Role</label><select id="role"><option value="desk">Registration desk</option><option value="gate">Gate</option><option value="floor">Floor manager</option></select>'+btn('newkey','Create staff invitation')+'<p class="sub">Revoke a key by changing Active to no in the private Staff tab.</p>');}
   if(tab==='Audit')out+=panel('Recent activity',s.audit.map(a=>'<p><b>'+esc(a.action)+'</b> · '+esc(a.actor)+'<br><span class="sub">'+localTime(a.time)+' · '+esc(a.target)+'</span></p>').join('')||'Activity appears here after the first action.');
   el('content').innerHTML=out;if(el('find')){el('find').value=savedFind;if(el('filter'))el('filter').value=savedFilter;filterRecords()}if(el('pending'))queueLabel();tick();
 }
@@ -87,8 +98,12 @@ function previewDraw(){const options=draft.tables.flat();detail('<h2>'+esc(draft
 function score(index){const h=snapshot.game.active,t=h.tables[index];opened=index;detail('<h2>Table '+(index+1)+' chip counts</h2>'+t.map(id=>input('c'+id,esc(snapshot.records.find(a=>a.id===id)?.name||id),'type="number" min="0" step="1" value="'+(h.chips[id]??'')+'"')).join('')+'<label for="tie">Witnessed tiebreak, if tied</label><select id="tie"><option value="">Choose for a tie only</option>'+t.map(id=>'<option value="'+id+'">'+esc(snapshot.records.find(a=>a.id===id)?.name||id)+'</option>').join('')+'</select>'+btn('score','Save table result','primary'))}
 async function action(name,id){
   if(name==='close'){closeDetail();return}if(name==='tab'){tab=id;staffView();return}
-  if(name==='login'){const auth=await api('staffLogin',val('staffkey'),invite);token=auth.token;mem.set(sessionKey,token);await refresh();return}
-  if(name==='logout'){mem.set(sessionKey,'');token='';snapshot=null;login();return}
+  if(name==='ownerCode'||name==='resendCode'){const reply=await api('requestOwnerCode',invite);ownerCodePage(reply.resendAfter);return}
+  if(name==='verifyOwner'||name==='login'){
+    const auth=name==='verifyOwner'?await api('verifyOwnerCode',invite,val('loginCode')):await api('staffLogin',val('staffkey'),invite);
+    token=auth.token;mem.set(sessionKey,token);await refresh();return;
+  }
+  if(name==='logout'){const old=token;mem.set(sessionKey,'');token='';snapshot=null;login();await api('staffLogout',old);return}
   if(name==='refresh'){await refresh();return}if(name==='inspect'){inspect(id);return}if(name==='deskform'){deskForm();return}
   if(name==='studentform'){detail('<h2>Verify directory details</h2>'+rollField('newroll')+input('newname','Name on college ID')+input('newmail','Delivery email','type="email"')+input('newphone','WhatsApp number','type="tel"')+checkbox('newid','I verified the college ID and the contact with the student.')+btn('student','Save missing details','primary'));return}
   if(name==='student'){await api('deskStudent',token,val('newroll'),val('newname'),val('newmail'),val('newphone'),el('newid').checked);closeDetail();msg('Directory details saved.');await refresh();return}

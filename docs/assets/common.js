@@ -10,6 +10,25 @@ function input(id,label,extra=''){return '<label for="'+id+'">'+label+'</label><
 function checkbox(id,t){return '<label class="check"><input type="checkbox" id="'+id+'">'+esc(t)+'</label>'}
 function panel(t,body){return '<section class="panel"><h2>'+esc(t)+'</h2>'+body+'</section>'}
 function rollField(id){return input(id,'College roll number','inputmode="numeric" pattern="[0-9]{9}" maxlength="9" autocomplete="off" placeholder="Nine-digit roll number"')}
+function signInForm(action,body,label){
+  return '<form data-action="'+action+'">'+body+'<button class="primary" type="submit">'+label+'</button></form>';
+}
+function codeInput(){
+  return input('loginCode','Six-digit code','type="text" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" minlength="6" maxlength="6" required placeholder="000000"');
+}
+let resendTimer;
+function startResendTimer(until){
+  clearInterval(resendTimer);
+  function update(){
+    const button=document.querySelector('[data-do="resendCode"]');
+    if(!button){clearInterval(resendTimer);return}
+    const seconds=Math.max(0,Math.ceil((until-Date.now())/1000));
+    button.disabled=seconds>0;
+    button.textContent=seconds?'Resend in '+seconds+'s':'Resend code';
+    if(!seconds)clearInterval(resendTimer);
+  }
+  resendTimer=setInterval(update,1000);update();
+}
 async function picture(file,forPaymentQr=false){
   if(!file||!['image/jpeg','image/png','image/webp'].includes(file.type)||file.size>15*1024*1024)throw Error('Choose a JPEG, PNG or WebP image under 15 MB.');
   const url=URL.createObjectURL(file);
@@ -33,5 +52,16 @@ function board(b){clockEnd=b.deadline;return '<div class="row"><div><p class="ta
   (b.leaderboard.length?panel('Chip leaderboard','<ol>'+b.leaderboard.map(x=>'<li>'+esc(x.alias)+' · '+x.chips.toLocaleString('en-IN')+'</li>').join('')+'</ol>'):'');
 }
 function tick(){const c=el('clock');if(!c)return;const left=Math.max(0,Math.ceil((clockEnd-Date.now())/1000));c.textContent=clockEnd?Math.floor(left/60)+':'+String(left%60).padStart(2,'0'):'—'}
-document.addEventListener('click',async e=>{const b=e.target.closest('[data-do]');if(!b||busy)return;busy=true;b.disabled=true;msg();try{await action(b.dataset.do,b.dataset.id)}catch(err){msg(err.message||'Connection failed. Try again.',true);if(el('dialog')?.open){let n=el('detail').querySelector('[data-error]');if(!n){n=document.createElement('p');n.className='note error';n.dataset.error='1';el('detail').prepend(n)}n.textContent=err.message}}finally{busy=false;b.disabled=false}});
+async function runAction(b,name){
+  if(!b||busy)return;
+  busy=true;b.disabled=true;b.setAttribute('aria-busy','true');msg();
+  try{await action(name,b.dataset.id)}
+  catch(err){msg(err.message||'Connection failed. Try again.',true);if(el('dialog')?.open){let n=el('detail').querySelector('[data-error]');if(!n){n=document.createElement('p');n.className='note error';n.dataset.error='1';el('detail').prepend(n)}n.textContent=err.message}}
+  finally{busy=false;b.disabled=false;b.removeAttribute('aria-busy')}
+}
+document.addEventListener('click',e=>{const b=e.target.closest('[data-do]');if(b)runAction(b,b.dataset.do)});
+document.addEventListener('submit',e=>{
+  const f=e.target.closest('form[data-action]');if(!f)return;
+  e.preventDefault();runAction(f.querySelector('[type="submit"]'),f.dataset.action);
+});
 setInterval(tick,1000);

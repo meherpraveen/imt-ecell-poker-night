@@ -129,7 +129,7 @@ function adminSettings(token,upi,name,open,options){
   });
 }
 function adminAddStaff(token,label,role,includeLink){
-  const s=staff_(token,[]);label=String(label||'').trim();must_(/^[\p{L}\p{N}][\p{L}\p{N} ._-]{1,60}$/u.test(label)&&ROLE.includes(role),'Enter a staff name and role.');
+  const s=staff_(token,[]);label=String(label||'').trim();must_(/^[\p{L}\p{N}][\p{L}\p{N} ._-]{1,60}$/u.test(label)&&['desk','gate','floor'].includes(role),'Choose a desk, gate or floor role for the volunteer.');
   return locked_(()=>{
     const base=deskBaseUrl_();
     must_(base,'Publish the web app before inviting staff.');

@@ -1,20 +1,28 @@
 # E-Cell Poker Night
 
-The event homepage, player registration and live floor run on GitHub Pages from `docs/`. These pages call the club’s Google Apps Script backend without Google sign-in. Students use their nine-digit roll number. The backend keeps the directory and uploaded screenshots in the club’s private Google files and serves the invitation-only staff desk.
+The event homepage, player registration and live floor run on GitHub Pages. To register, enter a nine-digit roll number or the email already on the student record. The club emails a six-digit sign-in code to that registered address. Returning players can sign in on another device to recover their registration. Anyone can view the live floor. The directory, payment screenshots and staff invitations stay in the club’s private Google files.
 
 ## Club desk
 
 1. Import the private workbook into Google Sheets. The **Students** tab uses the columns **Roll Number**, **Name**, **Mail ID** and **Number**. Preserve roll numbers and phone numbers as text.
 2. Run `npm install` and `npm run build`. Deploy the contents of `.deploy/` to the club’s Apps Script project. For an existing private Sheet and screenshot folder, add a deployment-only server file containing `const CLUB_RESOURCES = {book: 'SPREADSHEET_ID', folder: 'DRIVE_FOLDER_ID', owner: 'CLUB_EMAIL'};`. Omit that file to let setup create a new private Sheet and folder, then import the directory into its Students tab.
 3. When the project is attached to the private Sheet, reload the Sheet as the club owner and choose **Poker Night → Set up club desk**. You can also select **setupEvent** and **Run** in the Apps Script editor. Authorize Sheets, Drive and event email delivery. Deploy as a **Web app**, executing as the owner, accessible to **Anyone**. Put its published HTTPS `/exec` URL in `docs/assets/config.js`. GitHub Pages publishes only the `docs/` folder.
-4. Reopen the private Sheet. On the **Staff** tab, open the **Private desk link** in your row and sign in with its **Private sign-in key**. In **Settings → Registration and payments**, the admin can pause signups, enter the UPI recipient name, and add a UPI ID, upload a payment QR, or use both. Preview the QR, select **Publish payment details to players**, and choose **Save payment settings** when ready. The club stores the QR in its private Drive folder and serves the image with a payable receipt.
-5. Under **Settings → Volunteer access**, create an invitation for each volunteer and send them their own link and key privately. Volunteers can use the desk on their phones. Set **Active** to **no** in their Staff row to revoke their link and access.
+4. In the private Sheet’s **Staff** tab, the owner opens their **Private desk link**, selects **Send code to club email** and enters the code from the club inbox. Only the configured club owner can use admin settings. In **Settings → Registration and payments**, enter the recipient name, add a UPI ID or upload a payment QR, then select **Publish payment details to players** and save. The club stores the QR in its private Drive folder.
+5. Under **Settings → Volunteer access**, the owner can issue a desk, gate or floor invitation. Give each volunteer their own link and key privately. Set **Active** to **no** in their Staff row to revoke access.
+
+## Email sign-in
+
+Codes last 10 minutes and work once. A student can request another after one minute. Five incorrect entries lock that code, and the service sends at most five codes per account in 24 hours. Use the newest email after a resend. Both roll and email sign-in require one unique address in the directory. E-Cell can resolve a missing or shared address after checking the student’s college ID.
+
+The browser keeps the sign-in for the current tab. **Remember this device for 7 days** keeps it across visits. **Sign out** revokes that session. The private desk session lasts eight hours.
+
+The club’s personal Gmail account has an Apps Script quota of 100 email recipients per 24-hour quota period, shared by login codes, resends and pass emails. The app reserves the last available email for the owner. Students who have signed in can also see their approved entry code in their receipt. If the limit is reached on event night, staff can use the existing college-ID and payment-verification flow at the venue. [Google Apps Script quotas](https://developers.google.com/apps-script/guides/services/quotas)
 
 ## Payments and entry
 
 Online pre-registration starts on 23 November at ₹149. Walk-ins cost ₹199 on 27 November. Before payment details are published, a student can save their registration and return to the same receipt to continue at their recorded fee. A 15-minute seat hold starts when payment is available and the student requests a seat. A full field goes to the waitlist. The player pays the displayed fee and uploads a screenshot. The desk can search the visible UPI digits and see repeated image or suffix warnings. Compare the receiving-account credit and exact fee, enter its full 12-digit UPI bank reference, and choose **Approve and send code**. A verified reference can fund one attempt.
 
-Email delivery uses the registered address. If delivery fails, the desk can open the same code and deliver it to the registered WhatsApp contact or show it after checking college ID. Resending preserves the code. Keep the private receipt page on the original device. Roll lookup alone never reveals an entry pass, phone number or email. The public live floor uses trainer aliases.
+Payment approval issues a separate single-use entry code. The player can find it on their signed-in receipt or in the pass email. The desk can also deliver it to the registered WhatsApp contact or show it after checking college ID. Resending a venue pass preserves the same entry code. The public live floor uses trainer aliases.
 
 At the desk use **Walk-in or paid retry** to verify ₹199 or ₹149. A retry requires elimination and a seat in a later qualifier wave. Six waves share 216 playing attempts. New registrations close at 11 PM IST on 27 November 2026. A physical exit and wristband return are free and update the person’s headcount independently of the purchased attempt.
 
