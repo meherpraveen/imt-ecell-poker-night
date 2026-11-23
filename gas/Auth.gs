@@ -130,12 +130,14 @@ function finishMail_(plan,accepted) {
 function sendLoginCode_(identity, owner, confirmed=false) {
   let result=locked_(()=>planCode_(identity,owner),false);
   if (result.ref) {
-    const plan=result, purpose=owner?'open the E-Cell admin desk':'sign in to Poker Night';
+    const plan=result;
     let accepted=false;
     try {
-      MailApp.sendEmail(identity.email,'Your E-Cell Poker Night sign-in code',
-        plan.code+' is your sign-in code.\n\nEnter it on the Poker Night page to '+purpose+'. It works once and expires in 10 minutes.\n\nIf you did not request a code, ignore this email.',
-        {name:'IMT E-Cell Poker Night',replyTo:clubOwner_()});
+      sendEventMail_(identity.email, {
+        subject:EVENT_MAIL_NAME+' sign-in code', heading:'Your sign-in code',
+        message:owner?'Enter this code on the private E-Cell desk page you opened.':'Enter this code on the Poker Night registration page you opened.',
+        code:plan.code, instructions:'This code works once and expires in 10 minutes. If you did not request it, you can ignore this email.'
+      });
       accepted=true;
     } catch {
       console.warn('Poker Night sign-in mail provider declined request '+plan.ref);

@@ -7,6 +7,10 @@ test('published navigation, mobile startup, live floor and backend validation @d
   page.on('request',req=>{if(req.method()==='POST'&&req.url().startsWith('https://script.google.com/macros/'))actions.push(req.postDataJSON().action)});
   await page.addInitScript(()=>{window.layoutShift=0;new PerformanceObserver(list=>{for(const entry of list.getEntries())if(!entry.hadRecentInput)window.layoutShift+=entry.value}).observe({type:'layout-shift',buffered:true})});
   await page.goto(site);await expect(page.getByRole('link',{name:'Sign in to register'})).toBeVisible();
+  await expect(page.getByText('Pokédex',{exact:true})).toBeVisible();
+  const sponsors=page.getByRole('region',{name:'Sponsored by'});await sponsors.scrollIntoViewIfNeeded();
+  await expect(sponsors.locator('img')).toHaveCount(5);
+  await expect.poll(()=>sponsors.locator('img').evaluateAll(imgs=>imgs.every(img=>img.complete&&img.naturalWidth>0))).toBe(true);
   await expect(page.locator('a[href*="view=staff"]')).toHaveCount(0);
   await page.getByRole('link',{name:'Sign in to register'}).click();
   await expect(page.getByLabel('Roll number or registered email')).toBeVisible();
@@ -19,6 +23,7 @@ test('published navigation, mobile startup, live floor and backend validation @d
   await page.getByLabel('Roll number or registered email').fill('invalid');
   await page.getByRole('button',{name:'Send code',exact:true}).click();await expect(page.locator('#msg')).toContainText('nine-digit');
   await page.goto(site+'event.html?view=board');await expect(page.locator('#clock')).toBeVisible({timeout:35000});
+  await expect(page.getByRole('region',{name:'Sponsored by'})).toBeVisible();
   await expect(page.locator('#content h2').first()).toBeVisible();
   const settings=await page.evaluate(()=>api('publicInfo'));expect(typeof settings.open).toBe('boolean');
   await page.goto(site+'event.html?view=pass');await expect(page.locator('#msg')).toContainText('complete pass link');

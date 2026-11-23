@@ -36,7 +36,7 @@ Keep the Google files restricted to the club. Share individual staff keys throug
 
 ## Testing
 
-Edit the event scripts and styles in `web/`. The homepage stylesheet and images live in `docs/assets/`. Run `npm run build` to regenerate the two public bundles and the Apps Script package.
+Edit the scripts, styles and shared sponsor section in `web/`. The optimized event and sponsor artwork lives in `docs/assets/`. Run `npm run build` to regenerate the public styles, scripts, sponsor sections and Apps Script package.
 
 Run `npm ci` and `npx playwright install chromium` once. Use `npm test` for the server regression suite and `npm run test:e2e` for browser journeys. The browser suite runs the real event code against isolated student records, simulated Google storage and a test mailbox. It covers email recovery, duplicate submissions, payment review, entry QR, offline gate sync, desk retries, waitlist offers, table scoring and the public floor. To use installed Chrome, set the environment variable `POKER_BROWSER_CHANNEL` to `chrome`.
 

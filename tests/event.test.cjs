@@ -236,6 +236,38 @@ test('only the designated inbox can open admin settings; its private key alone i
   admin[0]='owner@example.test';ctx.staffLogout(signed.token);assert.throws(()=>ctx.staff_(signed.token,[]));
 });
 function pay(f,roll='123456789',ref='123456786789'){const r=pending(f,roll,ref.slice(-4));f.ctx.staffApprove('admin',r.id,ref,true);return f.st.attempts[r.id]}
+test('sign-in and pass emails carry the same club identity and readable Outlook and text versions',()=>{
+  const f=fixture(), {ctx,loginMail,sent}=f;
+  const paid=pay(f);
+  f.st.attempts[paid.id].status='ELIMINATED';f.st.game.next=1;
+  f.at('2026-11-27T20:00:00+05:30');
+  ctx.deskPayment('desk',paid.roll,'retry','000000001222',true);
+  const admin=staffFixture(), row=['owner@example.test','admin','d'.repeat(40),'yes'];
+  admin.rows.push(row);admin.ctx.requestOwnerCode(admin.ctx.staffInvite_(row[2]));
+  const signIns=[loginMail[0],admin.loginMail[0]];
+  assert.equal(sent.length,2);
+  for(const [to,subject,plain,options] of [...signIns,...sent]) {
+    assert.ok(['sample@example.test','owner@example.test'].includes(to));
+    assert.equal(options.name,'Poker Night 2026');assert.equal(options.replyTo,'owner@example.test');
+    assert.match(plain,/Entrepreneurship Cell, IMT Ghaziabad/);assert.match(options.htmlBody,/Entrepreneurship Cell, IMT Ghaziabad/);
+    assert.doesNotMatch(options.htmlBody,/<img|<script|<form|<iframe|url\(/i);
+    const code=plain.match(/\b\d{6}\b|PN-[A-Z0-9]{16}/)[0];
+    assert.ok(options.htmlBody.includes(code));assert.ok(!subject.includes(code));
+  }
+  for(const [,subject,plain,options] of signIns) {
+    assert.equal(subject,'Poker Night 2026 sign-in code');
+    assert.match(plain,/10 minutes/);assert.match(options.htmlBody,/10 minutes/);
+    assert.doesNotMatch([plain,options.htmlBody].join('\n'),/https?:\/\/|href=/i);
+  }
+  assert.match(signIns[1][2],/private E-Cell desk/);
+  for(const [index,[,subject,plain,options]] of sent.entries()) {
+    assert.equal(subject,'Poker Night 2026 '+(index?'retry':'entry')+' pass');
+    const code=plain.match(/PN-[A-Z0-9]{16}/)[0];
+    const url='https://meherpraveen.github.io/imt-ecell-poker-night/event.html?view=pass#code='+code;
+    assert.ok(plain.includes(url));assert.ok(options.htmlBody.includes('href="'+url+'"'));
+    assert.equal((options.htmlBody.match(/href=/g)||[]).length,1);
+  }
+});
 function staffFixture(){
   const f=fixture(),{ctx,actualStaff}=f;
   const rows=[['Volunteer A','gate','a'.repeat(40),'yes'],['Volunteer B','floor','b'.repeat(40),'yes']];

@@ -1,0 +1,84 @@
+:root {
+  color-scheme: dark;
+  --bg: #101b32;
+  --panel: #1b2b45;
+  --edge: #455875;
+  --ink: #f5f4ed;
+  --muted: #beccde;
+  --signal: #ffdb60;
+  --cyan: #8de5f0;
+  --red: #ff9aa3;
+  --paper: #f6f4ec;
+  --display: "Archivo Black", "Arial Black", "Segoe UI", sans-serif;
+  --sans: "DM Sans", "Segoe UI", Arial, sans-serif;
+  --mono: "IBM Plex Mono", Consolas, "Courier New", monospace;
+  font-family: var(--sans);
+}
+* {box-sizing: border-box}
+html {scroll-behavior: smooth; scroll-padding-top: 16px}
+body {margin: 0; background: var(--bg); color: var(--ink); line-height: 1.5}
+a {color: inherit}
+button, input, select, textarea {font: inherit}
+h1, h2, h3, p {overflow-wrap: break-word}
+h1, h2, h3, figure {margin: 0}
+[hidden] {display: none !important}
+:focus-visible {outline: 3px solid var(--cyan); outline-offset: 4px}
+.wrap {width: min(1180px, 90%); margin-inline: auto}
+.top {color: var(--ink); background: #101a2d; border-bottom: 1px solid #35415a}
+.nav, .appbar, footer .wrap {display: flex; align-items: center; justify-content: space-between; gap: 1rem}
+.nav, .appbar {min-height: 70px}
+.brand {display: inline-flex; align-items: center; gap: .75rem; text-decoration: none; font: 850 1.06rem/1 var(--sans); letter-spacing: .075em}
+.brand small {display: block; font: 650 .63rem/1.2 var(--mono); letter-spacing: .09em; margin-top: .28rem}
+.lens {display: inline-block; flex: none; width: 38px; height: 38px; border-radius: 50%; border: 3px solid #e3e6db;
+  background: radial-gradient(circle at 32% 25%, #f2ffff 0 7%, transparent 11%), radial-gradient(circle at 36% 28%, #99f3ff 6%, #14abc9 35%, #08699a 57%, #123658 76%);
+  box-shadow: 0 0 0 2px #0f2438, inset 0 0 0 2px #216681}
+.nav nav {display: flex; gap: clamp(.8rem, 2.2vw, 2rem); align-items: center}
+.nav nav a, footer a {text-decoration: none; font-size: .92rem; font-weight: 600}
+.nav nav a:hover, footer a:hover {text-decoration: underline; text-underline-offset: 4px}
+.nav-floor {padding: .42rem .78rem; border: 1px solid #596b82; border-radius: 5px; white-space: nowrap}
+.nav-floor span {color: var(--cyan)}
+.eyebrow, .app-label {font: 700 .76rem/1.4 var(--mono); letter-spacing: .105em; text-transform: uppercase}
+.eyebrow {color: var(--cyan); margin: 0 0 .8rem}
+.app-label {color: var(--muted); text-align: right; letter-spacing: .045em}
+.app-label span {margin: 0 .25rem; color: #ed6973}
+.button, button {display: inline-flex; align-items: center; justify-content: center; gap: .65rem; cursor: pointer; min-height: 44px; padding: .72rem 1.08rem; border: 1px solid var(--edge); border-radius: 5px; font: 700 1rem/1.2 var(--sans); text-decoration: none; color: var(--ink); background: var(--panel)}
+.primary, button.primary {color: #172134; background: var(--signal); border-color: var(--signal)}
+.secondary {border-color: #8192aa; background: #1d2a40; color: #f6f5ec}
+.button:hover, button:enabled:hover {filter: brightness(1.08)}
+.sponsors {color-scheme: light; color: #24334b; background: #fff; border-bottom: 1px solid #d8dce0}
+.sponsor-inner {display: flex; gap: clamp(1rem, 2.5vw, 2.65rem); align-items: center; padding-block: 1.35rem}
+.sponsors h2 {flex: none; font: 700 .76rem/1.4 var(--mono); text-transform: uppercase; letter-spacing: .1em}
+.partner-list {list-style: none; flex: 1; min-width: 0; display: grid; grid-template-columns: repeat(5,minmax(0,1fr)); padding: 0; margin: 0}
+.partner-list li {min-width: 0; min-height: 62px; display: flex; flex-direction: column; justify-content: center; align-items: center; padding: 2px clamp(9px, 1.5vw, 23px); border-left: 1px solid #e0e3e6}
+.partner-list img {display: block; height: 54px; width: 100%; max-width: 152px; object-fit: contain}
+.partner-list .disha img {height: 31px}
+.disha span {color: #44303b; margin-top: 2px; text-align: center; font-size: .75rem; font-weight: 650}
+footer {padding: 1.25rem 0; background: #101a2d; color: #cbd8e4; border-top: 1px solid #37465b}
+footer .wrap {flex-wrap: wrap; font-size: .9rem}
+@media (max-width: 840px) {
+  .sponsor-inner {display: block}
+  .sponsors h2 {margin: 0 0 .65rem}
+  .partner-list li:first-child {border-left: 0}
+}
+@media (max-width: 720px) {
+  .nav, .appbar {min-height: 60px}
+  .nav nav {gap: .78rem}
+  .nav nav a {font-size: .85rem}
+  .sponsor-inner {padding-block: 1.1rem}
+  .partner-list {grid-template-columns: repeat(6,minmax(0,1fr)); row-gap: .45rem}
+  .partner-list li {grid-column: span 2; padding-inline: .58rem}
+  .partner-list li:nth-child(4) {grid-column: 2/span 2; border-left: 0}
+  .partner-list img {height: 46px}
+  .partner-list .disha img {height: 23px}
+  .disha span {font-size: .67rem}
+}
+@media (max-width: 390px) {
+  .wrap {width: calc(100% - 28px)}
+  .nav {gap: .4rem}
+  .nav .brand {gap: .45rem; white-space: nowrap}
+  .nav .lens {width: 30px; height: 30px}
+  .nav-floor {padding-inline: .55rem}
+  .nav nav {gap: .6rem}
+  .nav nav a:first-child {display: none}
+}
+@media (prefers-reduced-motion: reduce) {html {scroll-behavior: auto}}

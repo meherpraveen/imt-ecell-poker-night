@@ -7,20 +7,32 @@ const root=fileURLToPath(new URL('../',import.meta.url));
 const read=p=>fs.readFileSync(path.join(root,p),'utf8');
 const require=createRequire(import.meta.url);
 const assets='docs/assets/';
-const baseStyles=read(assets+'site.css');
+const baseStyles=read('web/base.css');
 const eventStyles=read('web/event.css');
 const commonCode=read('web/common.js');
 const playerCode=read('web/player.js');
+const sponsorMarkup=read('web/sponsors.html').trim();
+function withSponsors(html) {
+  const slot=/<!-- SPONSORS:START -->[\s\S]*?<!-- SPONSORS:END -->/;
+  if (!slot.test(html)) throw new Error('Missing sponsor section in public page');
+  return html.replace(slot, ()=>'<!-- SPONSORS:START -->\n'+sponsorMarkup+'\n<!-- SPONSORS:END -->');
+}
 const bundles={
   js:[read('web/config.js'),read('web/public-api.js'),commonCode,playerCode].join('\n;\n'),
   css:[baseStyles,eventStyles].join('\n')
 };
-let publicPage=read('docs/event.html');
-for(const [extension,content] of Object.entries(bundles)){
+function writeAsset(filename, content) {
   // Stable hashes on both Windows and Unix checkouts.
   const normalized=content.replace(/\r\n/g,'\n');
-  const version=createHash('sha256').update(normalized).digest('hex').slice(0,12);
-  fs.writeFileSync(path.join(root,assets+'event-app.'+extension),normalized);
+  fs.writeFileSync(path.join(root,assets+filename),normalized);
+  return createHash('sha256').update(normalized).digest('hex').slice(0,12);
+}
+const homeVersion=writeAsset('site.css',baseStyles+'\n'+read('web/home.css'));
+const homepage=withSponsors(read('docs/index.html')).replace(/site\.css\?v=[a-z0-9]+/,'site.css?v='+homeVersion);
+fs.writeFileSync(path.join(root,'docs/index.html'),homepage);
+let publicPage=withSponsors(read('docs/event.html'));
+for(const [extension,content] of Object.entries(bundles)){
+  const version=writeAsset('event-app.'+extension,content);
   publicPage=publicPage.replace(new RegExp('event-app\\.'+extension+'\\?v=[a-z0-9]+'),'event-app.'+extension+'?v='+version);
 }
 fs.writeFileSync(path.join(root,'docs/event.html'),publicPage);

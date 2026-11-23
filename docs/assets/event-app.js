@@ -136,9 +136,9 @@ function signInPage(keepForm=false){
 }
 function codePage(){
   heading('PLAYER REGISTRATION','Check your email');
-  const form=signInForm('verifyCode','<p>Search your registered inbox, Spam or Junk for <strong>Your E-Cell Poker Night sign-in code</strong>. A code works for 10 minutes. A resend keeps the same active code.</p>'+
+  const form=signInForm('verifyCode','<p>Look for <strong>Poker Night 2026 sign-in code</strong> in your registered inbox. The code works for 10 minutes. A resend keeps the same active code.</p>'+
     codeInput()+checkbox('remember','Remember this device for 7 days'),'Verify and continue');
-  const help='<details><summary>Email hasn’t arrived?</summary><p>Check which inbox matches your roll number. We can only send to the address already on your student record.</p>'+
+  const help='<details><summary>Email hasn’t arrived?</summary><p>Check Junk Email in Outlook or Spam in Gmail for the message from <strong>Poker Night 2026</strong>. You can also check which email matches your roll number below.</p>'+
     signInForm('matchMail',rollField('matchRoll')+input('matchEmail','Email on your student record','type="email" autocomplete="email" required maxlength="254"'),'Check details and send code')+'</details>';
   el('content').innerHTML='<div class="narrow login-card">'+panel('Enter your sign-in code',form+btn('resendCode','Resend code')+btn('changeLogin','Change roll number or email')+help)+'</div>';
   if(/^\d{9}$/.test(challenge.identifier))el('matchRoll').value=challenge.identifier;else el('matchEmail').value=challenge.identifier;
@@ -280,7 +280,7 @@ async function renderPass(){
   const code=document.body.dataset.pass;
   if(!/^PN-[A-Z0-9]{16}$/.test(code||''))throw Error('Open the complete pass link from your email or registration.');
   const pass=await api('passInfo',code),usable=pass.active&&!pass.used;
-  el('content').innerHTML='<div class="narrow">'+panel(pass.used?'Pass already scanned':usable?'Show at the gate':'Attempt closed',
+  el('content').innerHTML='<div class="narrow trainer-card">'+panel(pass.used?'Pass already scanned':usable?'Show at the gate':'Attempt closed',
     (usable?'<div id="passImage" class="pass-image"></div><p><code>'+esc(pass.code)+'</code></p>':'')+
     '<p>Round 1 · Wave '+pass.wave+'. Bring your college ID. Use your wristband for a venue return.</p>')+'</div>';
   if(!usable)return;

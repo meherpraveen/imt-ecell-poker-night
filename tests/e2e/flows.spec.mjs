@@ -176,10 +176,16 @@ test('a no-show frees a seat and the payment desk can offer it to a waitlisted p
 test('phone, tablet and desktop layouts fit, and a desk poll preserves an unsaved payment edit',async({page,site})=>{
   for(const width of [320,768,1366]){
     await page.setViewportSize({width,height:844});await page.goto(site.origin);
-    const art=await page.locator('.art').evaluate(element=>getComputedStyle(element).backgroundImage);
-    expect(art).toContain(width<=720?'table-art-mobile.webp':'table-art.webp');
+    const art=page.locator('.field-art');
+    await expect.poll(()=>art.evaluate(img=>img.complete&&img.naturalWidth?img.currentSrc:'')).toContain(width<=720?'pokedex-table-mobile.webp':'pokedex-table.webp');
+    const sponsors=page.getByRole('region',{name:'Sponsored by'});
+    await sponsors.scrollIntoViewIfNeeded();
+    await expect(sponsors.locator('img')).toHaveCount(5);
+    await expect.poll(()=>sponsors.locator('img').evaluateAll(imgs=>imgs.every(img=>img.complete&&img.naturalWidth>0))).toBe(true);
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
     await page.getByRole('link',{name:'Sign in to register'}).click();
     await expect(button(page,'Send code')).toBeVisible();
+    await expect(page.getByRole('region',{name:'Sponsored by'})).toHaveCount(0);
     expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
   }
   await page.clock.install({time:new Date(site.now())});

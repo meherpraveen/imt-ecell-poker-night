@@ -1,8 +1,9 @@
-.appbar{display:flex;justify-content:space-between;align-items:center;padding-block:1rem;gap:1rem}
+.appbar{padding-block:.6rem}
 .appbar a{text-decoration:none}
 .appbar small{color:var(--muted)}
-.stage{padding-block:clamp(1.5rem,4vw,3rem);min-height:75svh}
-.stage h1{font:500 clamp(2.5rem,6vw,4.5rem)/1 "Baskervville",Georgia,serif;letter-spacing:-.045em;margin:.4rem 0 1rem}
+.stage{padding-block:clamp(1.65rem,4vw,3.2rem);min-height:76svh;border-top:4px solid #e95764;background:radial-gradient(ellipse at 82% 8%,#23355480,transparent 62%),var(--bg)}
+.stage .eyebrow:not(:empty)::before{content:"";display:inline-block;width:8px;height:8px;margin-right:.65rem;background:var(--cyan);box-shadow:2px 2px #39768c}
+.stage h1{font:800 clamp(2.15rem,5vw,3.7rem)/1.06 var(--display);letter-spacing:-.055em;margin:.5rem 0 1.2rem}
 .stage h2{font:650 1.55rem/1.15 "DM Sans","Segoe UI",sans-serif;letter-spacing:-.025em;margin:0 0 .9rem}
 .stage h3{font:700 1.1rem/1.25 "DM Sans","Segoe UI",sans-serif;margin:.3rem 0 .6rem}
 .narrow{max-width:560px}
@@ -15,36 +16,44 @@ html[data-entry=register] [data-shell=register],html[data-entry=account] [data-s
 .timer{font-variant-numeric:tabular-nums;min-width:4.5ch}
 .payment-qr img{width:min(100%,300px);aspect-ratio:1}
 .pass-image{min-height:165px}
+.trainer-card{max-width:28rem}
+.trainer-card .panel{background:#f5f3e7;color:#1a2839;border:2px solid #b83b50;border-top:10px solid #dc4e61;box-shadow:0 4px 0 #782940}
+.trainer-card .panel h2{color:#28384a}
+.trainer-card code{font-size:1.07rem;letter-spacing:.035em}
+.trainer-card .qr{border:1px solid #bfc6c7}
 .login-card{max-width:32rem}
-.login-card .panel{border-top:3px solid var(--lime)}
+.login-card .panel{border-top:4px solid #ef6572;box-shadow:0 4px 0 #0a1426}
+.login-card .panel>h2{padding-right:42px;position:relative}
+.login-card .panel>h2::after{position:absolute;right:0;top:.4em;content:"";width:7px;height:7px;border-radius:50%;background:#f07781;box-shadow:12px 0 #f4cf62,24px 0 #8ad7d9;transform:translateX(-24px)}
 .login-card form>p:first-child{color:var(--muted);margin:0 0 1.25rem}
 .login-card form>.primary{display:block;width:100%;margin:1.2rem 0 .3rem}
 .login-card #loginCode{font:600 1.45rem/1.3 "IBM Plex Mono",Consolas,monospace;letter-spacing:.25em}
 .login-card .check{font-size:.95rem}
-.login-card :focus-visible{outline:2px solid var(--lime);outline-offset:3px}
+.login-card :focus-visible{outline:2px solid var(--cyan);outline-offset:3px}
 .panel{padding:clamp(1rem,2.5vw,1.65rem);background:var(--panel);border:1px solid var(--edge);border-radius:10px;margin:.9rem 0}
 .panel p{margin:.65rem 0}
 .sub{color:var(--muted)}
 label{display:block;margin:.7rem 0 .3rem;font-weight:600}
-input,select,textarea{display:block;width:100%;padding:.7rem .8rem;background:#0c1e15;border:1px solid #65796a;border-radius:5px;color:var(--ink);min-height:44px}
+input,select,textarea{display:block;width:100%;padding:.7rem .8rem;background:#101d32;border:1px solid #7488a2;border-radius:5px;color:var(--ink);min-height:44px}
+input::placeholder,textarea::placeholder{color:#adbacd;opacity:1}
 input[type=checkbox]{display:inline-block;width:1.1rem;min-height:0;height:1.1rem;vertical-align:middle;margin-right:.5rem}
 .check{font-weight:500}
 .panel button,.panel a.button{margin:.5rem .35rem .2rem 0}
 button:disabled{cursor:wait;opacity:.6}
-.note{padding:.75rem 1rem;background:#253829;color:var(--lime);border-radius:6px;margin-bottom:1rem}
+.note{padding:.75rem 1rem;background:#203c4c;color:#c2f6f9;border-radius:6px;margin-bottom:1rem}
 .error{background:#442d2c;color:#ffc5bd}
 .note:empty{display:none}
 code,.mono{font:600 1.05rem/1.4 "IBM Plex Mono",Consolas,monospace;overflow-wrap:anywhere}
 .cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr));gap:.85rem}
 .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(100px,1fr));gap:.6rem}
 .stat{border:1px solid var(--edge);border-radius:7px;padding:.75rem}
-.stat strong{display:block;font-size:1.65rem;color:var(--lime)}
+.stat strong{display:block;font-size:1.65rem;color:var(--signal)}
 .tabs{display:flex;gap:.4rem;flex-wrap:wrap;margin:1rem 0}
-.tabs button[aria-current=true]{background:var(--lime);color:#152117}
+.tabs button[aria-current=true]{background:var(--signal);color:#172134}
 .record{padding:.8rem 0;border-top:1px solid var(--edge)}
 .record:first-child{border:0}
 .record .sub{font-size:.93rem}
-.tag{display:inline-block;font:.8rem/1.3 Consolas,monospace;letter-spacing:.04em;color:var(--violet);margin-right:.45rem}
+.tag{display:inline-block;font:.8rem/1.3 var(--mono);letter-spacing:.04em;color:var(--cyan);margin-right:.45rem}
 .danger{color:var(--red)}
 .shot{display:block;max-width:100%;max-height:64vh;object-fit:contain;margin-block:1rem;background:white}
 .qr{background:#fff;padding:.6rem;width:max-content;max-width:100%;border-radius:4px}
@@ -53,19 +62,20 @@ code,.mono{font:600 1.05rem/1.4 "IBM Plex Mono",Consolas,monospace;overflow-wrap
 .payment-qr img,.payment-preview{display:block;max-width:min(100%,300px);max-height:340px;object-fit:contain;background:white;padding:.45rem;border-radius:4px}
 .payment-qr figcaption{margin-top:.5rem}
 .payment-preview[hidden]{display:none}
-.timer{font:600 clamp(2.7rem,6vw,5rem)/1 Consolas,monospace;color:var(--lime)}
+.timer{font:600 clamp(2.7rem,6vw,5rem)/1 var(--mono);color:var(--signal)}
 .compact{font-size:.91rem}
-.pill{color:var(--lime)}
+.pill{color:var(--signal)}
 .row{display:flex;align-items:center;justify-content:space-between;gap:.7rem;flex-wrap:wrap}
 dialog{max-width:min(700px,94vw);width:100%;max-height:90vh;overflow:auto;background:var(--panel);color:var(--ink);border:1px solid var(--edge);border-radius:10px;padding:1.3rem}
-dialog::backdrop{background:#041009dd}
+dialog::backdrop{background:#080e1bdd}
 video{width:min(100%,360px)}
 .btnclose{float:right;margin-left:.5rem}
-#net{color:var(--violet)}
+#net{color:var(--cyan)}
 .board-list{margin:0;padding-left:1.35rem}
 input[type=file]{padding:.45rem}
 .reviewlist{max-height:550px;overflow:auto}
 @media(max-width:560px){.stage .wrap{width:calc(100% - 28px)}
-.appbar .sub{font-size:.8rem}
+.app-label{font-size:.7rem}
 .stats{grid-template-columns:repeat(3,1fr)}
 }
+html[data-entry=board] .stage{min-height:50svh}

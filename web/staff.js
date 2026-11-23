@@ -16,7 +16,7 @@ function login(){
   el('content').innerHTML='<div class="narrow login-card">'+panel(owner?'Admin sign-in':'Staff sign-in',body)+'</div>';
 }
 function ownerCodePage(delay){
-  const form=signInForm('verifyOwner','<p>Search the club Gmail inbox and Spam for <strong>Your E-Cell Poker Night sign-in code</strong>. The code expires in 10 minutes.</p>'+codeInput(),'Verify and open desk');
+  const form=signInForm('verifyOwner','<p>Look for <strong>Poker Night 2026 sign-in code</strong> in the club inbox or Spam. The code expires in 10 minutes.</p>'+codeInput(),'Verify and open desk');
   el('content').innerHTML='<div class="narrow login-card">'+panel('Check the club inbox',form+btn('resendCode','Resend code'))+'</div>';
   startResendTimer(Date.now()+delay*1000);el('loginCode').focus();
 }
