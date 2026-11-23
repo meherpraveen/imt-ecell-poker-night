@@ -76,14 +76,57 @@ function staffSnapshot(token){
   return {role:staff.role,label:staff.name,records,stats:{checked:places.length,inside:places.filter(v=>v.where==='IN').length,out:places.filter(v=>v.where==='OUT').length,
     noShow:new Set(as.filter(a=>a.status==='NO_SHOW').map(a=>a.roll)).size,pending:as.filter(a=>a.status==='REVIEW').length},
     board:publicFloor_(st),game:floor?{next:st.game.next,active:st.game.active}:null,
-    settings:staff.role==='admin'?settings_():null,audit:staff.role==='admin'?st.audit.slice().reverse():[]};
+    settings:staff.role==='admin'?adminSettingsView_(settings_()):null,audit:staff.role==='admin'?st.audit.slice().reverse():[]};
 }
-function adminSettings(token,upi,name,open){
-  const s=staff_(token,[]);upi=String(upi||'').trim().toLowerCase();name=String(name||'').trim();
+function adminSettingsView_(s){
+  const version=mac_('payment-settings:'+JSON.stringify([s.upi,s.name,s.open,s.qrFile,s.published]));
+  return {upi:s.upi,name:s.name,open:s.open,hasQr:!!s.qrFile,published:s.published,version};
+}
+function paymentQrFile_(id){
+  const file=DriveApp.getFileById(id);
+  must_(/^event-payment-qr-[a-f0-9]{32}\.(png|jpg)$/.test(file.getName()),'The payment QR is unavailable.');
+  const folderId=props_().getProperty('FOLDER'),parents=file.getParents();
+  while(parents.hasNext()){if(parents.next().getId()===folderId)return file}
+  throw Error('The payment QR is outside the club folder.');
+}
+function paymentQrData_(id){
+  const blob=paymentQrFile_(id).getBlob(),mime=blob.getContentType();
+  must_(mime==='image/png'||mime==='image/jpeg','The payment QR is unavailable.');
+  return 'data:'+mime+';base64,'+Utilities.base64Encode(blob.getBytes());
+}
+function adminPaymentQr(token){
+  staff_(token,[]);
+  return locked_(()=>{const id=settings_().qrFile;return id?paymentQrData_(id):''});
+}
+function adminSettings(token,upi,name,open,options){
+  const admin=staff_(token,[]);upi=String(upi||'').trim().toLowerCase();name=String(name||'').trim();
   must_(!upi||/^[a-z0-9][a-z0-9._-]{1,127}@[a-z][a-z0-9.-]{1,63}$/.test(upi),'Check the receiving UPI ID.');
-  must_(name.length<=100&&!/^[=+@-]/.test(name)&&(!open||(upi&&name)),'Enter the recipient name and UPI ID before opening.');
-  return locked_(()=>{must_(!open||Object.keys(roster_()).length,'Import the student directory before opening.');const st=ledger_();
-    book_().getSheetByName('Settings').getRange(2,2,3,1).setValues([[upi],[name],[open?'yes':'no']]);commit_(st,'Payment settings updated',s.name,{note:open?'Open':'Closed'});return true;});
+  must_(typeof open==='boolean'&&name.length<=100&&!/^[=+@-]/.test(name),'Check the recipient name and registration setting.');
+  const change=options||{};
+  must_(!options||(typeof change.published==='boolean'&&typeof change.version==='string'),'Refresh payment settings before saving.');
+  must_(!change.qr||(typeof change.qr==='string'&&change.qr.length<=720000&&!change.removeQr),'Choose one payment QR image under 525 KB.');
+  return locked_(()=>{
+    const old=settings_();
+    must_(!options||change.version===adminSettingsView_(old).version,'Payment settings changed. Refresh before saving.');
+    const published=options?change.published:!!(open&&name&&(upi||old.qrFile));
+    const keep=change.removeQr?'':old.qrFile;
+    must_(!published||(name&&(upi||keep||change.qr)),'To publish payments, enter the recipient name and add a UPI ID or payment QR.');
+    must_(!open||Object.keys(roster_()).length,'Import the student directory before opening.');
+    let added;
+    if(change.qr){
+      const image=imageBytes_(change.qr);
+      const fileName='event-payment-qr-'+rand_()+'.'+image.ext;
+      added=DriveApp.getFolderById(props_().getProperty('FOLDER')).createFile(Utilities.newBlob(image.bytes,image.mime,fileName));
+    }
+    const next={upi,name,open,published,qrFile:added?added.getId():keep};
+    try{writeSettings_(next);SpreadsheetApp.flush()}
+    catch(error){if(added&&settings_().qrFile!==added.getId())added.setTrashed(true);throw error}
+    if(old.qrFile&&old.qrFile!==next.qrFile){
+      try{paymentQrFile_(old.qrFile).setTrashed(true)}catch{console.warn('Could not archive a superseded payment QR.')}
+    }
+    commit_(ledger_(),'Payment settings updated',admin.name,{note:published?'Payment details published':'Payments paused'});
+    return true;
+  });
 }
 function adminAddStaff(token,label,role,includeLink){
   const s=staff_(token,[]);label=String(label||'').trim();must_(/^[\p{L}\p{N}][\p{L}\p{N} ._-]{1,60}$/u.test(label)&&ROLE.includes(role),'Enter a staff name and role.');

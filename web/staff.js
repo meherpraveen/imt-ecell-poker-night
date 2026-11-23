@@ -10,6 +10,17 @@ el('dialog').addEventListener('close',stopCamera);
 function nameOf(k){return {pre:'Pre-registration',walk:'Walk-in',retry:'Round 1 retry'}[k]||k}
 function login(){heading('STAFF ACCESS','Event desk');el('content').innerHTML='<div class="narrow">'+panel('Staff sign-in',input('staffkey','Private staff key','type="password" autocomplete="current-password"')+'<p class="sub">The coordinator issues individual keys from the private club desk.</p>'+btn('login','Sign in','primary'))+'</div>'}
 const roles={Review:['admin','desk'],Gate:['admin','desk','gate'],Tables:['admin','floor'],Settings:['admin'],Audit:['admin']};
+function paymentSettingsForm(p){
+  return '<label class="check"><input id="open" type="checkbox" '+(p.open?'checked':'')+'>Accept registrations</label>'+
+    input('payname','Recipient name shown by the UPI app','value="'+esc(p.name)+'"')+
+    input('upi','Coordinator’s UPI ID','placeholder="Optional when using a payment QR" value="'+esc(p.upi)+'"')+
+    '<label for="paymentQr">Upload payment QR</label><input type="file" id="paymentQr" accept="image/png,image/jpeg,image/webp">'+
+    '<p class="sub">Use a QR that lets players enter their fee. You can publish a UPI ID, a QR, or both.</p>'+
+    '<img class="payment-preview" id="qrPreview" alt="Payment QR preview" hidden>'+
+    (p.hasQr?btn('showPaymentQr','Preview saved QR')+checkbox('removeQr','Remove the saved QR when I save'):'')+
+    '<label class="check"><input id="publish" type="checkbox" '+(p.published?'checked':'')+'>Publish payment details to players</label>'+
+    btn('save','Save payment settings','primary');
+}
 function recordRow(r){return '<div class="record"><div class="row"><strong>'+esc(r.name||r.roll)+'</strong><span class="tag">'+esc(r.status)+'</span></div><div class="sub">'+esc(r.roll)+' · '+esc(nameOf(r.kind))+(r.wave?' · Wave '+r.wave:'')+(r.fee?' · ₹'+r.fee:'')+'</div>'+
   (r.suffix?'<div>Ref ending <code>'+esc(r.suffix)+'</code></div>':'')+(r.sameImage||r.sameTail?'<div class="danger">'+[r.sameImage?'Same image on another attempt':'',r.sameTail?'Reference suffix also appears elsewhere':''].filter(Boolean).join(' · ')+'</div>':'')+
   (tab==='Review'?btn('inspect','Open attempt','',r.id):'<small>'+esc(r.where==='NEVER'?'Not checked in':r.where)+'</small>')+'</div>'}
@@ -20,10 +31,10 @@ function staffView(){
   const savedFind=val('find'),savedFilter=el('filter')?.value||'REVIEW';
   const stats=Object.entries({Inside:s.stats.inside,Outside:s.stats.out,'Checked in':s.stats.checked,'No-shows':s.stats.noShow,'To review':s.stats.pending}).map(([k,v])=>'<div class="stat"><strong>'+v+'</strong>'+k+'</div>').join('');
   let out='<div class="stats">'+stats+'</div><div class="tabs">'+allowed.map(t=>'<button data-do="tab" data-id="'+t+'" aria-current="'+(t===tab)+'">'+t+'</button>').join('')+btn('refresh','Refresh')+btn('logout','Sign out')+'</div>';
-  if(tab==='Review')out+='<div class="button-row">'+btn('deskform','Walk-in or paid retry','primary')+btn('studentform','Add missing student details')+'</div>'+panel('Payment queue',input('find','Search by roll, name, phone or reference digits','type="search"')+'<label for="filter">Show</label><select id="filter"><option value="REVIEW">Awaiting review</option><option value="all">All attempts</option><option value="WAITLIST">Waitlist</option><option value="PAID">Paid</option><option value="REJECTED">Rejected</option></select><div id="records" class="reviewlist"></div>');
+  if(tab==='Review')out+='<div class="button-row">'+btn('deskform','Walk-in or paid retry','primary')+btn('studentform','Add missing student details')+'</div>'+panel('Payment queue',input('find','Search by roll, name, phone or reference digits','type="search"')+'<label for="filter">Show</label><select id="filter"><option value="REVIEW">Awaiting review</option><option value="REGISTERED">Registered, awaiting payment</option><option value="all">All attempts</option><option value="WAITLIST">Waitlist</option><option value="PAID">Paid</option><option value="REJECTED">Rejected</option></select><div id="records" class="reviewlist"></div>');
   if(tab==='Gate')out+=panel('Gate scanner','<label for="gateMode">Action</label><select id="gateMode"><option value="admit">Admit with a single-use code</option><option value="exit">Record exit by roll number</option><option value="return">Record wristband return by roll number</option></select>'+input('gateValue','Entry code or roll number','autocapitalize="characters" autocomplete="off"')+checkbox('gateID','I checked the college ID or assigned wristband.')+btn('gate','Record at gate','primary')+btn('camera','Scan QR')+'<div id="pending"></div>')+panel('Player lookup',input('find','Search by roll, name or phone','type="search"')+'<div id="records" class="reviewlist"></div>');
   if(tab==='Tables'){const g=s.game;out+=panel(g.active?'Stage controls':'Next seating',g.active?g.active.tables.map((t,i)=>btn('table','Enter '+(i+1)+' · '+s.board.tables[i].name,'',String(i))).join('')+btn('finish','Close stage','primary'):g.next<8?btn('preview','Review next draw','primary'):'Tournament complete');out+=board(s.board);}
-  if(tab==='Settings'){const p=s.settings;out+=panel('Receiving account',input('upi','Coordinator’s UPI ID','value="'+esc(p.upi)+'"')+input('payname','Recipient name in the UPI app','value="'+esc(p.name)+'"')+'<label class="check"><input id="open" type="checkbox" '+(p.open?'checked':'')+'>Open student registration</label>'+btn('save','Save payment settings','primary'))+
+  if(tab==='Settings'){out+=panel('Registration and payments',paymentSettingsForm(s.settings))+
     panel('Volunteer access',input('label','Volunteer name')+'<label for="role">Role</label><select id="role"><option value="desk">Registration desk</option><option value="gate">Gate</option><option value="floor">Floor manager</option><option value="admin">Administrator</option></select>'+btn('newkey','Create staff invitation')+'<p class="sub">Revoke a key by changing Active to no in the private Staff tab.</p>');}
   if(tab==='Audit')out+=panel('Recent activity',s.audit.map(a=>'<p><b>'+esc(a.action)+'</b> · '+esc(a.actor)+'<br><span class="sub">'+localTime(a.time)+' · '+esc(a.target)+'</span></p>').join('')||'Activity appears here after the first action.');
   el('content').innerHTML=out;if(el('find')){el('find').value=savedFind;if(el('filter'))el('filter').value=savedFilter;filterRecords()}if(el('pending'))queueLabel();tick();
@@ -40,7 +51,13 @@ function inspect(id){
   if(['PAID','QUALIFIED','ELIMINATED','WINNER','NO_SHOW'].includes(r.status)){s+='<p>'+esc(r.delivery)+'</p>'+btn('pass','View code and delivery options');if(r.status==='PAID'&&!r.used)s+=btn('no-show','Mark no-show');}
   detail(s);
 }
-function deskForm(){detail('<h2>Verify a desk payment</h2>'+rollField('deskroll')+'<label for="kind">Purchase</label><select id="kind"><option value="walk">Walk-in · ₹199</option><option value="retry">Round 1 retry · ₹149</option></select>'+reference('deskref')+checkbox('deskcheck','I checked the college ID and the full incoming payment.')+btn('deskpay','Approve and send code','primary'))}
+function deskForm(){detail('<h2>Verify a desk payment</h2>'+rollField('deskroll')+'<label for="kind">Purchase</label><select id="kind"><option value="walk">Event entry</option><option value="retry">Round 1 retry</option></select><p id="deskFee" role="status">Walk-in fee ₹199. Enter a roll number to check for a saved pre-registration.</p>'+reference('deskref')+checkbox('deskcheck','I checked the college ID, the exact fee and the full incoming payment.')+btn('deskpay','Approve and send code','primary'))}
+function deskFee(){
+  const saved=snapshot.records.find(r=>r.roll===val('deskroll')&&r.kind==='pre'&&['REGISTERED','WAITLIST','HOLD'].includes(r.status));
+  const retry=val('kind')==='retry',fee=retry?149:saved?saved.fee:199;
+  el('deskFee').dataset.fee=String(fee);
+  el('deskFee').textContent=(retry?'Retry fee':saved?'Saved pre-registration fee':'Walk-in fee')+' ₹'+fee;
+}
 function queueKey(){return 'gate-queue-'+String(token).split('.')[0]}
 function qread(){try{return JSON.parse(durable.get(queueKey())||'[]')}catch{return []}}
 function qsave(list){durable.set(queueKey(),JSON.stringify(list))}
@@ -77,7 +94,7 @@ async function action(name,id){
   if(name==='student'){await api('deskStudent',token,val('newroll'),val('newname'),val('newmail'),val('newphone'),el('newid').checked);closeDetail();msg('Directory details saved.');await refresh();return}
   if(name==='image'){const pic=await api('proofImage',token,opened);const im=document.createElement('img');im.className='shot';im.alt='Private payment screenshot';im.src=pic;el('imgslot').replaceChildren(im);return}
   if(name==='approve'){const r=await api('staffApprove',token,opened,val('full'),el('verified').checked);closeDetail();msg('Payment approved. '+r.status);await refresh();return}
-  if(name==='deskpay'){const r=await api('deskPayment',token,val('deskroll'),val('kind'),val('deskref'),el('deskcheck').checked);closeDetail();msg('Attempt verified. '+r.status);await refresh();return}
+  if(name==='deskpay'){deskFee();const r=await api('deskPayment',token,val('deskroll'),val('kind'),val('deskref'),el('deskcheck').checked,Number(el('deskFee').dataset.fee));closeDetail();msg('Attempt verified. '+r.status);await refresh();return}
   if(name==='reject'){await api('staffReject',token,opened,val('reason'));closeDetail();msg('Proof rejected. The reason is on the player’s receipt page.');await refresh();return}
   if(name==='move'||name==='no-show'){if(name==='no-show'&&!confirm('Mark this paid player as a no-show and release their seat?'))return;await api('releaseSeat',token,opened,name);closeDetail();msg('Seat updated.');await refresh();return}
   if(name==='pass'||name==='resend'){if(name==='resend'&&!confirm('Email the same code again to the registered address?'))return;
@@ -90,15 +107,34 @@ async function action(name,id){
     if(name==='skip')await api('skipEmptyWave',token,draft.n);else await api('startStage',token,draft.n,draft.tables.map((t,i)=>t.map((_,j)=>val('s'+i+'-'+j))));closeDetail();await refresh();return}
   if(name==='table'){score(Number(id));return}if(name==='score'){const h=snapshot.game.active,t=h.tables[opened];const values=Object.fromEntries(t.map(id=>[id,val('c'+id)===''?-1:Number(val('c'+id))]));await api('tableResult',token,h.n,opened,values,val('tie'));closeDetail();await refresh();return}
   if(name==='finish'){if(!confirm('Close this stage and advance only the winning player at each table?'))return;await api('finishStage',token,snapshot.game.next);await refresh();return}
-  if(name==='save'){await api('adminSettings',token,val('upi'),val('payname'),el('open').checked);msg('Payment settings saved.');await refresh();return}
+  if(name==='showPaymentQr'){const preview=el('qrPreview'),data=await api('adminPaymentQr',token);preview.hidden=!data;if(data)preview.src=data;else preview.removeAttribute('src');return}
+  if(name==='save'){
+    const file=el('paymentQr').files[0],removeQr=!!el('removeQr')?.checked;
+    if(file&&removeQr)throw Error('Choose a replacement QR or remove the saved QR.');
+    const options={version:snapshot.settings.version,published:el('publish').checked,removeQr,qr:file?await picture(file,true):''};
+    await api('adminSettings',token,val('upi'),val('payname'),el('open').checked,options);
+    msg('Payment settings saved.');await refresh();return;
+  }
   if(name==='newkey'){
     const access=await api('adminAddStaff',token,val('label'),val('role'),true);
     detail('<h2>Volunteer invitation</h2><p>Share both items privately with the named volunteer.</p>'+input('inviteUrl','Private desk link','readonly value="'+esc(access.url)+'"')+input('inviteKey','Sign-in key','readonly value="'+esc(access.key)+'"'));
   }
 }
-document.addEventListener('input',e=>{if(e.target.id==='find')filterRecords();if(e.target.id==='full'){
+document.addEventListener('input',e=>{if(e.target.id==='deskroll')deskFee();if(e.target.id==='find')filterRecords();if(e.target.id==='full'){
  const r=snapshot.records.find(a=>a.id===opened),v=val('full');el('matchTail').textContent=v.length===12&&r.suffix?(v.endsWith(r.suffix)?'The visible receipt digits match.':'The visible digits differ. Check the bank record.'):'';
-}});document.addEventListener('change',e=>{if(e.target.id==='filter')filterRecords()});
+}});document.addEventListener('change',e=>{
+  if(e.target.id==='filter')filterRecords();
+  if(e.target.id==='kind')deskFee();
+  if(e.target.id==='paymentQr'){
+    const file=e.target.files[0],preview=el('qrPreview');
+    preview.hidden=!file;
+    if(file){
+      const url=URL.createObjectURL(file);
+      preview.onload=preview.onerror=()=>URL.revokeObjectURL(url);preview.src=url;
+      if(el('removeQr'))el('removeQr').checked=false;
+    }
+  }
+});
 async function launch(){
   if(token){try{await refresh();return}catch{mem.set(sessionKey,'');token=''}}
   login();

@@ -6,12 +6,96 @@ function fixture(){
   const ctx={Date:Clock,console,Utilities:{getUuid:crypto.randomUUID},MailApp:{getRemainingDailyQuota:()=>5,sendEmail:(...m)=>sent.push(m)},ScriptApp:{getService:()=>({getUrl:()=>''})}};
   vm.createContext(ctx);vm.runInContext(source,ctx);const st=ctx.fresh_(),audit=[];
   ctx.ledger_=()=>st;ctx.locked_=fn=>fn();ctx.commit_=(s,kind,actor,p)=>{audit.push([kind,actor,p]);ctx.apply_(s,JSON.parse(JSON.stringify(p)))};
-  ctx.roster_=()=>people;ctx.settings_=()=>({upi:'club@example',name:'Example Club',open:true});
+  const readSettings=ctx.settings_;
+  ctx.roster_=()=>people;ctx.settings_=()=>({upi:'club@example',name:'Example Club',open:true,published:true,qrFile:''});
   ctx.mac_=x=>crypto.createHmac('sha256','synthetic-only').update(x).digest('base64url');
   const actualStaff=ctx.staff_;ctx.staff_=(token,roles)=>{if(token!=='admin'&&!roles.includes(token))throw Error('Role denied');return {name:'Test staff',role:token}};
-  return {ctx,st,sent,audit,people,actualStaff,at:s=>time=Date.parse(s)};
+  return {ctx,st,sent,audit,people,actualStaff,readSettings,at:s=>time=Date.parse(s)};
 }
-function hold(f,roll='123456789'){return f.ctx.playerStart(roll,'')}
+function hold(f,roll='123456789'){return f.ctx.playerStart(roll,'','','2')}
+test('upgrading an unused club desk opens signups once and respects later admin pauses',()=>{
+  const {ctx,readSettings}=fixture(),rows=[['Setting','Value'],['Receiving UPI ID',''],['Recipient name',''],['Registration open','no']];
+  const sheet={getRange(row,col,h,w){return {
+    getDisplayValues:()=>Array.from({length:h},(_,i)=>Array.from({length:w},(_,j)=>rows[row+i-1]?.[col+j-1]||'')),
+    setValues:values=>values.forEach((cells,i)=>{rows[row+i-1]=Array.from(cells)})
+  }}};
+  ctx.book_=()=>({getSheetByName:()=>sheet});ctx.settings_=readSettings;ctx.ensureStaffLinks_=()=>{};
+  assert.equal(ctx.publicInfo().open,true);assert.equal(rows[3][1],'yes');assert.equal(rows[5][1],'no');
+  rows[3][1]='no';assert.equal(ctx.publicInfo().open,false);assert.equal(rows[3][1],'no');
+  rows.splice(4);rows[1][1]='old@example';rows[2][1]='Existing Club';
+  assert.equal(ctx.publicInfo().open,false);assert.equal(rows[1][1],'old@example');
+});
+test('registration opens on 23 November even before payments and on-site pricing begins at 7 PM on the 27th',()=>{
+  const f=fixture(),settings={upi:'',name:'',open:true,qrFile:'',published:false};
+  f.ctx.settings_=()=>settings;f.ctx.ensureStaffLinks_=()=>{};
+  f.at('2026-11-22T23:59:59+05:30');
+  assert.equal(f.ctx.publicInfo().open,false);assert.throws(()=>hold(f));
+  f.at('2026-11-23T00:00:00+05:30');
+  assert.equal(f.ctx.publicInfo().open,true);assert.equal(f.ctx.publicInfo().paymentsReady,false);
+  assert.throws(()=>f.ctx.playerStart('123456789',''),/Refresh the registration page/);
+  const pre=hold(f);assert.equal(pre.status,'REGISTERED');assert.equal(pre.fee,149);
+  assert.throws(()=>f.ctx.playerStatus(pre.ticket),/Refresh the registration page/);
+  assert.equal(pre.wave,0);assert.equal(pre.expires,0);assert.equal(pre.paymentQr,'');
+  assert.equal(f.ctx.occupied_(f.st.attempts[pre.id],0),false);assert.throws(()=>hold(f));
+  assert.throws(()=>f.ctx.playerCheckout(pre.ticket));assert.throws(()=>f.ctx.playerCheckout(''));
+  f.at('2026-11-27T19:00:00+05:30');
+  const walk=hold(f,'987654321');assert.equal(walk.fee,199);
+  Object.assign(settings,{name:'Example Club',upi:'club@example',published:true});
+  assert.equal(f.ctx.playerStatus(pre.ticket,'2').canCheckout,true);
+  const seat=f.ctx.playerCheckout(pre.ticket);assert.equal(seat.status,'HOLD');assert.equal(seat.fee,149);assert.equal(seat.wave,1);
+  assert.equal(f.ctx.playerCheckout(pre.ticket).expires,seat.expires);
+  settings.open=false;assert.equal(f.ctx.publicInfo().open,false);
+  f.at('2026-11-27T23:00:00+05:30');settings.open=true;
+  assert.equal(f.ctx.publicInfo().open,false);assert.equal(f.ctx.playerStatus(walk.ticket,'2').checkoutEnded,true);
+  assert.throws(()=>f.ctx.playerCheckout(walk.ticket));
+});
+test('an unpaid registration goes to the waitlist when all 216 playing attempts are held',()=>{
+  const f=fixture(),s={upi:'',name:'',open:true,published:false,qrFile:''};
+  f.ctx.settings_=()=>s;const saved=hold(f);
+  Object.assign(s,{upi:'club@example',name:'Club',published:true});
+  for(let i=0;i<216;i++){const roll=String(400000000+i);f.people[roll]={};hold(f,roll)}
+  const r=f.ctx.playerCheckout(saved.ticket);assert.equal(r.status,'WAITLIST');assert.equal(r.upi,'');assert.equal(r.paymentQr,'');
+  assert.equal(f.ctx.playerCheckout(saved.ticket).id,saved.id);
+});
+test('an on-site verification reuses a saved pre-registration and checks the quoted fee',()=>{
+  const f=fixture();f.ctx.settings_=()=>({open:true,published:false,upi:'',name:'',qrFile:''});const saved=hold(f);
+  f.at('2026-11-27T19:05:00+05:30');
+  assert.throws(()=>f.ctx.deskPayment('desk','123456789','walk','012345678901',true,199));
+  const pay=()=>f.ctx.deskPayment('desk','123456789','walk','012345678901',true,149);
+  assert.equal(pay().id,saved.id);assert.equal(pay().id,saved.id);assert.equal(f.sent.length,1);
+  assert.equal(f.ctx.playerStatus(saved.ticket).status,'PAID');assert.equal(f.st.attempts[saved.id].fee,149);
+});
+test('only admins can upload, publish, replace or remove the private payment QR',()=>{
+  const f=fixture(),c=f.ctx,files=new Map();
+  let s={upi:'',name:'',open:true,qrFile:'',published:false},writes=0;
+  c.settings_=()=>s;c.writeSettings_=value=>{s={...value};writes++};
+  c.SpreadsheetApp={flush(){}};
+  c.props_=()=>({getProperty:()=> 'folder'});
+  const bytes=Buffer.concat([Buffer.from([137,80,78,71,13,10,26,10]),Buffer.alloc(24)]);
+  const png='data:image/png;base64,'+bytes.toString('base64');
+  c.Utilities.base64Decode=str=>Array.from(Buffer.from(str,'base64'));
+  c.Utilities.base64Encode=arr=>Buffer.from(arr).toString('base64');
+  c.Utilities.newBlob=(arr,mime,name)=>({getBytes:()=>arr,getContentType:()=>mime,getName:()=>name});
+  c.DriveApp={getFileById:id=>files.get(id),getFolderById:()=>({createFile(blob){
+    const id='asset'+(files.size+1);
+    const file={getId:()=>id,getName:blob.getName,getBlob:()=>blob,setTrashed(flag){this.trashed=flag},
+      getParents:()=>({hasNext:()=>true,next:()=>({getId:()=> 'folder'})})};files.set(id,file);return file;
+  }})};
+  const save=(role,overrides={},upi='')=>c.adminSettings(role,upi,'Example Club',true,
+    {version:c.adminSettingsView_(s).version,published:true,...overrides});
+  for(const role of ['desk','gate','floor']){assert.throws(()=>save(role,{qr:png}));assert.throws(()=>c.adminPaymentQr(role))}
+  assert.throws(()=>save('admin'));assert.throws(()=>save('admin',{qr:'not a receipt'}));
+  assert.equal(writes,0);assert.equal(files.size,0);
+  const saved=hold(f);save('admin',{qr:png,published:false});assert.equal(c.adminPaymentQr('admin'),png);
+  assert.equal(c.playerStatus(saved.ticket,'2').paymentQr,'');assert.equal(c.playerStatus(saved.ticket,'2').canCheckout,false);
+  assert.throws(()=>save('admin',{version:'outdated',qr:png}));assert.equal(files.size,1);
+  save('admin');const active=c.playerCheckout(saved.ticket);
+  assert.equal(active.paymentQr,png);assert.equal(active.upi,'');assert.equal(active.name,'Example Club');
+  assert.ok(!JSON.stringify(active).includes('asset1'));assert.equal(c.adminSettingsView_(s).hasQr,true);
+  save('admin',{qr:png},'club@example');assert.ok(files.get('asset1').trashed);assert.equal(c.playerStatus(saved.ticket).upi,'club@example');
+  save('admin',{removeQr:true},'club@example');assert.ok(files.get('asset2').trashed);assert.equal(c.playerStatus(saved.ticket).paymentQr,'');
+  save('admin',{published:false},'club@example');assert.equal(c.playerStatus(saved.ticket,'2').upi,'');
+});
 test('the Pages transport returns public results, validates input, and excludes staff operations',()=>{
   const {ctx,st}=fixture();
   ctx.ContentService={MimeType:{JSON:'json'},createTextOutput:text=>({setMimeType:()=>JSON.parse(text)})};
@@ -21,6 +105,7 @@ test('the Pages transport returns public results, validates input, and excludes 
   assert.equal(post('publicInfo',[]).value.open,true);
   assert.equal(post('liveFloor',[]).value.state,'Awaiting first seating');
   assert.equal(post('staffSnapshot',['admin']).ok,false);
+  assert.equal(post('adminPaymentQr',['admin']).ok,false);
   assert.equal(post('playerStart',[]).ok,false);
   const request=crypto.randomUUID(),args=['123456789','',request];
   const first=post('playerStart',args);
@@ -76,7 +161,7 @@ test('the one-time staff link migration can be retried and returns only public r
   ctx.book_=()=>({getSheetByName:name=>name==='Staff'?staff:null});
   let runs=0;
   ctx.syncStaffLinks_=sheet=>{assert.equal(sheet,staff);return ++runs>1};
-  for(let n=0;n<3;n++)assert.equal(JSON.stringify(ctx.publicInfo()),'{"open":true}');
+  for(let n=0;n<3;n++)assert.equal(JSON.stringify(ctx.publicInfo()),'{"open":true,"paymentsReady":true}');
   assert.equal(runs,2);
 });
 test('existing staff receive private links alongside their keys without replacing other columns',()=>{

@@ -33,6 +33,10 @@ code,.mono{font:600 1.05rem/1.4 "IBM Plex Mono",Consolas,monospace;overflow-wrap
 .shot{display:block;max-width:100%;max-height:64vh;object-fit:contain;margin-block:1rem;background:white}
 .qr{background:#fff;padding:.6rem;width:max-content;max-width:100%;border-radius:4px}
 .qr img{max-width:100%;display:block;image-rendering:pixelated}
+.payment-qr{margin:1rem 0}
+.payment-qr img,.payment-preview{display:block;max-width:min(100%,300px);max-height:340px;object-fit:contain;background:white;padding:.45rem;border-radius:4px}
+.payment-qr figcaption{margin-top:.5rem}
+.payment-preview[hidden]{display:none}
 .timer{font:600 clamp(2.7rem,6vw,5rem)/1 Consolas,monospace;color:var(--lime)}
 .compact{font-size:.91rem}
 .pill{color:var(--lime)}

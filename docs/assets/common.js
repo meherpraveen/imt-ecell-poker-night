@@ -10,6 +10,21 @@ function input(id,label,extra=''){return '<label for="'+id+'">'+label+'</label><
 function checkbox(id,t){return '<label class="check"><input type="checkbox" id="'+id+'">'+esc(t)+'</label>'}
 function panel(t,body){return '<section class="panel"><h2>'+esc(t)+'</h2>'+body+'</section>'}
 function rollField(id){return input(id,'College roll number','inputmode="numeric" pattern="[0-9]{9}" maxlength="9" autocomplete="off" placeholder="Nine-digit roll number"')}
+async function picture(file,forPaymentQr=false){
+  if(!file||!['image/jpeg','image/png','image/webp'].includes(file.type)||file.size>15*1024*1024)throw Error('Choose a JPEG, PNG or WebP image under 15 MB.');
+  const url=URL.createObjectURL(file);
+  try{
+    const image=new Image();image.src=url;await image.decode();
+    const limit=forPaymentQr?1100:1800,scale=Math.min(1,limit/Math.max(image.width,image.height));
+    const canvas=document.createElement('canvas');
+    canvas.width=Math.max(1,Math.round(image.width*scale));canvas.height=Math.max(1,Math.round(image.height*scale));
+    const ctx=canvas.getContext('2d');ctx.fillStyle='white';ctx.fillRect(0,0,canvas.width,canvas.height);ctx.drawImage(image,0,0,canvas.width,canvas.height);
+    let data=forPaymentQr?canvas.toDataURL('image/png'):canvas.toDataURL('image/jpeg',.83);
+    if(forPaymentQr&&data.length>720000)data=canvas.toDataURL('image/jpeg',.9);
+    if(data.length>(forPaymentQr?720000:2400000))throw Error(forPaymentQr?'Crop the image around the payment QR and try again.':'Crop the payment receipt and upload a smaller image.');
+    return data;
+  }finally{URL.revokeObjectURL(url)}
+}
 function heading(k,t){el('kicker').textContent=k;el('title').textContent=t}
 function qr(code){const q=qrcode(0,'M');q.addData(code);q.make();return '<div class="qr">'+q.createImgTag(5,4,'Single-use entry QR')+'</div>'}
 function localTime(t){return new Date(t).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',timeZone:'Asia/Kolkata'})}
