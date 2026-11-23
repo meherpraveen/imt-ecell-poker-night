@@ -1,7 +1,7 @@
 'use strict';
 const mem={get(k){try{return sessionStorage.getItem('pn26:'+k)||''}catch{return ''}},set(k,v){try{sessionStorage.setItem('pn26:'+k,v)}catch{}}};
 const invite=document.body.dataset.invite,sessionKey='staff:'+invite;
-let token=mem.get(sessionKey),snapshot,tab='Review',opened,draft,stream,scanTimer,refreshing=false;
+let token=mem.get(sessionKey),snapshot,tab='Review',opened,draft,stream,scanTimer,refreshVersion=0,polling=false;
 function reference(id){return input(id,'Full UPI bank reference','inputmode="numeric" maxlength="12" placeholder="12 digits from the coordinator’s history"')}
 function detail(html){const d=el('dialog');el('detail').innerHTML=html;if(!d.open)d.showModal()}
 function stopCamera(){clearInterval(scanTimer);if(stream)stream.getTracks().forEach(t=>t.stop());stream=null}
@@ -40,7 +40,7 @@ function staffView(){
   const s=snapshot,allowed=Object.keys(roles).filter(t=>roles[t].includes(s.role));if(!allowed.includes(tab))tab=allowed[0];
   heading(s.label+' · '+s.role.toUpperCase(),'Event desk');
   const savedFind=val('find'),savedFilter=el('filter')?.value||'REVIEW';
-  const stats=Object.entries({Inside:s.stats.inside,Outside:s.stats.out,'Checked in':s.stats.checked,'No-shows':s.stats.noShow,'To review':s.stats.pending}).map(([k,v])=>'<div class="stat"><strong>'+v+'</strong>'+k+'</div>').join('');
+  const stats=Object.entries({inside:'Inside',out:'Outside',checked:'Checked in',noShow:'No-shows',pending:'To review'}).map(([key,label])=>'<div class="stat"><strong data-stat="'+key+'">'+s.stats[key]+'</strong>'+label+'</div>').join('');
   let out='<div class="stats">'+stats+'</div><div class="tabs">'+allowed.map(t=>'<button data-do="tab" data-id="'+t+'" aria-current="'+(t===tab)+'">'+t+'</button>').join('')+btn('refresh','Refresh')+btn('logout','Sign out')+'</div>';
   if(tab==='Review')out+='<div class="button-row">'+btn('deskform','Walk-in or paid retry','primary')+btn('studentform','Add missing student details')+'</div>'+panel('Payment queue',input('find','Search by roll, name, phone or reference digits','type="search"')+'<label for="filter">Show</label><select id="filter"><option value="REVIEW">Awaiting review</option><option value="REGISTERED">Registered, awaiting payment</option><option value="all">All attempts</option><option value="WAITLIST">Waitlist</option><option value="PAID">Paid</option><option value="REJECTED">Rejected</option></select><div id="records" class="reviewlist"></div>');
   if(tab==='Gate')out+=panel('Gate scanner','<label for="gateMode">Action</label><select id="gateMode"><option value="admit">Admit with a single-use code</option><option value="exit">Record exit by roll number</option><option value="return">Record wristband return by roll number</option></select>'+input('gateValue','Entry code or roll number','autocapitalize="characters" autocomplete="off"')+checkbox('gateID','I checked the college ID or assigned wristband.')+btn('gate','Record at gate','primary')+btn('camera','Scan QR')+'<div id="pending"></div>')+panel('Player lookup',input('find','Search by roll, name or phone','type="search"')+'<div id="records" class="reviewlist"></div>');
@@ -50,7 +50,25 @@ function staffView(){
   if(tab==='Audit')out+=panel('Recent activity',s.audit.map(a=>'<p><b>'+esc(a.action)+'</b> · '+esc(a.actor)+'<br><span class="sub">'+localTime(a.time)+' · '+esc(a.target)+'</span></p>').join('')||'Activity appears here after the first action.');
   el('content').innerHTML=out;if(el('find')){el('find').value=savedFind;if(el('filter'))el('filter').value=savedFilter;filterRecords()}if(el('pending'))queueLabel();tick();
 }
-async function refresh(){if(refreshing)return;refreshing=true;try{snapshot=await api('staffSnapshot',token);staffView()}finally{refreshing=false}}
+function editingDesk(){return el('dialog').open||['INPUT','SELECT','TEXTAREA'].includes(document.activeElement?.tagName)||['Gate','Settings'].includes(tab)}
+async function refresh(background=false){
+  if(background&&(polling||busy||el('dialog').open))return;
+  const session=token,version=++refreshVersion;
+  if(background)polling=true;
+  try{
+    const next=await api('staffSnapshot',session);
+    if(session!==token||version!==refreshVersion||(background&&(busy||el('dialog').open)))return;
+    if(background&&snapshot&&editingDesk()){
+      for(const value of document.querySelectorAll('[data-stat]'))value.textContent=next.stats[value.dataset.stat];
+      snapshot.stats=next.stats;
+      if((tab==='Gate'||tab==='Review')&&JSON.stringify(snapshot.records)!==JSON.stringify(next.records)){
+        snapshot.records=next.records;filterRecords();
+      }
+      el('net').textContent='';return;
+    }
+    snapshot=next;el('net').textContent='';staffView();
+  }finally{if(background)polling=false}
+}
 function inspect(id){
   const r=snapshot.records.find(x=>x.id===id);opened=id;
   let s='<h2>'+esc(r.name)+'</h2><p>'+esc(r.roll)+' · '+nameOf(r.kind)+' · ₹'+r.fee+' · '+esc(r.status)+'</p>';
@@ -70,21 +88,22 @@ function deskFee(){
   el('deskFee').textContent=(retry?'Retry fee':saved?'Saved pre-registration fee':'Walk-in fee')+' ₹'+fee;
 }
 function queueKey(){return 'gate-queue-'+String(token).split('.')[0]}
-function qread(){try{return JSON.parse(durable.get(queueKey())||'[]')}catch{return []}}
-function qsave(list){durable.set(queueKey(),JSON.stringify(list))}
+function qread(key=queueKey()){try{return JSON.parse(durable.get(key)||'[]')}catch{return []}}
+function qsave(list,key=queueKey()){durable.set(key,JSON.stringify(list))}
 function queueLabel(){el('pending').textContent=qread().length?qread().length+' unsynced gate actions. Wait for confirmation before admitting.':''}
 let gateSync=null;
 function transient(e){return !navigator.onLine||/network|offline|connection|timeout|timed out|temporar|service unavailable|failed to fetch|server error|lock timeout/i.test(e?.message||'')}
 async function syncGate(){
   if(!token||!navigator.onLine)return;if(gateSync)return gateSync;
-  const owner=token;
-  gateSync=(async()=>{let last='';for(const a of qread()){
-    if(token!==owner)break;
+  const owner=token,key=queueKey();
+  gateSync=(async()=>{let last='';
+    while(token===owner){
+    const a=qread(key)[0];if(!a)break;
     try{last=await api('gateAction',owner,a.mode,a.value,a.id)}
     catch(e){if(transient(e)){last='Queued on this device. Wait for server confirmation.';break}
       if(/sign in|staff role/i.test(e.message))throw e;
-      qsave(qread().filter(x=>x.id!==a.id));throw e}
-    qsave(qread().filter(x=>x.id!==a.id));
+      qsave(qread(key).filter(x=>x.id!==a.id),key);throw e}
+    qsave(qread(key).filter(x=>x.id!==a.id),key);
   }return last})();try{return await gateSync}finally{gateSync=null;if(el('pending'))queueLabel()}
 }
 async function gateOp(){if(!el('gateID').checked)throw Error('Check the college ID or wristband first.');const a={mode:val('gateMode'),value:val('gateValue'),id:crypto.randomUUID()};if(!a.value)throw Error('Enter a code or roll number.');
@@ -98,13 +117,13 @@ function previewDraw(){const options=draft.tables.flat();detail('<h2>'+esc(draft
 function score(index){const h=snapshot.game.active,t=h.tables[index];opened=index;detail('<h2>Table '+(index+1)+' chip counts</h2>'+t.map(id=>input('c'+id,esc(snapshot.records.find(a=>a.id===id)?.name||id),'type="number" min="0" step="1" value="'+(h.chips[id]??'')+'"')).join('')+'<label for="tie">Witnessed tiebreak, if tied</label><select id="tie"><option value="">Choose for a tie only</option>'+t.map(id=>'<option value="'+id+'">'+esc(snapshot.records.find(a=>a.id===id)?.name||id)+'</option>').join('')+'</select>'+btn('score','Save table result','primary'))}
 async function action(name,id){
   if(name==='close'){closeDetail();return}if(name==='tab'){tab=id;staffView();return}
-  if(name==='ownerCode'||name==='resendCode'){const reply=await api('requestOwnerCode',invite);ownerCodePage(reply.resendAfter);return}
+  if(name==='ownerCode'||name==='resendCode'){const reply=await api('requestOwnerCode',invite);mem.set(sessionKey+':code',JSON.stringify({resend:Date.now()+reply.resendAfter*1000,expires:Date.now()+(reply.expiresIn??600)*1000}));ownerCodePage(reply.resendAfter);return}
   if(name==='verifyOwner'||name==='login'){
     const auth=name==='verifyOwner'?await api('verifyOwnerCode',invite,val('loginCode')):await api('staffLogin',val('staffkey'),invite);
-    token=auth.token;mem.set(sessionKey,token);await refresh();return;
+    token=auth.token;mem.set(sessionKey,token);mem.set(sessionKey+':code','');await openDesk();return;
   }
   if(name==='logout'){const old=token;mem.set(sessionKey,'');token='';snapshot=null;login();await api('staffLogout',old);return}
-  if(name==='refresh'){await refresh();return}if(name==='inspect'){inspect(id);return}if(name==='deskform'){deskForm();return}
+  if(name==='refresh'){await openDesk();return}if(name==='inspect'){inspect(id);return}if(name==='deskform'){deskForm();return}
   if(name==='studentform'){detail('<h2>Verify directory details</h2>'+rollField('newroll')+input('newname','Name on college ID')+input('newmail','Delivery email','type="email"')+input('newphone','WhatsApp number','type="tel"')+checkbox('newid','I verified the college ID and the contact with the student.')+btn('student','Save missing details','primary'));return}
   if(name==='student'){await api('deskStudent',token,val('newroll'),val('newname'),val('newmail'),val('newphone'),el('newid').checked);closeDetail();msg('Directory details saved.');await refresh();return}
   if(name==='image'){const pic=await api('proofImage',token,opened);const im=document.createElement('img');im.className='shot';im.alt='Private payment screenshot';im.src=pic;el('imgslot').replaceChildren(im);return}
@@ -150,17 +169,28 @@ document.addEventListener('input',e=>{if(e.target.id==='deskroll')deskFee();if(e
     }
   }
 });
+async function openDesk(){
+  try{await refresh()}catch(e){
+    if(/sign in|staff role/i.test(e.message)){mem.set(sessionKey,'');token='';snapshot=null;login()}
+    else if(!snapshot)el('content').innerHTML='<div class="narrow">'+panel('Event desk',btn('refresh','Retry opening desk','primary')+btn('logout','Sign out'))+'</div>';
+    msg(e.message||'The desk could not load. Try again.',true);
+  }
+}
 async function launch(){
-  if(token){try{await refresh();return}catch{mem.set(sessionKey,'');token=''}}
+  if(token){await openDesk();return}
+  if(document.body.dataset.ownerLogin==='yes'){
+    let saved;try{saved=JSON.parse(mem.get(sessionKey+':code')||'null')}catch{}
+    if(saved?.expires>Date.now()){heading('STAFF ACCESS','Event desk');ownerCodePage(Math.max(0,(saved.resend-Date.now())/1000));return}
+  }
   login();
 }
-addEventListener('online',()=>{el('net').textContent='';syncGate().then(t=>{if(t)msg(t)}).catch(e=>msg(e.message,true))});
+addEventListener('online',()=>{el('net').textContent='';syncGate().then(async t=>{if(t){msg(t);await refresh(true)}}).catch(e=>msg(e.message,true))});
 addEventListener('offline',()=>{el('net').textContent='Offline. Payment approvals and admission confirmations need a connection.'});
 setInterval(async()=>{
   if(document.hidden||busy||el('dialog').open||!navigator.onLine||!token)return;
   try{
     if(qread().length){const status=await syncGate();if(status)msg(status)}
-    else if(!['INPUT','SELECT','TEXTAREA'].includes(document.activeElement?.tagName)&&!['Gate','Settings'].includes(tab))await refresh();
+    else await refresh(true);
   }catch{el('net').textContent='Connection interrupted. Showing the last update.'}
 },15000);
 launch();

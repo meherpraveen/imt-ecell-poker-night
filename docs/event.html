@@ -1,17 +1,36 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-entry="register">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="referrer" content="no-referrer">
   <meta name="color-scheme" content="dark">
   <title>Poker Night · IMT Ghaziabad</title>
+  <script>
+    (() => {
+      let entry=new URLSearchParams(location.search).get('view')||'register';
+      if(!['register','board','pass'].includes(entry))entry='unavailable';
+      try{
+        if(entry==='register'){
+          const saved=JSON.parse(sessionStorage.getItem('pn26:player-login')||localStorage.getItem('pn26:player-login')||'null');
+          const step=JSON.parse(sessionStorage.getItem('pn26:email-step')||'null');
+          if(saved?.expires>Date.now())entry='account';else if(step?.expires>Date.now())entry='code';
+        }
+      }catch{}
+      document.documentElement.dataset.entry=entry;
+      document.addEventListener('submit',e=>{
+        if(!window.pokerReady&&e.target.dataset.action==='requestCode'){e.preventDefault();window.pendingPokerSignIn=true}
+      });
+    })();
+  </script>
+  <link rel="preconnect" href="https://script.google.com" crossorigin>
+  <link rel="preconnect" href="https://script.googleusercontent.com" crossorigin>
   <link rel="stylesheet" href="assets/site.css">
-  <link rel="stylesheet" href="assets/event.css?v=3">
+  <link rel="stylesheet" href="assets/event.css?v=4">
   <script defer src="assets/config.js"></script>
-  <script defer src="assets/public-api.js"></script>
-  <script defer src="assets/common.js?v=3"></script>
-  <script defer src="assets/player.js?v=3"></script>
+  <script defer src="assets/public-api.js?v=4"></script>
+  <script defer src="assets/common.js?v=4"></script>
+  <script defer src="assets/player.js?v=4"></script>
 </head>
 <body data-host="pages">
   <header class="top">
@@ -22,11 +41,21 @@
   </header>
   <main class="stage">
     <div class="wrap">
-      <p class="eyebrow" id="kicker"></p>
-      <h1 id="title">Poker Night</h1>
-      <div id="msg" class="note" role="status" aria-live="polite"></div>
+      <p class="eyebrow" id="kicker"><span data-shell="student">PLAYER REGISTRATION</span><span data-shell="board">LIVE FLOOR</span><span data-shell="pass">TRAINER PASS</span></p>
+      <h1 id="title"><span data-shell="register">Sign in to Poker Night</span><span data-shell="account">Your registration</span><span data-shell="code">Check your email</span><span data-shell="board">Tournament floor</span><span data-shell="pass">Your entry pass</span><span data-shell="unavailable">Page unavailable</span></h1>
+      <div id="content">
+        <div class="narrow login-card" data-shell="register"><section class="panel"><h2>Student sign-in</h2>
+          <form data-action="requestCode"><p>We’ll send a six-digit code to the email on your student record.</p>
+            <label for="identifier">Roll number or registered email</label>
+            <input id="identifier" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="254" required placeholder="Nine-digit roll number or email">
+            <button class="primary" type="submit">Send code</button>
+          </form>
+        </section></div>
+        <div class="board-loading" data-shell="board" role="status">Loading the live floor…</div>
+        <div class="narrow" data-shell="account" role="status">Opening your saved registration…</div>
+      </div>
       <div id="net" role="status"></div>
-      <div id="content"><p class="sub">Loading event details…</p></div>
+      <div id="msg" class="note" role="status" aria-live="polite"></div>
       <noscript>Enable JavaScript to use player registration and the live floor.</noscript>
     </div>
   </main>

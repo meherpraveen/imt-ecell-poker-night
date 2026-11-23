@@ -55,9 +55,11 @@ function tick(){const c=el('clock');if(!c)return;const left=Math.max(0,Math.ceil
 async function runAction(b,name){
   if(!b||busy)return;
   busy=true;b.disabled=true;b.setAttribute('aria-busy','true');msg();
+  const label=b.textContent,progress={requestCode:'Sending code…',resendCode:'Sending…',matchMail:'Checking your details…',ownerCode:'Sending code…',verifyCode:'Verifying…',verifyOwner:'Verifying…',upload:'Submitting…',start:'Saving…',checkout:'Opening payment…',approve:'Saving approval…',save:'Saving…'};
+  if(progress[name])b.textContent=progress[name];
   try{await action(name,b.dataset.id)}
   catch(err){msg(err.message||'Connection failed. Try again.',true);if(el('dialog')?.open){let n=el('detail').querySelector('[data-error]');if(!n){n=document.createElement('p');n.className='note error';n.dataset.error='1';el('detail').prepend(n)}n.textContent=err.message}}
-  finally{busy=false;b.disabled=false;b.removeAttribute('aria-busy')}
+  finally{busy=false;b.disabled=false;b.removeAttribute('aria-busy');if(progress[name]&&b.isConnected)b.textContent=label}
 }
 document.addEventListener('click',e=>{const b=e.target.closest('[data-do]');if(b)runAction(b,b.dataset.do)});
 document.addEventListener('submit',e=>{

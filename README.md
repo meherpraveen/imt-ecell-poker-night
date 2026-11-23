@@ -12,7 +12,7 @@ The event homepage, player registration and live floor run on GitHub Pages. To r
 
 ## Email sign-in
 
-Codes last 10 minutes and work once. A student can request another after one minute. Five incorrect entries lock that code, and the service sends at most five codes per account in 24 hours. Use the newest email after a resend. Both roll and email sign-in require one unique address in the directory. E-Cell can resolve a missing or shared address after checking the student’s college ID.
+Codes last 10 minutes and work once. A student can request another after one minute. Five incorrect entries lock that code, and the service sends at most five codes per account in 24 hours. A resend keeps the same active code and its remaining guess limit. The screen reports mail failures and send limits. If the message is missing, open **Email hasn’t arrived?** and enter the roll and registered address together to check the match and request delivery. Both roll and email sign-in require one unique address in the directory. E-Cell can resolve a missing or shared address after checking the student’s college ID.
 
 The browser keeps the sign-in for the current tab. **Remember this device for 7 days** keeps it across visits. **Sign out** revokes that session. The private desk session lasts eight hours.
 
@@ -34,4 +34,8 @@ Gate actions require a college ID or wristband check. A spent entry code cannot 
 
 Keep the Google files restricted to the club. Share individual staff keys through the club’s existing private channel. After reconciliation and the club’s dispute window, close registration, revoke staff keys and remove the screenshot files, contact data, payment journal and local offline queue according to club policy. The private Journal records event decisions and payment references. Use an unshared club-owned folder.
 
-Run `npm test` for the event-state and payment checks. The suite uses synthetic student records.
+## Testing
+
+Run `npm ci` and `npx playwright install chromium` once. Use `npm test` for the server regression suite and `npm run test:e2e` for browser journeys. The browser suite runs the real event code against isolated student records, simulated Google storage and a test mailbox. It covers email recovery, duplicate submissions, payment review, entry QR, offline gate sync, desk retries, waitlist offers, table scoring and the public floor. To use installed Chrome, set the environment variable `POKER_BROWSER_CHANNEL` to `chrome`.
+
+After publishing Pages and Apps Script, run `npm run test:deploy`. This read-only smoke test checks the live routes, mobile layout, backend availability and public access boundaries. Live email delivery requires an explicitly requested send to the intended mailbox.

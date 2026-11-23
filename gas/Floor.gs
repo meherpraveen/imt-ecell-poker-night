@@ -25,7 +25,24 @@ function publicFloor_(st){
     deadline:g.active?g.active.deadline:0,next:g.next<8?stageName_(g.next):'',tables:h?h.tables.map((t,i)=>({name:TABLES[i],players:t.map(alias_),winner:(h.winners||[]).some(id=>t.includes(id))})):[],
     leaderboard:ranks.slice(0,12),champion:g.next===8&&h.winners.length?alias_(h.winners[0]):''};
 }
-function liveFloor(){return publicFloor_(ledger_())}
+function cacheFloorChange_(st){
+  try{
+    const revision=rand_();
+    CacheService.getScriptCache().put('public-floor:'+revision,JSON.stringify(publicFloor_(st)),30);
+    props_().setProperty('FLOOR_REVISION',revision);
+  }catch{/* A cache failure cannot undo a recorded table result. */}
+}
+function liveFloor(){
+  let key,cache;
+  try{
+    key='public-floor:'+(props_().getProperty('FLOOR_REVISION')||'initial');
+    cache=CacheService.getScriptCache();const cached=cache.get(key);
+    if(cached)return {...JSON.parse(cached),now:Date.now()};
+  }catch{/* Read the journal when the cache is unavailable. */}
+  const current=publicFloor_(ledger_());
+  try{if(cache)cache.put(key,JSON.stringify(current),30)}catch{}
+  return current;
+}
 function gamePreview(token){staff_(token,['floor']);const st=ledger_(),n=st.game.next;must_(n<8&&!st.game.active,'Finish the current stage first.');const ids=seated_(st,n),people=roster_();return {n,title:stageName_(n),tables:layout_(st,n,ids),names:Object.fromEntries(ids.map(id=>[id,people[st.attempts[id].roll]?.name||alias_(id)]))}}
 function startStage(token,n,tables){
   const staff=staff_(token,['floor']);return locked_(()=>{const st=ledger_(),g=st.game;must_(n===g.next&&n<8&&!g.active,'The floor has changed. Refresh the draw.');
@@ -64,7 +81,7 @@ function finishStage(token,n){
 function staffSnapshot(token){
   const staff=staff_(token,['desk','gate','floor']),st=ledger_(),as=Object.values(st.attempts),places=Object.values(st.venue);
   const finance=['admin','desk'].includes(staff.role),floor=['admin','floor'].includes(staff.role);
-  const students=roster_(),digestHits={},suffixHits={};
+  const students=as.length?roster_():{},digestHits={},suffixHits={};
   for(const a of as){if(a.digest)digestHits[a.digest]=(digestHits[a.digest]||0)+1}
   for(const a of as){if(!a.suffix)continue;const end=a.suffix.slice(-4);suffixHits[end]=(suffixHits[end]||0)+1}
   const records=as.slice().reverse().filter(a=>finance||issued_(a)).map(a=>{

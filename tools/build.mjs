@@ -6,6 +6,7 @@ const root=fileURLToPath(new URL('../',import.meta.url));
 const read=p=>fs.readFileSync(path.join(root,p),'utf8');
 const require=createRequire(import.meta.url);
 const library=fs.readFileSync(require.resolve('qrcode-generator',{paths:[root,...(process.env.POKER_BUILD_LIBS?[process.env.POKER_BUILD_LIBS]:[])]}),'utf8');
+fs.writeFileSync(path.join(root,'docs/assets/qrcode-1.4.4.js'),library);
 const out=path.join(root,'.deploy');
 fs.mkdirSync(out,{recursive:true});
 for(const f of ['appsscript.json','Code.gs','Floor.gs','Auth.gs'])fs.copyFileSync(path.join(root,'gas',f),path.join(out,f));

@@ -1,7 +1,17 @@
 {
-  "name":"imt-ecell-poker-night",
-  "private":true,
-  "type":"module",
-  "scripts":{"build":"node tools/build.mjs","test":"node --test tests/event.test.cjs"},
-  "dependencies":{"qrcode-generator":"1.4.4"}
+  "name": "imt-ecell-poker-night",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node tools/build.mjs",
+    "test": "node --test tests/event.test.cjs",
+    "test:e2e": "node tools/build.mjs && playwright test --grep-invert @deployed",
+    "test:deploy": "playwright test deployed.spec.mjs"
+  },
+  "dependencies": {
+    "qrcode-generator": "1.4.4"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.65.1"
+  }
 }

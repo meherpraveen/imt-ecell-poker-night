@@ -12,18 +12,21 @@ let playerSession=unpack(tabValue('player-login')||durable.get('player-login'));
 let challenge=unpack(tabValue('email-step')), pendingRequest=tabValue('seat-request'), accountInfo;
 let preferredReceipt=incomingReceipt||tabValue('receipt-link')||'';
 if(incomingReceipt)tabValue('receipt-link',incomingReceipt);
-function signInPage(){
+function signInPage(keepForm=false){
   challenge=null;tabValue('email-step','');heading('PLAYER REGISTRATION','Sign in to Poker Night');
+  if(keepForm&&el('identifier')&&document.documentElement.dataset.entry==='register')return;
   const entry=signInForm('requestCode','<p>We’ll send a six-digit code to the email on your student record.</p>'+
     input('identifier','Roll number or registered email','type="text" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="254" required placeholder="Nine-digit roll number or email"'),'Send code');
   el('content').innerHTML='<div class="narrow login-card">'+panel('Student sign-in',entry)+'</div>';
 }
 function codePage(){
   heading('PLAYER REGISTRATION','Check your email');
-  const form=signInForm('verifyCode','<p>If your details match the student record, your code will arrive in that inbox. Use the latest code within 10 minutes.</p>'+
+  const form=signInForm('verifyCode','<p>Check the email on your student record, including Spam. A code works for 10 minutes. Resending a valid code keeps the same six digits.</p>'+
     codeInput()+checkbox('remember','Remember this device for 7 days'),'Verify and continue');
-  el('content').innerHTML='<div class="narrow login-card">'+panel('Enter your sign-in code',form+btn('resendCode','Resend code')+btn('changeLogin','Change roll number or email')+
-    '<p class="sub">Check Spam if the email hasn’t arrived. E-Cell can help if your registered address has changed.</p>')+'</div>';
+  const help='<details><summary>Email hasn’t arrived?</summary><p>Check which inbox matches your roll number. We can only send to the address already on your student record.</p>'+
+    signInForm('matchMail',rollField('matchRoll')+input('matchEmail','Email on your student record','type="email" autocomplete="email" required maxlength="254"'),'Check details and send code')+'</details>';
+  el('content').innerHTML='<div class="narrow login-card">'+panel('Enter your sign-in code',form+btn('resendCode','Resend code')+btn('changeLogin','Change roll number or email')+help)+'</div>';
+  if(/^\d{9}$/.test(challenge.identifier))el('matchRoll').value=challenge.identifier;else el('matchEmail').value=challenge.identifier;
   startResendTimer(challenge.resendAt);el('loginCode').focus();
 }
 function clearPlayer(){
@@ -43,7 +46,10 @@ function registrationPage(){
   el('content').innerHTML='<div class="narrow">'+panel(title,'<p>'+esc(next)+'</p>'+(info.open?btn('start',info.paymentsReady?'Request a seat':'Save my registration','primary'):''))+btn('logout','Sign out')+'</div>';
 }
 async function loadAccount(){
-  accountInfo=await playerApi('playerHome',preferredReceipt||'');
+  renderAccount(await playerApi('playerHome',preferredReceipt||''));
+}
+function renderAccount(info){
+  accountInfo=info;
   tabValue('receipt-link','');
   if(accountInfo.receipt)showReceipt(accountInfo.receipt);else{preferredReceipt='';durable.set('receipt','');registrationPage()}
 }
@@ -74,7 +80,7 @@ function showReceipt(r){
     const labels={REVIEW:['Payment under review','The desk will check the coordinator’s incoming payment. Keep this page. Please pay only once.'],WAITLIST:['On the waitlist','All available seats are held. Wait for a seat offer here before paying.'],EXPIRED:['Hold expired','If you paid, bring your bank reference to the desk before making another payment.'],REJECTED:['Proof needs attention',r.reason||'Contact the desk with your receipt.'],NO_SHOW:['No-show recorded','Speak to the desk if you are at the venue.'],RELEASED:['Offer released','Speak to the desk for your current attempt.']};
     const [title,bodyText]=labels[r.status]||['Payment verified',r.delivery==='Email sent'?'Your entry code was emailed to your registered address. Bring your college ID.':'The desk can deliver your code using your registered contact or college ID.'];
     body+=panel(title,'<p>'+esc(bodyText)+'</p>'+(r.wave?'<p>Round 1 · Wave '+r.wave+'</p>':'')+
-      (r.entryCode?'<p>Show this entry code with your college ID at the gate.</p><p><code>'+esc(r.entryCode)+'</code></p>':'')+btn('receipt','Refresh status'));
+      (r.entryCode?'<p>Show this entry code with your college ID at the gate.</p><p><code>'+esc(r.entryCode)+'</code></p><a class="button primary" href="https://meherpraveen.github.io/imt-ecell-poker-night/event.html?view=pass#code='+encodeURIComponent(r.entryCode)+'">Open entry QR</a>':'')+btn('receipt','Refresh status'));
     if(['EXPIRED','RELEASED','REJECTED'].includes(r.status)&&accountInfo?.open)body+=btn('renew','Request another seat');
   }
   el('content').innerHTML='<div class="narrow">'+body+btn('logout','Sign out')+'</div>';
@@ -88,23 +94,29 @@ function showReceipt(r){
 }
 async function action(name){
   if(name==='changeLogin'){signInPage();el('identifier').focus();return}
-  if(name==='requestCode'||name==='resendCode'){
-    const identifier=name==='resendCode'?challenge.identifier:val('identifier');
+  if(name==='requestCode'||name==='resendCode'||name==='matchMail'){
+    const identifier=name==='resendCode'?challenge.identifier:name==='matchMail'?val('matchRoll'):val('identifier');
     if(!/^\d{9}$/.test(identifier)&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(identifier))throw Error('Enter your nine-digit roll number or your registered email address.');
-    const reply=await api('requestPlayerCode',identifier);
-    challenge={identifier,resendAt:Date.now()+reply.resendAfter*1000,expires:Date.now()+600000};
-    tabValue('email-step',JSON.stringify(challenge));codePage();return;
+    const reply=name==='matchMail'?await api('requestMatchedPlayerCode',identifier,val('matchEmail')):await api('requestPlayerCode',identifier);
+    challenge={identifier,resendAt:Date.now()+reply.resendAfter*1000,expires:Date.now()+(reply.expiresIn??600)*1000};
+    tabValue('email-step',JSON.stringify(challenge));codePage();
+    if(name==='matchMail')msg(reply.delivery==='accepted'?'Your details match. Google accepted the email for delivery.':reply.delivery==='existing'?'Your details match. Your existing email code is still active.':'Your details match. A send is already in progress.');
+    return;
   }
   if(name==='verifyCode'){
     const remember=el('remember').checked;
-    playerSession=await api('verifyPlayerCode',challenge.identifier,val('loginCode'));
+    const signed=await api('signInPlayer',challenge.identifier,val('loginCode'),preferredReceipt||'');
+    playerSession=signed.session;
+    durable.set('player-login','');tabValue('player-login','');
     (remember?durable.set:tabValue)('player-login',JSON.stringify(playerSession));
     tabValue('email-step','');challenge=null;
+    if(signed.account){renderAccount(signed.account);return}
     heading('PLAYER REGISTRATION','Signed in');
     el('content').innerHTML='<div class="narrow">'+panel('Your account',btn('account','Open registration','primary')+btn('logout','Sign out'))+'</div>';
-    await loadAccount();return;
+    msg('Your sign-in was saved. Open registration to retry loading your receipt.');return;
   }
   if(name==='account'){await loadAccount();return}
+  if(name==='refreshBoard'){await refreshBoard();return}
   if(name==='logout'){const token=playerSession?.token;clearPlayer();signInPage();if(token)await api('playerLogout',token);return}
   if(name==='renew'){preferredReceipt='';durable.set('receipt','');registrationPage();return}
   if(name==='start'){
@@ -124,24 +136,64 @@ async function action(name){
   }
   if(name==='upload'){if(!el('consent').checked)throw Error('Please confirm proof sharing before continuing.');const data=await picture(el('shot').files[0]);showReceipt(await playerApi('playerUpload',preferredReceipt,val('tail'),data));return}
 }
+let boardRequest,boardFingerprint='',boardTimer;
+function paintBoard(data,received){
+  const {now,...display}=data,fingerprint=JSON.stringify(display);
+  if(fingerprint!==boardFingerprint){el('content').innerHTML=board(data);boardFingerprint=fingerprint}
+  clockEnd=data.deadline?received+(data.deadline-now):0;tick();
+}
+function updateBoardLater(){
+  clearTimeout(boardTimer);
+  if(!document.hidden&&navigator.onLine)boardTimer=setTimeout(refreshBoard,15000);
+}
+function refreshBoard(){
+  if(boardRequest)return boardRequest;
+  clearTimeout(boardTimer);
+  boardRequest=(async()=>{
+    try{
+      const data=await api('liveFloor'),received=Date.now();
+      paintBoard(data,received);tabValue('floor-snapshot',JSON.stringify({data,received}));el('net').textContent='';
+    }catch{
+      el('net').textContent=boardFingerprint?'Connection interrupted. Showing the last update.':'The floor could not load. Check your connection.';
+      if(!boardFingerprint)el('content').innerHTML=btn('refreshBoard','Retry live floor');
+    }finally{boardRequest=null;updateBoardLater()}
+  })();
+  return boardRequest;
+}
+async function renderPass(){
+  heading('TRAINER PASS','Your entry pass');
+  const code=document.body.dataset.pass;
+  if(!/^PN-[A-Z0-9]{16}$/.test(code||''))throw Error('Open the complete pass link from your email or registration.');
+  const pass=await api('passInfo',code),usable=pass.active&&!pass.used;
+  el('content').innerHTML='<div class="narrow">'+panel(pass.used?'Pass already scanned':usable?'Show at the gate':'Attempt closed',
+    (usable?'<div id="passImage" class="pass-image"></div><p><code>'+esc(pass.code)+'</code></p>':'')+
+    '<p>Round 1 · Wave '+pass.wave+'. Bring your college ID. Use your wristband for a venue return.</p>')+'</div>';
+  if(!usable)return;
+  try{
+    if(typeof qrcode!=='function')await new Promise((resolve,reject)=>{const script=document.createElement('script');script.onload=resolve;script.onerror=reject;script.src='assets/qrcode-1.4.4.js';document.head.append(script)});
+    el('passImage').innerHTML=qr(pass.code);
+  }catch{el('passImage').textContent='Show the entry code below at the gate.'}
+}
 async function launch(){try{
   if(mode==='unavailable'){heading('POKER NIGHT','Page unavailable');el('content').replaceChildren();return}
-  if(mode==='board'){heading('LIVE FLOOR','Tournament floor');el('content').innerHTML=board(await api('liveFloor'));tick();return}
-  if(mode==='pass'){heading('TRAINER PASS','Your entry pass');const code=document.body.dataset.pass;if(!/^PN-[A-Z0-9]{16}$/.test(code))throw Error('Open the complete pass link from your email.');const pass=await api('passInfo',code);el('content').innerHTML='<div class="narrow">'+panel(pass.used?'Pass already scanned':pass.active?'Show at the gate':'Attempt closed',(pass.active&&!pass.used?qr(pass.code)+'<p><code>'+esc(pass.code)+'</code></p>':'')+'<p>Round 1 · Wave '+pass.wave+'. Bring your college ID. Use your wristband for a venue return.</p>')+'</div>';return}
+  if(mode==='board'){
+    heading('LIVE FLOOR','Tournament floor');
+    const cached=unpack(tabValue('floor-snapshot'));
+    if(cached?.data&&Date.now()-cached.received<120000){paintBoard(cached.data,cached.received);el('net').textContent='Updating the live floor…'}
+    await refreshBoard();return;
+  }
+  if(mode==='pass'){await renderPass();return}
   if(playerSession?.expires>Date.now()){
-    heading('PLAYER REGISTRATION','Your account');el('content').innerHTML='<div class="narrow">'+panel('Registration',btn('account','Open registration','primary')+btn('logout','Sign out'))+'</div>';
+    heading('PLAYER REGISTRATION','Your registration');
+    el('content').innerHTML='<div class="narrow">'+panel('Your account',btn('account','Open registration','primary')+btn('logout','Sign out'))+'</div>';
     await loadAccount();return;
   }
   if(challenge?.expires>Date.now()){codePage();return}
-  signInPage();
-  const p=await api('publicInfo');
-  if(el('identifier')&&!p.open)msg(p.message||'Online registration is currently closed.');
+  signInPage(true);
+  if(window.pendingPokerSignIn){window.pendingPokerSignIn=false;el('identifier').form.requestSubmit()}
 }catch(e){msg(e.message||'The club desk is temporarily unavailable.',true)}}
-addEventListener('online',()=>{el('net').textContent=''});
+addEventListener('online',()=>{el('net').textContent='';if(mode==='board')refreshBoard()});
 addEventListener('offline',()=>{el('net').textContent='Offline. Reconnect for updates.'});
-if(mode==='board')setInterval(async()=>{
-  if(document.hidden||!navigator.onLine)return;
-  try{el('content').innerHTML=board(await api('liveFloor'));tick()}
-  catch{el('net').textContent='Connection interrupted. Showing the last update.'}
-},15000);
+if(mode==='board')document.addEventListener('visibilitychange',()=>{if(document.hidden)clearTimeout(boardTimer);else if(navigator.onLine)refreshBoard()});
+window.pokerReady=true;
 launch();

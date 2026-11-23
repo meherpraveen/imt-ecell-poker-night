@@ -60,37 +60,92 @@ function equalDigest_(a, b) {
   return difference === 0;
 }
 
-function sendLoginCode_(identity, owner) {
-  return locked_(() => {
-    const now = Date.now(), properties = props_();
-    authCleanup_(now);
-    const quota = MailApp.getRemainingDailyQuota();
-    must_(quota > (owner ? 0 : 1), 'Email sign-in has reached its sending limit. Try again later or contact E-Cell with your college ID.');
-    const reply = {resendAfter:CODE_RESEND / 1000};
-    if (!identity) return reply;
-    const key = challengeKey_(identity);
-    let state = JSON.parse(properties.getProperty(key) || 'null');
-    if (!state) state = {lastSent:0};
-    if (!state.windowEnd || state.windowEnd <= now) {
-      state.sends = 0;
-      state.windowEnd = now + AUTH_DAY;
-    }
-    // The same response applies to unknown accounts, cooldowns and exhausted requests.
-    if (now - state.lastSent < CODE_RESEND || state.sends >= 5 || (state.failures >= 5 && state.codeUntil > now)) return reply;
-    const nonce = rand_(), code = codeFor_(key, nonce);
-    const purpose = owner ? 'sign in to the E-Cell admin desk' : 'sign in to Poker Night';
+// Track reservations while Google is accepting mail, so that delivery never holds the gate's write lock.
+function pendingMail_(now) {
+  const slots = JSON.parse(props_().getProperty('MAIL_IN_FLIGHT') || '{}');
+  for (const ref of Object.keys(slots)) if (slots[ref] <= now) delete slots[ref];
+  return slots;
+}
+function remainingMail_(slots) {
+  return MailApp.getRemainingDailyQuota() - Object.keys(slots).length;
+}
+
+function planCode_(identity, owner) {
+  const now = Date.now(), properties = props_();
+  authCleanup_(now);
+  const slots = pendingMail_(now);
+  const available = remainingMail_(slots) > (owner ? 0 : 1);
+  const limitMessage = 'Email sending has reached its daily limit. You can still enter an unexpired code. Otherwise try later or contact E-Cell.';
+  if (!identity) {
+    must_(available, limitMessage);
+    return {wait:60, expiresIn:600};
+  }
+  const key = challengeKey_(identity), state = JSON.parse(properties.getProperty(key) || '{}');
+  if (!state.windowEnd || state.windowEnd <= now) {state.windowEnd = now + AUTH_DAY; state.sends = 0}
+  const remaining = Math.max(0,Math.ceil(((state.codeUntil || 0)-now)/1000));
+  const active = !!state.verifier && remaining > 0;
+  must_(!(remaining && state.failures >= 5), 'Too many incorrect codes. Request a new code in '+Math.ceil(remaining/60)+' minutes.');
+  if (slots[state.pending]) return {wait:60, expiresIn:remaining || 600, delivery:'pending'};
+  const cooldown = Math.ceil(((state.lastSent || 0) + CODE_RESEND-now)/1000);
+  if (cooldown > 0) {
+    must_(active, 'You recently used your code. Request another in '+cooldown+' seconds.');
+    return {wait:cooldown, expiresIn:remaining, delivery:'existing'};
+  }
+  if(state.sends>=5)must_(false,'This account has reached its sign-in email limit. Enter an unexpired code or try again in about '+Math.ceil((state.windowEnd-now)/3600000)+' hours.');
+  must_(available, limitMessage);
+  const ref = rand_().slice(0,16), nonce = active ? state.nonce : rand_();
+  const code=codeFor_(key,nonce);
+  slots[ref] = now + 180000;
+  state.pending = ref;state.sends++;
+  if(!active){
+    // Save the verifier before mail leaves. A lost response cannot strand a delivered code.
+    state.nonce=nonce;state.verifier=mac_('login-check:'+key+':'+nonce+':'+code);
+    state.failures=0;state.codeUntil=now+CODE_LIFETIME;
+  }
+  state.expires = Math.max(state.windowEnd, now + CODE_LIFETIME);
+  properties.setProperty(key, JSON.stringify(state));
+  properties.setProperty('MAIL_IN_FLIGHT', JSON.stringify(slots));
+  return {key,ref,nonce,active,code};
+}
+
+function finishMail_(plan,accepted) {
+  const properties=props_(), now=Date.now(), slots=pendingMail_(now);
+  delete slots[plan.ref];properties.setProperty('MAIL_IN_FLIGHT',JSON.stringify(slots));
+  const state=JSON.parse(properties.getProperty(plan.key) || '{}');
+  if(state.pending!==plan.ref)return {wait:60,expiresIn:0,delivery:'superseded'};
+  delete state.pending;
+  if(accepted){
+    state.lastSent=now;
+    // A resend never resets the guess limit or reinstates a code consumed during delivery.
+    if(state.verifier && state.nonce===plan.nonce)state.codeUntil=now+CODE_LIFETIME;
+    state.expires=Math.max(state.windowEnd,state.codeUntil || 0);
+  }else{
+    state.sends=Math.max(0,state.sends-1);
+    if(!plan.active&&state.nonce===plan.nonce){delete state.verifier;delete state.nonce;state.codeUntil=0}
+  }
+  properties.setProperty(plan.key,JSON.stringify(state));
+  return {wait:60,expiresIn:Math.max(0,Math.ceil(((state.codeUntil || 0)-now)/1000)),delivery:accepted?'accepted':'failed'};
+}
+
+function sendLoginCode_(identity, owner, confirmed=false) {
+  let result=locked_(()=>planCode_(identity,owner),false);
+  if (result.ref) {
+    const plan=result, purpose=owner?'open the E-Cell admin desk':'sign in to Poker Night';
+    let accepted=false;
     try {
-      MailApp.sendEmail(identity.email, 'Your E-Cell Poker Night sign-in code',
-        'Enter ' + code + ' to ' + purpose + '. This code expires in 10 minutes and works once.\n\n' +
-        'This is a sign-in code. Your venue entry pass is issued after payment verification.\n\n' +
-        'If you did not request this message, you can ignore it.');
+      MailApp.sendEmail(identity.email,'Your E-Cell Poker Night sign-in code',
+        plan.code+' is your sign-in code.\n\nEnter it on the Poker Night page to '+purpose+'. It works once and expires in 10 minutes.\n\nIf you did not request a code, ignore this email.',
+        {name:'IMT E-Cell Poker Night',replyTo:clubOwner_()});
+      accepted=true;
     } catch {
-      must_(false, 'Email delivery is temporarily unavailable. Try sending the code again in a minute.');
+      console.warn('Poker Night sign-in mail provider declined request '+plan.ref);
     }
-    properties.setProperty(key, JSON.stringify({...state, sends:state.sends+1, lastSent:now, nonce,
-      verifier:mac_('login-check:' + key + ':' + nonce + ':' + code), failures:0, codeUntil:now+CODE_LIFETIME, expires:Math.max(state.windowEnd,now+CODE_LIFETIME)}));
-    return reply;
-  });
+    result=locked_(()=>finishMail_(plan,accepted),false);
+    must_(accepted,'Email delivery is temporarily unavailable. Try again in a minute. An earlier unexpired code still works.');
+  }
+  const reply={resendAfter:result.wait,expiresIn:result.expiresIn};
+  if(owner||confirmed)reply.delivery=result.delivery;
+  return reply;
 }
 
 // Call while holding the script lock, including creation of the verified session.
@@ -137,12 +192,26 @@ function requestPlayerCode(identifier) {
   return sendLoginCode_(playerIdentity_(identifier), false);
 }
 
-function verifyPlayerCode(identifier, code) {
+function requestMatchedPlayerCode(roll,email) {
+  const identity=playerIdentity_(roll_(roll));
+  must_(identity && emailAddress_(email)===identity.email,'That roll and email do not match one student record. E-Cell can check the registered address against your college ID.');
+  return sendLoginCode_(identity,false,true);
+}
+function authenticatePlayer_(identity,code) {
   return locked_(() => {
-    const identity = playerIdentity_(identifier);
     consumeLoginCode_(identity, code);
     return newSession_('player', 'p', {roll:identity.id, emailTag:mac_('mail:' + identity.email)}, 7 * AUTH_DAY);
-  });
+  },false);
+}
+function verifyPlayerCode(identifier, code) {
+  return authenticatePlayer_(playerIdentity_(identifier),code);
+}
+function signInPlayer(identifier,code,preferred) {
+  const identity=playerIdentity_(identifier);
+  const session=authenticatePlayer_(identity,code);
+  // A temporary checkout read failure must never consume the student's sign-in without returning the session.
+  try { return {session,account:accountForRoll_(identity.id,preferred)} }
+  catch { return {session,account:null} }
 }
 
 function playerRoll_(token) {

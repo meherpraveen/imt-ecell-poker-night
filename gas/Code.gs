@@ -11,8 +11,9 @@ function ref_(v){return /^\d{12}$/.test(String(v||'').trim())?String(v).trim():'
 function must_(ok,message){
   if(!ok){const error=new Error(message);error.name='EventValidationError';throw error}
 }
-function locked_(fn){const l=LockService.getScriptLock();l.waitLock(24000);try{return fn()}finally{try{SpreadsheetApp.flush()}finally{l.releaseLock()}}}
-function book_(){return SpreadsheetApp.openById(props_().getProperty('BOOK'))}
+function locked_(fn,flush=true){const l=LockService.getScriptLock();l.waitLock(24000);try{return fn()}finally{try{if(flush)SpreadsheetApp.flush()}finally{l.releaseLock()}}}
+let executionBook;
+function book_(){return executionBook||(executionBook=SpreadsheetApp.openById(props_().getProperty('BOOK')))}
 function onOpen(e){
   SpreadsheetApp.getUi().createMenu('Poker Night').addItem('Set up club desk','setupEvent').addToUi();
   if(e && e.source && e.source.getId()===props_().getProperty('BOOK')){
@@ -70,6 +71,7 @@ function doPost(event){
     const methods=new Map([
       ['publicInfo',[publicInfo,0]],['liveFloor',[liveFloor,0]],
       ['requestPlayerCode',[requestPlayerCode,1]],['verifyPlayerCode',[verifyPlayerCode,2]],['playerLogout',[playerLogout,1]],
+      ['requestMatchedPlayerCode',[requestMatchedPlayerCode,2]],['signInPlayer',[signInPlayer,3]],['passInfo',[passInfo,1]],
       ['playerHome',[playerHome,2]],['playerStart',[playerStart,3]],['playerStatus',[playerStatus,2]],
       ['playerCheckout',[playerCheckout,2]],['playerUpload',[playerUpload,4]]
     ]);
@@ -129,6 +131,7 @@ function ledger_(){
 function commit_(st,action,actor,patch){
   const json=JSON.stringify(patch);must_(json.length<49000,'This update is too large. Contact the desk.');
   book_().getSheetByName('Journal').appendRow([Date.now(),action,actor,json]);SpreadsheetApp.flush();apply_(st,patch);
+  if(patch.game)cacheFloorChange_(st);
 }
 function staffList_(){const s=book_().getSheetByName('Staff'),n=s.getLastRow()-1;return n?s.getRange(2,1,n,4).getDisplayValues():[]}
 function activeStaff_(row){return row[3].toLowerCase()==='yes'&&ROLE.includes(row[1])&&/^[a-z0-9]{40}$/i.test(row[2])&&(row[1]!=='admin'||(!!emailAddress_(row[0])&&emailAddress_(row[0])===clubOwner_()))}
@@ -218,13 +221,13 @@ function publicInfo(){
   return signupInfo_(settings,Date.now());
 }
 function playerHome(session,preferred){
-  const roll=playerRoll_(session);
-  return locked_(()=>{
-    const st=ledger_(),set=settings_(),now=Date.now(),saved=fromReceipt_(st,preferred);
-    const latest=Object.values(st.attempts).filter(a=>a.roll===roll).sort((a,b)=>b.created-a.created)[0];
-    const attempt=saved&&saved.roll===roll?saved:latest;
-    return {...signupInfo_(set,now),fee:now<DESK_OPENS?FEES.pre:FEES.walk,receipt:attempt?receipt_(attempt,set):null};
-  });
+  return accountForRoll_(playerRoll_(session),preferred);
+}
+function accountForRoll_(roll,preferred){
+  const st=ledger_(),set=settings_(),now=Date.now(),saved=fromReceipt_(st,preferred);
+  const latest=Object.values(st.attempts).filter(a=>a.roll===roll).sort((a,b)=>b.created-a.created)[0];
+  const attempt=saved&&saved.roll===roll?saved:latest;
+  return {...signupInfo_(set,now),fee:now<DESK_OPENS?FEES.pre:FEES.walk,receipt:attempt?receipt_(attempt,set):null};
 }
 function playerStart(session,previous,requestId){
   const roll=playerRoll_(session);
@@ -265,7 +268,7 @@ function receipt_(a,set){
 }
 function playerStatus(session,ticket){
   const roll=playerRoll_(session);
-  return locked_(()=>receipt_(ownReceipt_(ledger_(),ticket,roll),settings_()));
+  return receipt_(ownReceipt_(ledger_(),ticket,roll),settings_());
 }
 function playerCheckout(session,ticket){
   const roll=playerRoll_(session);
@@ -307,10 +310,11 @@ function passInfo(code){const a=byCode_(ledger_(),code);must_(a,'This pass could
 function proofImage(token,id){staff_(token,['desk']);const a=ledger_().attempts[id];must_(a&&a.file,'No screenshot was uploaded for this attempt.');const b=DriveApp.getFileById(a.file).getBlob();return 'data:'+b.getContentType()+';base64,'+Utilities.base64Encode(b.getBytes())}
 function mailCode_(st,a,person,actor){
   let delivery='Desk delivery needed';
-  if(person&&emailAddress_(person.email)&&MailApp.getRemainingDailyQuota()>1){
-    try{const code=pass_(a.id),url=ScriptApp.getService().getUrl();
+  if(person&&emailAddress_(person.email)){
+    try{must_(remainingMail_(pendingMail_(Date.now()))>1,'Email sending limit reached.');
+      const code=pass_(a.id),url='https://meherpraveen.github.io/imt-ecell-poker-night/event.html?view=pass#code='+encodeURIComponent(code);
       MailApp.sendEmail(person.email,'E-Cell Poker Night · '+(a.kind==='retry'?'retry':'entry')+' pass',
-        'Your ₹'+a.fee+' payment is verified. Round 1 wave '+(a.wave+1)+'.\n\nYour single-use code is '+code+'\n'+(url?url+'?view=pass&p='+code+'\n':'')+'\nBring your college ID. Show this pass only to event staff.',{name:'IMT E-Cell Poker Night'});
+        'Your ₹'+a.fee+' payment is verified. Round 1 wave '+(a.wave+1)+'.\n\nYour single-use code is '+code+'\n'+url+'\n\nBring your college ID. Show this pass only to event staff.',{name:'IMT E-Cell Poker Night'});
       delivery='Email sent';
     }catch(e){delivery='Desk delivery needed'}
   }

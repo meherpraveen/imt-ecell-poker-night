@@ -153,11 +153,12 @@ test('wrong codes have five attempts, expire after ten minutes and sends are bou
   const old=mailDigits(loginMail),wrong=old==='000000'?'111111':'000000';
   for(let i=0;i<5;i++)assert.throws(()=>ctx.verifyPlayerCode(roll,wrong),/incorrect or has expired/);
   assert.throws(()=>ctx.verifyPlayerCode(roll,old));
-  at('2026-11-25T12:02:00+05:30');ctx.requestPlayerCode(roll);assert.equal(loginMail.length,1);
+  at('2026-11-25T12:02:00+05:30');assert.throws(()=>ctx.requestPlayerCode(roll),/Too many incorrect/);assert.equal(loginMail.length,1);
   at('2026-11-25T12:11:00+05:30');ctx.requestPlayerCode(roll);
   const next=mailDigits(loginMail);
   at('2026-11-25T12:21:00+05:30');assert.throws(()=>ctx.verifyPlayerCode(roll,next));
-  for(const minute of [22,23,24,25,26]){at('2026-11-25T12:'+minute+':00+05:30');ctx.requestPlayerCode(roll)}
+  for(const minute of [22,23,24]){at('2026-11-25T12:'+minute+':00+05:30');ctx.requestPlayerCode(roll)}
+  at('2026-11-25T12:26:00+05:30');assert.throws(()=>ctx.requestPlayerCode(roll),/sign-in email limit/);
   assert.equal(loginMail.length,5);
   at('2026-11-26T12:30:00+05:30');ctx.requestPlayerCode(roll);assert.equal(loginMail.length,6);
 });
@@ -167,7 +168,27 @@ test('failed mail can be retried, and the last available email is reserved for t
   assert.throws(()=>ctx.requestPlayerCode('123456789'),/delivery is temporarily unavailable/);
   ctx.MailApp.sendEmail=deliver;ctx.requestPlayerCode('123456789');assert.equal(loginMail.length,1);
   ctx.MailApp.getRemainingDailyQuota=()=>1;
-  for(const id of ['222222222','987654321'])assert.throws(()=>ctx.requestPlayerCode(id),/sending limit/);
+  for(const id of ['222222222','987654321'])assert.throws(()=>ctx.requestPlayerCode(id),/daily limit/);
+});
+test('a concurrent request shares the pending send and a delayed resend cannot revive a consumed code',()=>{
+  const f=fixture(),{ctx,loginMail}=f,original=ctx.MailApp.sendEmail,roll='123456789',email='sample@example.test';
+  ctx.MailApp.sendEmail=(...args)=>{
+    assert.equal(ctx.requestMatchedPlayerCode(roll,email).delivery,'pending');original(...args);
+  };
+  assert.equal(ctx.requestMatchedPlayerCode(roll,email).delivery,'accepted');
+  assert.equal(loginMail.length,1);const first=mailDigits(loginMail);
+  f.at('2026-11-25T12:02:00+05:30');let verified;
+  ctx.MailApp.sendEmail=(...args)=>{verified=ctx.verifyPlayerCode(roll,first);original(...args)};
+  ctx.requestMatchedPlayerCode(roll,email);assert.ok(verified.token);assert.equal(mailDigits(loginMail),first);
+  assert.throws(()=>ctx.verifyPlayerCode(roll,first));assert.throws(()=>ctx.requestPlayerCode(roll),/recently used/);
+});
+test('a failed resend leaves the original code usable, including when checkout is temporarily offline',()=>{
+  const {ctx,loginMail,at}=fixture();ctx.requestPlayerCode('123456789');const code=mailDigits(loginMail);
+  at('2026-11-25T12:02:00+05:30');ctx.MailApp.sendEmail=()=>{throw Error('Temporary failure')};
+  assert.throws(()=>ctx.requestPlayerCode('123456789'),/temporarily unavailable/);
+  ctx.ledger_=()=>{throw Error('Temporarily unavailable')};
+  const signed=ctx.signInPlayer('123456789',code,'');assert.equal(signed.account,null);
+  assert.equal(ctx.playerRoll_(signed.session.token),'123456789');
 });
 test('receipts and approved gate codes require the matching verified player across devices',()=>{
   const f=fixture(),{ctx}=f,attempt=pay(f),a=f.sessionFor(),b=f.sessionFor('987654321');

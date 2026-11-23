@@ -6,6 +6,15 @@
 .stage h2{font:650 1.55rem/1.15 "DM Sans","Segoe UI",sans-serif;letter-spacing:-.025em;margin:0 0 .9rem}
 .stage h3{font:700 1.1rem/1.25 "DM Sans","Segoe UI",sans-serif;margin:.3rem 0 .6rem}
 .narrow{max-width:560px}
+[data-shell]{display:none}
+html[data-entry=register] [data-shell=register],html[data-entry=account] [data-shell=account],html[data-entry=code] [data-shell=code],html[data-entry=board] [data-shell=board],html[data-entry=pass] [data-shell=pass],html[data-entry=unavailable] [data-shell=unavailable],html:is([data-entry=register],[data-entry=account],[data-entry=code]) [data-shell=student]{display:revert}
+.board-loading{min-height:10rem;color:var(--muted)}
+#msg:not(:empty),#net:not(:empty){margin-top:1rem}
+.login-card details{margin-top:1rem}
+.login-card summary{cursor:pointer;text-decoration:underline;text-underline-offset:3px}
+.timer{font-variant-numeric:tabular-nums;min-width:4.5ch}
+.payment-qr img{width:min(100%,300px);aspect-ratio:1}
+.pass-image{min-height:165px}
 .login-card{max-width:32rem}
 .login-card .panel{border-top:3px solid var(--lime)}
 .login-card form>p:first-child{color:var(--muted);margin:0 0 1.25rem}
