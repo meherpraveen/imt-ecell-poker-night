@@ -1,0 +1,14 @@
+.clasp*
+.env*
+!.env.example
+node_modules/
+.local/
+.deploy/
+private/
+*.xlsx
+*.xls
+*.csv
+*.tsv
+*.log
+*.pem
+*.key
