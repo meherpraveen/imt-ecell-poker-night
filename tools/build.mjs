@@ -42,6 +42,7 @@ const out=path.join(root,'.deploy');
 fs.mkdirSync(out,{recursive:true});
 for(const f of ['appsscript.json','Code.gs','Floor.gs','Auth.gs'])fs.copyFileSync(path.join(root,'gas',f),path.join(out,f));
 const page=read('web/App.html')
+  .replace('__CLUB_LOGO__',()=> 'data:image/webp;base64,'+fs.readFileSync(path.join(root,assets+'imt-ecell-logo.webp')).toString('base64'))
   .replace('/* BASE_STYLES */',()=>baseStyles)
   .replace('/* EVENT_STYLES */',()=>eventStyles)
   .replace('/* QR_LIBRARY */',()=>library)

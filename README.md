@@ -42,6 +42,8 @@ Keep the Google files restricted to the club. Share individual staff keys throug
 
 Edit the scripts, styles and shared sponsor section in `web/`. The optimized event and sponsor artwork lives in `docs/assets/`. Run `npm run build` to regenerate the public styles, scripts, sponsor sections and Apps Script package.
 
+The header uses the white Entrepreneurship Cell logo from the organizers’ Poker Night poster. The build embeds the same mark in the Apps Script interface. [IMT Ghaziabad E-Cell](https://www.youtube.com/channel/UCY31HTa4tP6vbMFoO5TAk6g)
+
 Run `npm ci` and `npx playwright install chromium` once. Use `npm test` for the server regression suite and `npm run test:e2e` for browser journeys. The browser suite runs the real event code against isolated student records, simulated Google storage and a test mailbox. It covers email recovery, duplicate submissions, payment review, entry QR, offline gate sync, desk retries, waitlist offers, table scoring and the public floor. To use installed Chrome, set the environment variable `POKER_BROWSER_CHANNEL` to `chrome`.
 
 After publishing Pages and Apps Script, run `npm run test:deploy`. This read-only smoke test checks the live routes, mobile layout, backend availability and public access boundaries. Live email delivery requires an explicitly requested send to the intended mailbox.

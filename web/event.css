@@ -1,8 +1,7 @@
 .appbar{padding-block:.6rem}
 .appbar a{text-decoration:none}
-.appbar small{color:var(--muted)}
-.stage{padding-block:clamp(1.65rem,4vw,3.2rem);min-height:76svh;border-top:4px solid #e95764;background:radial-gradient(ellipse at 82% 8%,#23355480,transparent 62%),var(--bg)}
-.stage .eyebrow:not(:empty)::before{content:"";display:inline-block;width:8px;height:8px;margin-right:.65rem;background:var(--cyan);box-shadow:2px 2px #39768c}
+.stage{padding-block:clamp(1.65rem,4vw,3.2rem);min-height:76svh;background:radial-gradient(ellipse at 14% -8%,#23312d80,transparent 60%),var(--bg)}
+.stage .eyebrow:not(:empty)::before{content:"";display:inline-block;width:8px;height:8px;margin-right:.65rem;border-radius:50%;background:var(--cyan)}
 .stage h1{font:800 clamp(2.15rem,5vw,3.7rem)/1.06 var(--display);letter-spacing:-.055em;margin:.5rem 0 1.2rem}
 .stage h2{font:650 1.55rem/1.15 "DM Sans","Segoe UI",sans-serif;letter-spacing:-.025em;margin:0 0 .9rem}
 .stage h3{font:700 1.1rem/1.25 "DM Sans","Segoe UI",sans-serif;margin:.3rem 0 .6rem}
@@ -17,12 +16,12 @@ html[data-entry=register] [data-shell=register],html[data-entry=account] [data-s
 .payment-qr img{width:min(100%,300px);aspect-ratio:1}
 .pass-image{min-height:165px}
 .trainer-card{max-width:28rem}
-.trainer-card .panel{background:#f5f3e7;color:#1a2839;border:2px solid #b83b50;border-top:10px solid #dc4e61;box-shadow:0 4px 0 #782940}
-.trainer-card .panel h2{color:#28384a}
+.trainer-card .panel{background:#171f20;color:var(--ink);border:1px solid #4e5955;border-top:5px solid #c77068;box-shadow:0 4px 0 #080d0f}
+.trainer-card .panel h2{color:var(--ink)}
 .trainer-card code{font-size:1.07rem;letter-spacing:.035em}
 .trainer-card .qr{border:1px solid #bfc6c7}
 .login-card{max-width:32rem}
-.login-card .panel{border-top:4px solid #ef6572;box-shadow:0 4px 0 #0a1426}
+.login-card .panel{border-top:3px solid #c77068;box-shadow:0 4px 0 #080d0f}
 .login-card .panel>h2{padding-right:42px;position:relative}
 .login-card .panel>h2::after{position:absolute;right:0;top:.4em;content:"";width:7px;height:7px;border-radius:50%;background:#f07781;box-shadow:12px 0 #f4cf62,24px 0 #8ad7d9;transform:translateX(-24px)}
 .login-card form>p:first-child{color:var(--muted);margin:0 0 1.25rem}
@@ -36,13 +35,13 @@ html[data-entry=register] [data-shell=register],html[data-entry=account] [data-s
 .panel p{margin:.65rem 0}
 .sub{color:var(--muted)}
 label{display:block;margin:.7rem 0 .3rem;font-weight:600}
-input,select,textarea{display:block;width:100%;padding:.7rem .8rem;background:#101d32;border:1px solid #7488a2;border-radius:5px;color:var(--ink);min-height:44px}
-input::placeholder,textarea::placeholder{color:#adbacd;opacity:1}
+input,select,textarea{display:block;width:100%;padding:.7rem .8rem;background:#101617;border:1px solid #6f7e7e;border-radius:5px;color:var(--ink);min-height:44px}
+input::placeholder,textarea::placeholder{color:#adbbb7;opacity:1}
 input[type=checkbox]{display:inline-block;width:1.1rem;min-height:0;height:1.1rem;vertical-align:middle;margin-right:.5rem}
 .check{font-weight:500}
 .panel button,.panel a.button{margin:.5rem .35rem .2rem 0}
 button:disabled{cursor:wait;opacity:.6}
-.note{padding:.75rem 1rem;background:#203c4c;color:#c2f6f9;border-radius:6px;margin-bottom:1rem}
+.note{padding:.75rem 1rem;background:#20332e;color:#c7ede1;border-radius:6px;margin-bottom:1rem}
 .error{background:#442d2c;color:#ffc5bd}
 .note:empty{display:none}
 code,.mono{font:600 1.05rem/1.4 "IBM Plex Mono",Consolas,monospace;overflow-wrap:anywhere}
@@ -51,7 +50,7 @@ code,.mono{font:600 1.05rem/1.4 "IBM Plex Mono",Consolas,monospace;overflow-wrap
 .stat{border:1px solid var(--edge);border-radius:7px;padding:.75rem}
 .stat strong{display:block;font-size:1.65rem;color:var(--signal)}
 .tabs{display:flex;gap:.4rem;flex-wrap:wrap;margin:1rem 0}
-.tabs button[aria-current=true]{background:var(--signal);color:#172134}
+.tabs button[aria-current=true]{background:var(--signal);color:#20190e}
 .record{padding:.8rem 0;border-top:1px solid var(--edge)}
 .record:first-child{border:0}
 .record .sub{font-size:.93rem}

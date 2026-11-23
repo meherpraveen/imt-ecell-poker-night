@@ -104,6 +104,7 @@ test('owner publishes a payment QR, checks proof and issues a single-use pass; g
   const code=new URLSearchParams(passLink.hash.slice(1)).get('code'),pass=await context.newPage();
   await pass.goto(site.origin+'/event.html'+passLink.search+passLink.hash);
   await expect(pass.getByAltText('Single-use entry QR')).toBeVisible();expect(new URL(pass.url()).hash).toBe('');
+  await expect(pass.locator('.qr')).toHaveCSS('background-color','rgb(255, 255, 255)');
   site.at('2026-11-27T19:15:00+05:30');
   const gate=await context.newPage();await staffLogin(gate,site,'gate');
   await expect(button(gate,'Settings')).toHaveCount(0);await gateAction(gate,'admit',code);
@@ -189,19 +190,27 @@ test('phone, tablet and desktop layouts fit, and a desk poll preserves an unsave
   for(const width of [320,768,1366]){
     await page.setViewportSize({width,height:844});await page.goto(site.origin);
     const art=page.locator('.field-art');
-    await expect.poll(()=>art.evaluate(img=>img.complete&&img.naturalWidth?img.currentSrc:'')).toContain(width<=720?'pokedex-table-mobile.webp':'pokedex-table.webp');
+    await expect.poll(()=>art.evaluate(img=>img.complete&&img.naturalWidth?img.currentSrc:'')).toContain(width<=720?'poker-night-hero-mobile.webp':'poker-night-hero.webp');
+    const mark=page.getByAltText('Entrepreneurship Cell, IMT Ghaziabad');
+    await expect(mark).toBeVisible();await expect.poll(()=>mark.evaluate(img=>img.naturalWidth)).toBeGreaterThan(100);
     const sponsors=page.getByRole('region',{name:'Sponsored by'});
     await sponsors.scrollIntoViewIfNeeded();
     await expect(sponsors.locator('img')).toHaveCount(5);
     await expect.poll(()=>sponsors.locator('img').evaluateAll(imgs=>imgs.every(img=>img.complete&&img.naturalWidth>0))).toBe(true);
+    for(const surface of [page.locator('body'),sponsors]){
+      const channels=await surface.evaluate(el=>getComputedStyle(el).backgroundColor.match(/\d+/g).slice(0,3).map(Number));
+      expect(Math.max(...channels)).toBeLessThan(65);
+    }
     expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
     await page.getByRole('link',{name:'Sign in to register'}).click();
     await expect(button(page,'Send code')).toBeVisible();
+    await expect(mark).toBeVisible();
     await expect(page.getByRole('region',{name:'Sponsored by'})).toHaveCount(0);
     expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
   }
   await page.clock.install({time:new Date(site.now())});
   await staffLogin(page,site,'admin');await button(page,'Settings').click();
+  await expect.poll(()=>page.getByAltText('Entrepreneurship Cell, IMT Ghaziabad').evaluate(img=>img.naturalWidth)).toBeGreaterThan(100);
   const field=page.getByLabel('Recipient name shown by the UPI app');await field.fill('Unsaved example');
   const reads=site.calls.filter(n=>n==='staffSnapshot').length;
   await page.clock.fastForward(16000);
