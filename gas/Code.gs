@@ -10,10 +10,13 @@ function ref_(v){return /^\d{12}$/.test(String(v||'').trim())?String(v).trim():'
 function must_(ok,message){if(!ok)throw Error(message)}
 function locked_(fn){const l=LockService.getScriptLock();l.waitLock(24000);try{return fn()}finally{try{SpreadsheetApp.flush()}finally{l.releaseLock()}}}
 function book_(){return SpreadsheetApp.openById(props_().getProperty('BOOK'))}
+function onOpen(){
+  SpreadsheetApp.getUi().createMenu('Poker Night').addItem('Set up club desk','setupEvent').addToUi();
+}
 function setupEvent(){
-  // Callable from the editor only. An anonymous web invocation must never provision a new owner.
+  // Only the signed-in owner may initialize the private club resources.
   const who=String(Session.getActiveUser().getEmail()||'').toLowerCase();
-  must_(who && who===String(Session.getEffectiveUser().getEmail()||'').toLowerCase(),'Run setupEvent from the club account in the Apps Script editor.');
+  must_(who && who===String(Session.getEffectiveUser().getEmail()||'').toLowerCase(),'Run setup using the club account in the private Sheet or Apps Script editor.');
   return locked_(()=>init_(who));
 }
 function init_(who){
