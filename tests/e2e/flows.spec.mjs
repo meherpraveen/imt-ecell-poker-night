@@ -59,6 +59,18 @@ test('mail failure, mismatched details, cooldown and delayed email can all be re
   await expect(page.getByRole('status').filter({hasText:'Email delivery is temporarily unavailable'})).toBeVisible();
   expect(site.mail).toHaveLength(0);site.mailFailure(false);await button(page,'Send code').click();
   await expect(page.getByLabel('Six-digit code')).toBeVisible();const original=site.code(player.email);
+  const junk=page.getByRole('link',{name:'Open Outlook Junk Email'});
+  await expect(junk).toBeVisible();
+  await expect(junk).toHaveAttribute('href','https://outlook.office.com/mail/junkemail');
+  await expect(junk).toHaveAttribute('target','_blank');
+  await expect(junk).toHaveAttribute('rel',/noreferrer/);
+  const folderUrl='https://outlook.office.com/mail/junkemail';
+  await page.context().route(folderUrl,route=>route.fulfill({contentType:'text/html',body:'<title>Test mail folder</title>'}));
+  const [folder]=await Promise.all([page.context().waitForEvent('page'),junk.click()]);
+  await expect(folder).toHaveURL(folderUrl);
+  await folder.close();
+  await expect(page.getByLabel('Six-digit code')).toBeVisible();
+  expect(site.mail).toHaveLength(1);
   await page.getByText('Email hasn’t arrived?',{exact:true}).click();await page.getByLabel('College roll number').fill(player.roll);
   await page.getByLabel('Email on your student record').fill('other@example.test');
   await button(page,'Check details and send code').click();await expect(page.locator('#msg')).toContainText('do not match');

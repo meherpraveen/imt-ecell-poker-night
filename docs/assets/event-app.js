@@ -136,9 +136,10 @@ function signInPage(keepForm=false){
 }
 function codePage(){
   heading('PLAYER REGISTRATION','Check your email');
-  const form=signInForm('verifyCode','<p>Look for <strong>Poker Night 2026 sign-in code</strong> in your registered inbox. The code works for 10 minutes. A resend keeps the same active code.</p>'+
+  const form=signInForm('verifyCode','<p>Look for <strong>Poker Night 2026 sign-in code</strong> in your registered mailbox. The code works for 10 minutes.</p>'+
+    '<p class="mail-folder"><a href="https://outlook.office.com/mail/junkemail" target="_blank" rel="noopener noreferrer">Open Outlook Junk Email</a> if the code is missing from your inbox. In Gmail, check Spam. You can use the code straight from either folder.</p>'+
     codeInput()+checkbox('remember','Remember this device for 7 days'),'Verify and continue');
-  const help='<details><summary>Email hasn’t arrived?</summary><p>Check Junk Email in Outlook or Spam in Gmail for the message from <strong>Poker Night 2026</strong>. You can also check which email matches your roll number below.</p>'+
+  const help='<details><summary>Email hasn’t arrived?</summary><p>Check that your roll number matches the email on your student record. A resend keeps the same active code.</p>'+
     signInForm('matchMail',rollField('matchRoll')+input('matchEmail','Email on your student record','type="email" autocomplete="email" required maxlength="254"'),'Check details and send code')+'</details>';
   el('content').innerHTML='<div class="narrow login-card">'+panel('Enter your sign-in code',form+btn('resendCode','Resend code')+btn('changeLogin','Change roll number or email')+help)+'</div>';
   if(/^\d{9}$/.test(challenge.identifier))el('matchRoll').value=challenge.identifier;else el('matchEmail').value=challenge.identifier;
@@ -195,7 +196,7 @@ function showReceipt(r){
     const labels={REVIEW:['Payment under review','The desk will check the coordinator’s incoming payment. Keep this page. Please pay only once.'],WAITLIST:['On the waitlist','All available seats are held. Wait for a seat offer here before paying.'],EXPIRED:['Hold expired','If you paid, bring your bank reference to the desk before making another payment.'],REJECTED:['Proof needs attention',r.reason||'Contact the desk with your receipt.'],NO_SHOW:['No-show recorded','Speak to the desk if you are at the venue.'],RELEASED:['Offer released','Speak to the desk for your current attempt.']};
     const [title,bodyText]=labels[r.status]||['Payment verified',r.delivery==='Email sent'?'Your entry code was emailed to your registered address. Bring your college ID.':'The desk can deliver your code using your registered contact or college ID.'];
     body+=panel(title,'<p>'+esc(bodyText)+'</p>'+(r.wave?'<p>Round 1 · Wave '+r.wave+'</p>':'')+
-      (r.entryCode?'<p>Show this entry code with your college ID at the gate.</p><p><code>'+esc(r.entryCode)+'</code></p><a class="button primary" href="https://meherpraveen.github.io/imt-ecell-poker-night/event.html?view=pass#code='+encodeURIComponent(r.entryCode)+'">Open entry QR</a>':'')+btn('receipt','Refresh status'));
+      (r.entryCode?'<p>Your pass is ready here. Show this code or the QR with your college ID at the gate.</p><p><code>'+esc(r.entryCode)+'</code></p><a class="button primary" href="https://meherpraveen.github.io/imt-ecell-poker-night/event.html?view=pass#code='+encodeURIComponent(r.entryCode)+'">Open entry QR</a>':'')+btn('receipt','Refresh status'));
     if(['EXPIRED','RELEASED','REJECTED'].includes(r.status)&&accountInfo?.open)body+=btn('renew','Request another seat');
   }
   el('content').innerHTML='<div class="narrow">'+body+btn('logout','Sign out')+'</div>';

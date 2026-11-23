@@ -111,6 +111,8 @@ html[data-entry=register] [data-shell=register],html[data-entry=account] [data-s
 .login-card .panel>h2{padding-right:42px;position:relative}
 .login-card .panel>h2::after{position:absolute;right:0;top:.4em;content:"";width:7px;height:7px;border-radius:50%;background:#f07781;box-shadow:12px 0 #f4cf62,24px 0 #8ad7d9;transform:translateX(-24px)}
 .login-card form>p:first-child{color:var(--muted);margin:0 0 1.25rem}
+.login-card .mail-folder{border-left:3px solid var(--cyan);padding-left:.75rem}
+.mail-folder a{color:var(--cyan);font-weight:700;text-underline-offset:3px}
 .login-card form>.primary{display:block;width:100%;margin:1.2rem 0 .3rem}
 .login-card #loginCode{font:600 1.45rem/1.3 "IBM Plex Mono",Consolas,monospace;letter-spacing:.25em}
 .login-card .check{font-size:.95rem}

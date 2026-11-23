@@ -16,6 +16,10 @@ Codes last 10 minutes and work once. A student can request another after one min
 
 The browser keeps the sign-in for the current tab. **Remember this device for 7 days** keeps it across visits. **Sign out** revokes that session. The private desk session lasts eight hours.
 
+If Outlook files a requested code in Junk Email, the student can use **Open Outlook Junk Email** on the code screen and enter that code before it expires. A student moving a message changes their own mailbox. Google accepting a send does not report the destination folder.
+
+When several students report Junk placement, the coordinator can give IMT IT the subject **Poker Night 2026 sign-in code**, the club’s sending address and the approximate arrival time in IST. Send one affected recipient’s address privately to IT with their permission. An Exchange administrator can trace the original message, inspect its authentication results and filtering verdict, and submit a verified false positive in Microsoft Defender under **Submissions → Emails → Should not have been blocked**. [Exchange message trace](https://learn.microsoft.com/en-us/exchange/monitoring/trace-an-email-message/trace-an-email-message) · [Microsoft Defender submissions](https://learn.microsoft.com/en-us/defender-office-365/submissions-admin)
+
 The club’s personal Gmail account has an Apps Script quota of 100 email recipients per 24-hour quota period, shared by login codes, resends and pass emails. The app reserves the last available email for the owner. Students who have signed in can also see their approved entry code in their receipt. If the limit is reached on event night, staff can use the existing college-ID and payment-verification flow at the venue. [Google Apps Script quotas](https://developers.google.com/apps-script/guides/services/quotas)
 
 ## Payments and entry
