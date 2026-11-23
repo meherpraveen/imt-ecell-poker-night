@@ -1,5 +1,7 @@
 'use strict';
 const mode=document.body.dataset.mode;
+let pendingSeat;
+try{pendingSeat=JSON.parse(durable.get('pending-seat')||'null')}catch{}
 function startPlayer(){heading('PLAYER REGISTRATION','Register for Poker Night');el('content').innerHTML='<div class="narrow">'+panel('Find your seat',rollField('roll')+'<p class="sub">Use your college roll number to see the fee and the coordinator’s UPI details.</p>'+btn('start','Continue','primary'))+'</div>'}
 function showReceipt(r){
   durable.set('receipt',r.ticket);heading('PLAYER REGISTRATION','Your registration');
@@ -14,6 +16,13 @@ function showReceipt(r){
     body+=panel(title,'<p>'+esc(bodyText)+'</p>'+(r.wave?'<p>Round 1 · Wave '+r.wave+'</p>':'')+btn('receipt','Refresh status'));
   }
   el('content').innerHTML='<div class="narrow">'+body+btn('other','Use another roll number')+'</div>';
+  if(document.body.dataset.host!=='pages'){
+    const link=document.createElement('a');
+    link.href='https://meherpraveen.github.io/imt-ecell-poker-night/event.html?view=register#receipt='+encodeURIComponent(r.ticket);
+    link.rel='noreferrer';
+    link.textContent='Open this receipt on the event site';
+    el('content').querySelector('.narrow').append(link);
+  }
 }
 async function picture(file){
   if(!file||!['image/jpeg','image/png','image/webp'].includes(file.type)||file.size>15*1024*1024)throw Error('Choose a JPEG, PNG or WebP screenshot under 15 MB.');
@@ -21,14 +30,32 @@ async function picture(file){
 }
 async function action(name){
   if(name==='other'){durable.set('receipt','');startPlayer();return}
-  if(name==='start'){const r=await api('playerStart',val('roll'),durable.get('receipt'));showReceipt(r);return}
+  if(name==='start'){
+    const roll=val('roll');
+    if(!/^\d{9}$/.test(roll))throw Error('Enter your nine-digit college roll number.');
+    if(!pendingSeat||pendingSeat.roll!==roll){
+      pendingSeat={roll,id:globalThis.crypto?.randomUUID?.()||''};
+      durable.set('pending-seat',JSON.stringify(pendingSeat));
+    }
+    showReceipt(await api('playerStart',roll,durable.get('receipt'),pendingSeat.id));
+    pendingSeat=null;durable.set('pending-seat','');return;
+  }
   if(name==='receipt'){showReceipt(await api('playerStatus',durable.get('receipt')));return}
   if(name==='upload'){if(!el('consent').checked)throw Error('Please confirm proof sharing before continuing.');const data=await picture(el('shot').files[0]);showReceipt(await api('playerUpload',durable.get('receipt'),val('tail'),data));return}
 }
 async function launch(){try{
+  if(mode==='unavailable'){heading('POKER NIGHT','Page unavailable');el('content').replaceChildren();return}
   if(mode==='board'){heading('LIVE FLOOR','Tournament floor');el('content').innerHTML=board(await api('liveFloor'));tick();return}
   if(mode==='pass'){heading('TRAINER PASS','Your entry pass');const code=document.body.dataset.pass;if(!/^PN-[A-Z0-9]{16}$/.test(code))throw Error('Open the complete pass link from your email.');const pass=await api('passInfo',code);el('content').innerHTML='<div class="narrow">'+panel(pass.used?'Pass already scanned':pass.active?'Show at the gate':'Attempt closed',(pass.active&&!pass.used?qr(pass.code)+'<p><code>'+esc(pass.code)+'</code></p>':'')+'<p>Round 1 · Wave '+pass.wave+'. Bring your college ID. Use your wristband for a venue return.</p>')+'</div>';return}
-  startPlayer();const ticket=durable.get('receipt');if(ticket){try{showReceipt(await api('playerStatus',ticket));return}catch{durable.set('receipt','')}}
+  startPlayer();
+  const saved=durable.get('receipt');
+  for(const ticket of new Set([incomingReceipt,saved].filter(Boolean))){
+    try{showReceipt(await api('playerStatus',ticket));return}
+    catch(err){
+      if(!String(err.message).includes('Open the receipt on the device you registered with.'))throw err;
+      if(ticket===saved)durable.set('receipt','');
+    }
+  }
   const p=await api('publicInfo');if(!p.open)msg('Online registration is currently closed. The club will open payments here.');
 }catch(e){msg(e.message||'The club desk is temporarily unavailable.',true)}}
 addEventListener('online',()=>{el('net').textContent=''});

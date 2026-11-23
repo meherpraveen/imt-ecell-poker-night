@@ -11,9 +11,10 @@ fs.mkdirSync(out,{recursive:true});
 for(const f of ['appsscript.json','Code.gs','Floor.gs'])fs.copyFileSync(path.join(root,'gas',f),path.join(out,f));
 const page=read('web/App.html')
   .replace('/* BASE_STYLES */',()=>read('docs/assets/site.css'))
+  .replace('/* EVENT_STYLES */',()=>read('docs/assets/event.css'))
   .replace('/* QR_LIBRARY */',()=>library)
-  .replace('/* COMMON_CODE */',()=>read('web/common.js'))
+  .replace('/* COMMON_CODE */',()=>read('docs/assets/common.js'))
   .replace('/* STAFF_CODE */',()=>read('web/staff.js'))
-  .replace('/* APP_CODE */',()=>read('web/app.js'));
+  .replace('/* APP_CODE */',()=>read('docs/assets/player.js'));
 fs.writeFileSync(path.join(out,'App.html'),page);
 console.log('Apps Script files ready in .deploy');

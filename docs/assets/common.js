@@ -3,7 +3,6 @@ const el=id=>document.getElementById(id);
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const val=id=>el(id)?.value.trim()||'';
 const durable={get(k){try{return localStorage.getItem('pn26:'+k)||''}catch{return ''}},set(k,v){try{localStorage.setItem('pn26:'+k,v)}catch{}}};
-const api=(name,...args)=>new Promise((ok,no)=>google.script.run.withSuccessHandler(ok).withFailureHandler(no)[name](...args));
 let clockEnd=0,busy=false;
 function msg(t='',bad=false){el('msg').textContent=t;el('msg').className='note'+(bad?' error':'')}
 function btn(action,label,cls='',id=''){return '<button type="button" data-do="'+action+'" data-id="'+esc(id)+'" class="'+cls+'">'+esc(label)+'</button>'}

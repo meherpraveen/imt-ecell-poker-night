@@ -12,6 +12,27 @@ function fixture(){
   return {ctx,st,sent,audit,people,actualStaff,at:s=>time=Date.parse(s)};
 }
 function hold(f,roll='123456789'){return f.ctx.playerStart(roll,'')}
+test('the Pages transport returns public results, validates input, and excludes staff operations',()=>{
+  const {ctx,st}=fixture();
+  ctx.ContentService={MimeType:{JSON:'json'},createTextOutput:text=>({setMimeType:()=>JSON.parse(text)})};
+  ctx.ensureStaffLinks_=()=>{};
+  ctx.hash_=value=>crypto.createHash('sha256').update(value).digest('hex');
+  const post=(action,args)=>ctx.doPost({postData:{contents:JSON.stringify({action,args})}});
+  assert.equal(post('publicInfo',[]).value.open,true);
+  assert.equal(post('liveFloor',[]).value.state,'Awaiting first seating');
+  assert.equal(post('staffSnapshot',['admin']).ok,false);
+  assert.equal(post('playerStart',[]).ok,false);
+  const request=crypto.randomUUID(),args=['123456789','',request];
+  const first=post('playerStart',args);
+  assert.ok(first.ok);assert.equal(post('playerStart',args).value.ticket,first.value.ticket);
+  assert.equal(post('playerStatus',[first.value.ticket]).value.id,first.value.id);
+  assert.equal(Object.keys(st.attempts).length,1);
+  assert.ok(!JSON.stringify(st.attempts).includes(request));
+  assert.equal(post('playerStart',['123456789','',crypto.randomUUID()]).ok,false);
+  assert.equal(post('playerStart',['wrong','','']).validation,true);
+  ctx.publicInfo=()=>{throw Error('private provider detail')};
+  const fail=post('publicInfo',[]);assert.ok(!fail.ok&&!fail.validation&&!fail.error.includes('private provider detail'));
+});
 function pending(f,roll='123456789',tail='6789'){const r=hold(f,roll);Object.assign(f.st.attempts[r.id],{status:'REVIEW',suffix:tail});return r}
 function pay(f,roll='123456789',ref='123456786789'){const r=pending(f,roll,ref.slice(-4));f.ctx.staffApprove('admin',r.id,ref,true);return f.st.attempts[r.id]}
 function staffFixture(){

@@ -1,6 +1,6 @@
 # E-Cell Poker Night
 
-The public event page runs on GitHub Pages from `docs/`. Registration, screenshot upload, payment review, pass delivery and floor management run in a club-owned Google Apps Script web app. Students use their nine-digit roll number. The public source contains no directory, payment screenshots or staff keys.
+The event homepage, player registration and live floor run on GitHub Pages from `docs/`. These pages call the club’s Google Apps Script backend without Google sign-in. Students use their nine-digit roll number. The backend keeps the directory and uploaded screenshots in the club’s private Google files and serves the invitation-only staff desk.
 
 ## Club desk
 

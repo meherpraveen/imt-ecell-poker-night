@@ -5,9 +5,11 @@ function props_(){return PropertiesService.getScriptProperties()}
 function rand_(){return Utilities.getUuid().replace(/-/g,'')}
 function hash_(text){return Utilities.base64EncodeWebSafe(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256,text)).replace(/=+$/,'')}
 function mac_(value){return Utilities.base64EncodeWebSafe(Utilities.computeHmacSha256Signature(value,props_().getProperty('KEY'))).replace(/=+$/,'')}
-function roll_(v){v=String(v||'').trim();if(!/^\d{9}$/.test(v))throw Error('Enter your nine-digit college roll number.');return v}
+function roll_(v){v=String(v||'').trim();must_(/^\d{9}$/.test(v),'Enter your nine-digit college roll number.');return v}
 function ref_(v){return /^\d{12}$/.test(String(v||'').trim())?String(v).trim():''}
-function must_(ok,message){if(!ok)throw Error(message)}
+function must_(ok,message){
+  if(!ok){const error=new Error(message);error.name='EventValidationError';throw error}
+}
 function locked_(fn){const l=LockService.getScriptLock();l.waitLock(24000);try{return fn()}finally{try{SpreadsheetApp.flush()}finally{l.releaseLock()}}}
 function book_(){return SpreadsheetApp.openById(props_().getProperty('BOOK'))}
 function onOpen(e){
@@ -52,6 +54,25 @@ function doGet(e){
   t.invite=route==='staff'?q.invite:'';
   t.pass=/^[A-Z0-9-]{12,24}$/.test(q.p||'')?q.p:'';
   return t.evaluate().setTitle('Poker Night · E-Cell').addMetaTag('viewport','width=device-width, initial-scale=1');
+}
+function doPost(event){
+  let result;
+  try{
+    const body=event&&event.postData&&event.postData.contents;
+    must_(typeof body==='string'&&body.length<=2410000,'Check the request or choose a smaller screenshot.');
+    const request=JSON.parse(body);
+    const methods=new Map([
+      ['publicInfo',[publicInfo,0]],['liveFloor',[liveFloor,0]],
+      ['playerStart',[playerStart,3]],['playerStatus',[playerStatus,1]],['playerUpload',[playerUpload,3]]
+    ]);
+    const method=request&&methods.get(request.action);
+    must_(method&&Array.isArray(request.args)&&request.args.length===method[1]&&request.args.every(arg=>typeof arg==='string'),'Invalid event request.');
+    result={ok:true,value:method[0](...request.args)};
+  }catch(error){
+    const validation=error.name==='EventValidationError';
+    result={ok:false,error:validation?error.message:'The event service is temporarily unavailable. Please try again.',validation};
+  }
+  return ContentService.createTextOutput(JSON.stringify(result)).setMimeType(ContentService.MimeType.JSON);
 }
 function settings_(){const rows=book_().getSheetByName('Settings').getRange(2,2,3,1).getDisplayValues().flat();return {upi:rows[0],name:rows[1],open:rows[2].toLowerCase()==='yes'}}
 function roster_(){
@@ -155,10 +176,16 @@ function eligibility_(st,roll,kind,now){
 }
 function newAttempt_(roll,kind,w,now){return {id:rand_().slice(0,16),roll,kind,fee:FEES[kind],wave:w,created:now,expires:now+HOLD,status:w<0?'WAITLIST':'HOLD',used:false,delivery:''}}
 function publicInfo(){const x=settings_();ensureStaffLinks_();return {open:x.open&&!!x.upi&&!!x.name&&Date.now()<NEW_CLOSE}}
-function playerStart(roll,previous){
+function playerStart(roll,previous,requestId){
+  must_(!requestId||(typeof requestId==='string'&&/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(requestId)),'Refresh the page and try again.');
   roll=roll_(roll);return locked_(()=>{
     const set=settings_(),st=ledger_(),now=Date.now();
     if(previous){const a=fromReceipt_(st,previous);if(a&&a.roll===roll)return receipt_(a,set);}
+    const startHash=requestId?hash_('seat-request:'+requestId):'';
+    if(startHash){
+      const existing=Object.values(st.attempts).find(a=>a.roll===roll&&a.startHash===startHash);
+      if(existing)return receipt_(existing,set);
+    }
     must_(set.open&&set.upi&&set.name,'Registration is currently closed. Please contact E-Cell.');
     must_(roster_()[roll],'Check the roll number on your college ID, or speak to the desk.');
     const kind=now>=DESK_OPENS?'walk':'pre';
@@ -166,6 +193,7 @@ function playerStart(roll,previous){
     must_(!wait,'This roll is already on the waitlist. Open your original receipt page or ask the desk.');
     eligibility_(st,roll,kind,now);
     const a=newAttempt_(roll,kind,waveFor_(st,roll,now),now);
+    if(startHash)a.startHash=startHash;
     commit_(st,'Seat request','Player',{attempts:[a],note:a.id});return receipt_(a,set);
   });
 }
