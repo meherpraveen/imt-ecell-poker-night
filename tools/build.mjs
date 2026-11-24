@@ -11,6 +11,8 @@ const baseStyles=read('web/base.css');
 const eventStyles=read('web/event.css');
 const commonCode=read('web/common.js');
 const playerCode=read('web/player.js');
+const pricing=read('gas/Pricing.gs');
+const priceDisplay=pricing+'\n'+read('web/prices.js');
 const sponsorMarkup=read('web/sponsors.html').trim();
 function withSponsors(html) {
   const slot=/<!-- SPONSORS:START -->[\s\S]*?<!-- SPONSORS:END -->/;
@@ -28,7 +30,9 @@ function writeAsset(filename, content) {
   return createHash('sha256').update(normalized).digest('hex').slice(0,12);
 }
 const homeVersion=writeAsset('site.css',baseStyles+'\n'+read('web/home.css'));
-const homepage=withSponsors(read('docs/index.html')).replace(/site\.css\?v=[a-z0-9]+/,'site.css?v='+homeVersion);
+const priceVersion=writeAsset('entry-prices.js',priceDisplay);
+const homepage=withSponsors(read('docs/index.html')).replace(/site\.css\?v=[a-z0-9]+/,'site.css?v='+homeVersion)
+  .replace(/entry-prices\.js\?v=[a-z0-9]+/,'entry-prices.js?v='+priceVersion);
 fs.writeFileSync(path.join(root,'docs/index.html'),homepage);
 let publicPage=withSponsors(read('docs/event.html'));
 for(const [extension,content] of Object.entries(bundles)){

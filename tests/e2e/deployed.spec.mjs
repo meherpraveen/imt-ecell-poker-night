@@ -9,7 +9,10 @@ test('published navigation, mobile startup, live floor and backend validation @d
   await page.goto(site);await expect(page.getByRole('link',{name:'Sign in to register'})).toBeVisible();
   const clubLogo=page.getByAltText('Entrepreneurship Cell, IMT Ghaziabad');
   await expect(clubLogo).toBeVisible();await expect.poll(()=>clubLogo.evaluate(img=>img.naturalWidth)).toBeGreaterThan(100);
-  await expect.poll(()=>page.locator('.field-art').evaluate(img=>img.complete&&img.naturalWidth>0)).toBe(true);
+  const hero=page.getByRole('region',{name:'Poker Night',exact:true});
+  await expect(hero.getByRole('heading',{name:'Poker Night'})).toBeVisible();
+  await expect(hero.locator('img,picture')).toHaveCount(0);
+  await expect(hero.getByRole('link',{name:'Sign in to register'})).toBeInViewport({ratio:1});
   await expect(page.getByText('Pokédex',{exact:true})).toBeVisible();
   const sponsors=page.getByRole('region',{name:'Sponsored by'});await sponsors.scrollIntoViewIfNeeded();
   await expect(sponsors.locator('img')).toHaveCount(5);

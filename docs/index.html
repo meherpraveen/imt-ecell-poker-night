@@ -3,41 +3,78 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <meta name="theme-color" content="#0c1011">
-  <meta name="color-scheme" content="dark">
-  <meta name="description" content="Register for Poker Night 2026 at IMT Ghaziabad on 27 November. View the tournament format, entry fees and live floor.">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f7f7f2">
+  <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#151916">
+  <meta name="description" content="Join E-Cell’s Poker Night at IMT Ghaziabad on Friday, 27 November 2026. Find entry prices, tournament rounds and the live floor.">
   <title>Poker Night 2026 · IMT Ghaziabad E-Cell</title>
-  <link rel="stylesheet" href="assets/site.css?v=422e0ab16d3f">
+  <link rel="stylesheet" href="assets/site.css?v=4fa3e476407e">
+  <script defer src="assets/entry-prices.js?v=923bc8b94516"></script>
 </head>
 <body class="home">
-  <header class="top">
-    <div class="wrap nav">
-      <a class="brand" href="./" aria-label="E-Cell Poker Night home"><img class="club-logo" src="assets/imt-ecell-logo.webp" width="121" height="111" alt="Entrepreneurship Cell, IMT Ghaziabad"><span class="brand-event" aria-hidden="true">E-Cell <small>IMT Ghaziabad</small></span></a>
-      <nav aria-label="Event"><a href="#format">Format</a><a href="#sponsors">Sponsors</a><a class="nav-floor" data-view="board" href="event.html?view=board">Live floor <span aria-hidden="true">↗</span></a></nav>
+  <a class="home-skip" href="#main">Skip to event details</a>
+  <header class="home-mast">
+    <div class="wrap home-bar">
+      <a class="home-brand" href="./" aria-label="E-Cell Poker Night home">
+        <img class="club-logo" src="assets/imt-ecell-logo.webp" width="121" height="111" alt="Entrepreneurship Cell, IMT Ghaziabad">
+        <span aria-hidden="true">E-Cell<small>IMT Ghaziabad</small></span>
+      </a>
+      <nav class="home-nav" aria-label="Event">
+        <a href="#format">Format</a><a class="sponsor-link" href="#sponsors">Sponsors</a>
+        <a class="floor-link" data-view="board" href="event.html?view=board">Live floor <span aria-hidden="true">↗</span></a>
+      </nav>
     </div>
   </header>
-  <main>
-    <section class="hero" aria-labelledby="event-name">
-      <figure class="hero-scene">
-        <picture>
-          <source media="(max-width:720px)" srcset="assets/poker-night-hero-mobile.webp" width="760" height="535">
-          <img class="field-art" src="assets/poker-night-hero.webp" width="1600" height="897" alt="A red pocket Pokédex with a pixel spade on its screen, beside playing cards, a trainer ball and stacks of chips." fetchpriority="high">
-        </picture>
-        <figcaption class="edition"><span class="indicator-lights" aria-hidden="true"><i></i><i></i><i></i></span><span><span>Pokédex</span> edition</span></figcaption>
-      </figure>
-      <div class="wrap hero-inner">
+
+  <main id="main" tabindex="-1">
+    <section class="home-hero" aria-labelledby="event-name">
+      <div class="wrap hero-layout">
         <div class="hero-copy">
-          <p class="eyebrow hero-date"><time datetime="2026-11-27">27 November 2026</time><span class="date-tick" aria-hidden="true"></span>IMT Ghaziabad</p>
-          <h1 id="event-name"><span>Poker</span> <em>Night</em></h1>
-          <p class="hero-sub">Play Texas Hold’em for a place at the final table. The winner takes home a poker set and a speaker.</p>
-          <div class="actions">
-            <a class="button primary" data-view="register" href="event.html?view=register">Sign in to register <span aria-hidden="true">→</span></a>
-            <a class="button secondary" data-view="board" href="event.html?view=board">View live floor</a>
+          <p class="event-edition"><span>Pokédex</span> edition</p>
+          <h1 id="event-name">Poker Night</h1>
+          <p class="event-when"><time datetime="2026-11-27">Friday, 27 November 2026</time><span>IMT Ghaziabad</span></p>
+          <p class="event-intro">A three-round Texas Hold’em tournament with six seats at the final table.</p>
+          <div class="hero-actions">
+            <a class="register-link" data-view="register" href="event.html?view=register">Sign in to register <span aria-hidden="true">→</span></a>
+            <p class="entry-quote">
+              <span data-home-fee="label">Entry fee at registration</span>
+              <span class="quote-amount"><strong data-home-fee="entry"></strong><s data-early-only hidden><span class="visually-hidden">Standard price </span><span data-home-fee="standard"></span></s></span>
+            </p>
           </div>
-          <p class="gate-hours"><span>Pre-registration <strong>₹149</strong></span><span>Walk-ins <strong>7–11 pm</strong></span></p>
+        </div>
+        <div class="playing-hand" aria-hidden="true">
+          <div class="playing-card card-back"><div class="card-weave"><span>♠</span></div></div>
+          <div class="playing-card card-face">
+            <span class="card-index"><b>A</b><i>♠</i></span>
+            <span class="ace-pip">♠</span>
+            <span class="card-index index-foot"><b>A</b><i>♠</i></span>
+          </div>
         </div>
       </div>
     </section>
+
+    <div class="event-guide">
+      <div class="wrap guide-layout">
+        <section id="format" aria-labelledby="format-title">
+          <h2 id="format-title">Tournament format</h2>
+          <p class="section-intro">Each round starts with 10,000 chips per player.</p>
+          <ol class="round-list">
+            <li><div class="round-meta"><span>Round 1</span><span>30 min</span></div><div><h3>Qualifiers</h3><p>Six waves of up to 36 players. The chip leader at each table advances.</p></div></li>
+            <li><div class="round-meta"><span>Round 2</span><span>30 min</span></div><div><h3>Semifinals</h3><p>The table winners play for one of six seats in the final.</p></div></li>
+            <li><div class="round-meta"><span>Round 3</span><span>60 min</span></div><div><h3>Final table</h3><p>The player with the most chips wins a poker set and a speaker.</p></div></li>
+          </ol>
+        </section>
+        <section class="entry-section" aria-labelledby="entry-title">
+          <h2 id="entry-title">Entry details</h2>
+          <div class="entry-breakdown" data-entry-price><a href="event.html?view=register">See the current entry fee</a></div>
+          <dl class="entry-facts">
+            <div><dt>Walk-ins</dt><dd>7–11 pm IST</dd></div>
+            <div><dt>Round 1 retry</dt><dd data-home-fee="retry">See the desk</dd></div>
+          </dl>
+          <p class="entry-note">After elimination, you can buy a retry if a later qualifier has a seat. Use your existing pass to return to the venue.</p>
+        </section>
+      </div>
+    </div>
     <!-- SPONSORS:START -->
 <section id="sponsors" class="sponsors" aria-labelledby="sponsor-title">
   <div class="wrap sponsor-inner">
@@ -52,20 +89,7 @@
   </div>
 </section>
 <!-- SPONSORS:END -->
-    <section id="format" class="wrap format" aria-labelledby="format-title">
-      <div class="section-title"><div><p class="eyebrow">Tournament format</p><h2 id="format-title">Road to the final</h2></div><p class="reset">Each round starts with <strong>10,000</strong> chips.</p></div>
-      <div class="rounds">
-        <article><p class="round-label"><span>Round 1</span><span>30 min</span></p><h3>Qualifiers</h3><p>Six waves of up to 36 players. The chip leader at each table advances.</p></article>
-        <article><p class="round-label"><span>Round 2</span><span>30 min</span></p><h3>Semifinals</h3><p>The table winners return together. Win your table for a place in the final.</p></article>
-        <article><p class="round-label"><span>Round 3</span><span>60 min</span></p><h3>Final table</h3><p>Six finalists return with fresh stacks. The player with the most chips wins.</p></article>
-      </div>
-    </section>
-    <section class="wrap fees" aria-labelledby="fees-title">
-      <h2 id="fees-title">Entry fees</h2>
-      <dl><div><dt>Pre-registration from 23 November</dt><dd>₹149</dd></div><div><dt>Walk-in on 27 November</dt><dd>₹199</dd></div><div><dt>Round 1 retry</dt><dd>₹149</dd></div></dl>
-      <p>Eliminated players can buy a retry while a later Round 1 seat is open. If you leave the venue and return, use your existing pass.</p>
-    </section>
   </main>
-  <footer><div class="wrap"><a href="https://www.imt.edu/student-life/e-cell/">Entrepreneurship Cell · IMT Ghaziabad</a><a href="#format">Event format</a></div></footer>
+  <footer class="home-footer"><div class="wrap"><a href="https://www.imt.edu/student-life/e-cell/">Entrepreneurship Cell · IMT Ghaziabad <span aria-hidden="true">↗</span></a><a href="#sponsors">Event sponsors</a></div></footer>
 </body>
 </html>

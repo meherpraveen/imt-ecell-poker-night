@@ -212,9 +212,13 @@ test('a no-show frees a seat and the payment desk can offer it to a waitlisted p
 
 test('phone, tablet and desktop layouts fit, and a desk poll preserves an unsaved payment edit',async({page,site})=>{
   for(const width of [320,768,1366]){
+    const scheme=width===768?'dark':'light';
+    await page.emulateMedia({colorScheme:scheme,reducedMotion:'reduce'});
     await page.setViewportSize({width,height:844});await page.goto(site.origin);
-    const art=page.locator('.field-art');
-    await expect.poll(()=>art.evaluate(img=>img.complete&&img.naturalWidth?img.currentSrc:'')).toContain(width<=720?'poker-night-hero-mobile.webp':'poker-night-hero.webp');
+    const hero=page.getByRole('region',{name:'Poker Night',exact:true});
+    await expect(hero.getByRole('heading',{name:'Poker Night'})).toBeVisible();
+    await expect(hero.locator('img,picture')).toHaveCount(0);
+    await expect(hero.getByRole('link',{name:'Sign in to register'})).toBeInViewport({ratio:1});
     const mark=page.getByAltText('Entrepreneurship Cell, IMT Ghaziabad');
     await expect(mark).toBeVisible();await expect.poll(()=>mark.evaluate(img=>img.naturalWidth)).toBeGreaterThan(100);
     const sponsors=page.getByRole('region',{name:'Sponsored by'});
@@ -223,7 +227,8 @@ test('phone, tablet and desktop layouts fit, and a desk poll preserves an unsave
     await expect.poll(()=>sponsors.locator('img').evaluateAll(imgs=>imgs.every(img=>img.complete&&img.naturalWidth>0))).toBe(true);
     for(const surface of [page.locator('body'),sponsors]){
       const channels=await surface.evaluate(el=>getComputedStyle(el).backgroundColor.match(/\d+/g).slice(0,3).map(Number));
-      expect(Math.max(...channels)).toBeLessThan(65);
+      if(scheme==='dark')expect(Math.max(...channels)).toBeLessThan(65);
+      else expect(Math.min(...channels)).toBeGreaterThan(220);
     }
     expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
     await page.getByRole('link',{name:'Sign in to register'}).click();
