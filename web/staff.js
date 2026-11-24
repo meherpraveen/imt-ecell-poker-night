@@ -273,7 +273,7 @@ async function action(name,id){
     if(snapshot.managed){const s=snapshot.settings;await api('adminSettings',token,s.upi,s.name,el('open').checked,{version:s.version,published:s.published,removeQr:false,qr:''});await refresh(false,true);msg('Registration setting saved.');return}
     const file=el('paymentQr').files[0],removeQr=!!el('removeQr')?.checked;
     if(file&&removeQr)throw Error('Choose a replacement QR or remove the saved QR.');
-    const options={version:snapshot.settings.version,published:el('publish').checked,removeQr,qr:file?await picture(file,true):''};
+    const options={version:snapshot.settings.version,published:el('publish').checked,removeQr,qr:file?await picture(file,'receiver'):''};
     await api('adminSettings',token,val('upi'),val('payname'),el('open').checked,options);
     msg('Payment settings saved.');await refresh(false,true);return;
   }

@@ -98,13 +98,14 @@ function staffSnapshot(token){
     const latest=latestByRoll.get(a.roll);if(!latest||a.created>=latest.created)latestByRoll.set(a.roll,a);
     if(a.digest)digestHits[a.digest]=(digestHits[a.digest]||0)+1}
   for(const a of as){if(!a.suffix)continue;const end=a.suffix.slice(-4);suffixHits[end]=(suffixHits[end]||0)+1}
+  const managed=usesBankVerification_(st);
   const records=as.slice().reverse().filter(a=>finance||issued_(a)).map(a=>{
     const r={id:a.id,roll:a.roll,name:a.details?.fullName||students[a.roll]?.name||'',kind:a.kind,status:a.status==='HOLD'&&latestByRoll.get(a.roll).id!==a.id?'RELEASED':a.status,wave:a.status==='HOLD'?0:a.wave+1,used:a.used,seat:a.seat||null,where:st.venue[a.roll]?.where||'NEVER'};
     if(finance||staff.role==='gate')r.phone=a.details?a.details.contact.replace(/\D/g,''):students[a.roll]?.phone||'';
-    if(finance)Object.assign(r,{batch:a.details?.batch||'',fee:quotedFee_(a,Date.now()),suffix:a.suffix||'',utr:a.utr||'',managed:!!a.receiver,issue:a.reviewReason||a.reason||'',image:!!a.file,sameImage:!!(a.digest&&digestHits[a.digest]>1),sameTail:!!(a.suffix&&suffixHits[a.suffix.slice(-4)]>1),delivery:a.mailUntil>Date.now()?'Sending email':a.delivery||''});
+    if(finance)Object.assign(r,{batch:a.details?.batch||'',fee:quotedFee_(a,Date.now()),suffix:a.suffix||'',utr:a.utr||'',managed:!!a.receiver||managed&&!!a.file,issue:a.reviewReason||a.reason||'',image:!!a.file,sameImage:!!(a.digest&&digestHits[a.digest]>1),sameTail:!!(a.suffix&&suffixHits[a.suffix.slice(-4)]>1),delivery:a.mailUntil>Date.now()?'Sending email':a.delivery||''});
     return r;
   });
-  return {role:staff.role,label:staff.name,records,managed:usesBankVerification_(st),stats:{checked:places.length,inside:places.filter(v=>v.where==='IN').length,out:places.filter(v=>v.where==='OUT').length,
+  return {role:staff.role,label:staff.name,records,managed,stats:{checked:places.length,inside:places.filter(v=>v.where==='IN').length,out:places.filter(v=>v.where==='OUT').length,
     noShow:new Set(as.filter(a=>a.status==='NO_SHOW').map(a=>a.roll)).size,pending:as.filter(a=>a.status==='REVIEW').length},
     scannerUrl:finance||staff.role==='gate'?scannerLink_(token):'',offer:entryOffer_(Date.now()),retryFee:ENTRY_PRICING.retry,
     board:publicFloor_(st),game:floor?{next:st.game.next,active:st.game.active}:null,
@@ -137,6 +138,12 @@ function adminSettings(token,upi,name,open,options){
   const change=options||{};
   must_(!options||(typeof change.published==='boolean'&&typeof change.version==='string'),'Refresh payment settings before saving.');
   must_(!change.qr||(typeof change.qr==='string'&&change.qr.length<=720000&&!change.removeQr),'Choose one payment QR image under 525 KB.');
+  let qrBlob;
+  if(change.qr){
+    const image=imageBytes_(change.qr);
+    qrBlob=Utilities.newBlob(image.bytes,image.mime,'event-payment-qr-'+rand_()+'.'+image.ext);
+    verifyReceiverBlob_(qrBlob,upi);
+  }
   return locked_(()=>{
     const old=settings_();
     must_(!usesBankVerification_(ledger_())||upi===old.upi&&name===old.name&&!change.qr&&!change.removeQr&&change.published===old.published,'Use receiver settings to change the active payment accounts.');
@@ -146,11 +153,7 @@ function adminSettings(token,upi,name,open,options){
     must_(!published||(name&&(upi||keep||change.qr)),'To publish payments, enter the recipient name and add a UPI ID or payment QR.');
     must_(!open||Object.keys(roster_()).length,'Import the student directory before opening.');
     let added;
-    if(change.qr){
-      const image=imageBytes_(change.qr);
-      const fileName='event-payment-qr-'+rand_()+'.'+image.ext;
-      added=DriveApp.getFolderById(props_().getProperty('FOLDER')).createFile(Utilities.newBlob(image.bytes,image.mime,fileName));
-    }
+    if(qrBlob)added=DriveApp.getFolderById(props_().getProperty('FOLDER')).createFile(qrBlob);
     const next={upi,name,open,published,qrFile:added?added.getId():keep};
     try{writeSettings_(next);SpreadsheetApp.flush()}
     catch(error){if(added&&settings_().qrFile!==added.getId())added.setTrashed(true);throw error}

@@ -51,7 +51,13 @@ function proofImageBytes_(data){
 function receivers_(st){return Object.values(st.receivers||{})}
 function receiverView_(r){return {id:r.id,name:r.name,upi:r.upi,number:r.number||'',active:r.active,revision:r.revision}}
 function verifyUpiQr_(bytes,upi){
-  const payload=readReceiverQr_(bytes);
+  return validatePaymentQr_(readReceiverQr_(bytes),upi);
+}
+function verifyReceiverBlob_(blob,upi){
+  const jpeg=blob.getContentType()==='image/png'?blob.getAs('image/jpeg'):blob;
+  return verifyUpiQr_(jpeg.getBytes(),upi);
+}
+function validatePaymentQr_(payload,upi){
   must_(payload&&/^upi:\/\/pay\?/i.test(payload),'This image must contain one readable UPI payment QR.');
   let query;
   try{
@@ -61,8 +67,10 @@ function verifyUpiQr_(bytes,upi){
     });
   }catch{must_(false,'The UPI QR contains an unreadable payment address.')}
   const values=key=>query.filter(p=>p[0].toLowerCase()===key).map(p=>p[1]||'');
-  must_(values('pa').length===1&&values('pa')[0].toLowerCase()===upi,'The image pays a different UPI ID. Check the QR and receiver.');
+  const addresses=values('pa');
+  must_(addresses.length===1&&/^[a-z0-9][a-z0-9._-]{1,127}@[a-z][a-z0-9.-]{1,63}$/i.test(addresses[0])&&(!upi||addresses[0].toLowerCase()===upi),'The image pays a different UPI ID. Check the QR and receiver.');
   must_(values('am').every(x=>!x)&&values('mam').every(x=>!x)&&values('cu').every(x=>x.toUpperCase()==='INR'),'Use an INR QR with no preset amount.');
+  must_(values('tn').every(x=>!x.trim()),'Use the original payment QR with a blank payment note.');
   return payload;
 }
 // An existing club can stage its organizer-supplied QRs in its owner-only setup folder.
@@ -128,7 +136,7 @@ function attachReceiver_(a,st,now){
   return {...a,receiver:receiverView_(active[0]),offeredReceivers:active.map(r=>({id:r.id,revision:r.revision})),quotedAt:now};
 }
 function checkoutQr_(r){
-  const cache=CacheService.getScriptCache(),key="upi-qr:"+hash_(r.qrFile+":"+r.upi);
+  const cache=CacheService.getScriptCache(),key="upi-qr-note-free:"+hash_(r.qrFile+":"+r.upi);
   const cached=cache.get(key);if(cached)return cached;
   // Older receiver revisions only contain the original private Drive image.
   let payload=r.qrPayload;
@@ -136,8 +144,9 @@ function checkoutQr_(r){
     const props=props_(),propKey="verified-qr:"+r.id,stored=props.getProperty(propKey);
     const prior=stored&&JSON.parse(stored);
     if(prior&&prior.key===key)payload=prior.payload;
-    else{payload=verifyUpiQr_(paymentQrFile_(r.qrFile).getBlob().getBytes(),r.upi);props.setProperty(propKey,JSON.stringify({key,payload}))}
+    else{payload=verifyReceiverBlob_(paymentQrFile_(r.qrFile).getBlob(),r.upi);props.setProperty(propKey,JSON.stringify({key,payload}))}
   }
+  validatePaymentQr_(payload,r.upi);
   // The encoder's default byte mode accepts one byte per JavaScript character.
   const qr=ticketQrEncoder_(0,'M');qr.addData(unescape(encodeURIComponent(payload)));qr.make();
   const image=qr.createDataURL(4,16);cache.put(key,image,21600);return image;
@@ -158,13 +167,13 @@ function playerSelectReceiver(session,ticket,id,expectedVersion){
   if(compact)must_(/^\d{1,9}$/.test(expectedVersion),"Refresh your checkout and try again.");
   const result=locked_(()=>{
     const st=ledger_(),a=ownReceipt_(st,ticket,roll),receiver=st.receivers[id];
-    must_(a.status==='HOLD'&&a.receiver&&!a.file&&!a.legacyReceiver&&currentRegistration_(st,a).id===a.id,'Open your current checkout to select a receiver.');
+    must_(a.status==='HOLD'&&!a.file&&!a.legacyReceiver&&currentRegistration_(st,a).id===a.id,'Open your current checkout to select a receiver.');
     requirePlayerDetails_(a.details);
     must_(Date.now()<EVENT_END&&waveFor_(st,roll,Date.now())>=0,'Payments have closed or the event is full. If you already paid, submit your screenshot.');
     if(compact&&Object.hasOwn(st.receivers,id)&&!receiver.active)return {unavailable:true};
     must_(Object.hasOwn(st.receivers,id)&&receiver.active,"This receiver is unavailable. Refresh to choose an active account.");
-    const version=a.receiverChoiceVersion||0,already=a.receiverSelectedAt&&a.receiver.id===id;
-    if(compact&&!already&&Number(expectedVersion)!==version)return {conflict:true,receiverChoiceVersion:version,receiver:receiverView_(a.receiver)};
+    const version=a.receiverChoiceVersion||0,already=a.receiverSelectedAt&&a.receiver?.id===id;
+    if(compact&&!already&&Number(expectedVersion)!==version)return {conflict:true,receiverChoiceVersion:version,receiver:a.receiver&&receiverView_(a.receiver)};
     if(!already){
       const next={...a,receiver:receiverView_(receiver),receiverSelectedAt:Date.now(),receiverChoiceVersion:version+1};
       commit_(st,"Player selected payment receiver",roll,{attempts:[next],note:a.id});
@@ -259,29 +268,38 @@ function recalledProof_(id,ref){
     return keys.every(key=>typeof parts[key]==='string')?keys.map(key=>parts[key]).join(''):'';
   }catch{return ''}
 }
+function reserveScreenshotRead_(roll){
+  const cache=CacheService.getScriptCache(),key='ocr-count:'+roll,bucket=Math.floor(Date.now()/600000);
+  return locked_(()=>{
+    const prior=JSON.parse(cache.get(key)||'null'),count=prior?.bucket===bucket?prior.count:0;
+    if(count>=10)return false;
+    cache.put(key,JSON.stringify({bucket,count:count+1}),610);
+    return true;
+  },false);
+}
+function extractScreenshot_(a,image){
+  try{return readPaymentText_(paymentDocument_(Utilities.newBlob(image.bytes,image.mime,'receipt.'+image.ext)).text)}
+  catch{console.warn('Receipt text extraction failed for '+a.id);return null}
+}
 function playerReadProof(session,ticket,data){
   const roll=playerRoll_(session),a=ownReceipt_(ledger_(),ticket,roll),image=proofImageBytes_(data),digest=proofDigest_(image.bytes);
   must_(!issued_(a)&&['HOLD','REVIEW','REJECTED'].includes(a.status),'This receipt is not accepting proof.');
   const cache=CacheService.getScriptCache(),key='ocr:'+a.id+':'+digest;
   const cached=cache.get(key);if(cached)return JSON.parse(cached);
-  locked_(()=>{
-    const key='ocr-count:'+roll,bucket=Math.floor(Date.now()/600000),prior=JSON.parse(cache.get(key)||'null');
-    const count=prior?.bucket===bucket?prior.count:0;must_(count<10,'Too many screenshot reads. Enter the details manually or try again in ten minutes.');
-    cache.put(key,JSON.stringify({bucket,count:count+1}),610);
-  },false);
-  let fields=readPaymentText_(''),message='';
-  try{fields=readPaymentText_(paymentDocument_(Utilities.newBlob(image.bytes,image.mime,'receipt.'+image.ext)).text)}
-  catch(error){console.warn('Receipt text extraction failed for '+a.id);message='Automatic reading is unavailable. Enter the details from your screenshot for manual review.'}
+  must_(reserveScreenshotRead_(roll),'Too many screenshot reads. Try again in ten minutes.');
+  const extracted=extractScreenshot_(a,image),fields=extracted||readPaymentText_('');
+  const message=extracted?'':'Automatic reading is unavailable. Enter the details from your screenshot for manual review.';
   const result={...fields,uploadRef:rememberProof_(cache,a.id,digest,data),seal:proofSeal_(a.id,digest,fields),message:message||(!fields.utr||!fields.amount||!fields.time?'Some details could not be read. Check the fields below.':'Check the details read from your screenshot.')};
   cache.put(key,JSON.stringify(result),600);return result;
 }
 function discardStagedFile_(file){
   if(file)try{file.setTrashed(true)}catch{console.warn('Could not discard staged event file '+file.getId())}
 }
-function saveProofFile_(roll,ticket,image,filename,changesFor){
+function saveProofFile_(roll,ticket,image,filename,changesFor,prepare){
   const check=st=>{const a=ownReceipt_(st,ticket,roll);return {st,a,changes:changesFor(st,a)}};
   const before=check(ledger_());
   if(!before.changes)return receipt_(before.a,settings_(),before.st);
+  if(prepare)prepare(before.st,before.a);
   const file=privateBlob_(image.bytes,image.mime,before.a.id+'-'+filename+'.'+image.ext);
   let journalAttempted=false;
   try{
@@ -333,5 +351,29 @@ function playerSubmitPayment(session,ticket,data,json){
     const fee=entryOffer_(Math.max(a.quotedAt||a.created,Math.min(transferTime,now)),a.kind).amount;
     return {wave:proofWave_(st,a,now),fee,digest,claim,ocr:trusted,suffix:claim.utr.slice(-4),proofVersion:form.revision+1,status:'REVIEW',paymentStatus:'PENDING',submitted:now,
       late:false,reason:'',reviewReason:'',linkedRow:'',linkReason:'',fairPlayVersion:FAIR_PLAY_VERSION,agreement:FAIR_PLAY_DECLARATION};
+  });
+}
+
+function playerSubmitScreenshot(session,ticket,data,expectedRevision){
+  const roll=playerRoll_(session);
+  must_(/^\d{1,9}$/.test(expectedRevision),'Refresh your registration before submitting a screenshot.');
+  const revision=Number(expectedRevision),image=proofImageBytes_(data),digest=proofDigest_(image.bytes);
+  let ocr=null;
+  return saveProofFile_(roll,ticket,image,'proof-'+(revision+1),(st,a)=>{
+    if(issued_(a)||a.status==='REVIEW'&&a.digest===digest&&a.claim?.source==='screenshot')return null;
+    must_(currentRegistration_(st,a).id===a.id&&['HOLD','REVIEW','REJECTED'].includes(a.status),'Open your current registration to submit a screenshot.');
+    must_(revision===(a.proofVersion||0),'Your screenshot changed in another window. Refresh before replacing it.');
+    requirePlayerDetails_(a.details);
+    const now=Date.now(),paidAt=ocr?.time&&Date.parse(ocr.time+':00+05:30');
+    const fee=entryOffer_(Math.max(a.quotedAt||a.created,Math.min(paidAt||now,now)),a.kind).amount;
+    const receiver=ocr?.payee&&receivers_(st).find(r=>r.upi===ocr.payee);
+    const claim={source:'screenshot',beneficiary:roll,utr:ocr?.utr||'',amount:paise_(ocr?.amount),time:ocr?.time||'',
+      paidReceiver:receiver?{id:receiver.id,name:receiver.name,upi:receiver.upi}:null};
+    return {status:'REVIEW',paymentStatus:'PENDING',proofVersion:revision+1,submitted:now,wave:proofWave_(st,a,now),fee,digest,ocr,claim,
+      suffix:claim.utr.slice(-4),reason:'',reviewReason:'',linkedRow:'',linkReason:'',late:false,fairPlayVersion:'',agreement:''};
+  },(st,a)=>{
+    if(!usesBankVerification_(st))return;
+    // Extraction is optional and runs outside the journal lock. The desk can read the original.
+    try{if(reserveScreenshotRead_(roll))ocr=extractScreenshot_(a,image)}catch{console.warn('Receipt extraction unavailable for '+a.id)}
   });
 }

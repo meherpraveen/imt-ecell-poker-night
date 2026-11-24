@@ -1,4 +1,5 @@
 import {test,expect} from './site.mjs';
+import {jpegQr} from '../payment-fixtures.mjs';
 import {player,owner} from './event-runtime.mjs';
 
 const button=(page,name)=>page.getByRole('button',{name,exact:true});
@@ -126,12 +127,11 @@ test('mail failure, mismatched details, cooldown and delayed email can all be re
 test('owner publishes a payment QR, checks proof and issues a single-use pass; gate and floor share the result',async({context,page,site})=>{
   const admin=await context.newPage();await staffLogin(admin,site,'admin');
   await button(admin,'Settings').click();await admin.getByLabel('Recipient name shown by the UPI app').fill('Example Club');
-  await admin.getByLabel('Upload payment QR').setInputFiles(png);await admin.getByLabel('Publish payment details to players').check();
+  await admin.getByLabel('Upload payment QR').setInputFiles({name:'receiver.jpg',mimeType:'image/jpeg',buffer:jpegQr()});await admin.getByLabel('Publish payment details to players').check();
   await button(admin,'Save payment settings').click();await expect(button(admin,'Preview saved QR')).toBeVisible();
   await studentLogin(page,site);await page.getByLabel('Batch',{exact:true}).selectOption('2026-28');await button(page,'Continue to payment').click();await expect(heading(page,'Pay ₹149')).toBeVisible();
   await expect(page.getByAltText('Coordinator’s UPI payment QR')).toBeVisible();
-  await page.getByLabel('Payment screenshot').setInputFiles(png);await page.getByLabel('Visible final digits',{exact:false}).fill('6789');
-  await page.getByLabel('I agree to share',{exact:false}).check();await button(page,'Submit for review').click();
+  await page.getByLabel('Payment screenshot').setInputFiles(png);await button(page,'Submit screenshot').click();
   await expect(heading(page,'Payment under review')).toBeVisible();
   await button(admin,'Payments').click();await button(admin,'Refresh').click();await admin.getByRole('button',{name:/^Open payment for /}).click();
   await button(admin,'View private screenshot').click();await expect(admin.getByAltText('Private payment screenshot')).toBeVisible();

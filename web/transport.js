@@ -12,7 +12,7 @@ async function eventRequest(action,args){
     throw Error('The event desk is unavailable. Please contact E-Cell.');
   }
   const read=['publicPrices','publicInfo','liveFloor','passInfo','playerStatus','playerHome'].includes(action);
-  const limit=['playerReadProof','playerSubmitPayment'].includes(action)?120000:read?30000:60000;
+  const limit=['playerReadProof','playerSubmitPayment','playerSubmitScreenshot'].includes(action)?120000:read?30000:60000;
   const deadline=Date.now()+limit,body=JSON.stringify({action,args});
   const notice=document.getElementById('net'),waiting='The event desk is busy. Retrying automatically…';
   let notified=false;

@@ -11,7 +11,7 @@ function receiverDialog(id){
   detail('<h2>'+(r.id?'Edit receiver':'Add receiver')+'</h2>'+input('receiverName','Receiver name','maxlength="80" value="'+esc(r.name||'')+'"')+
     input('receiverUpi','UPI ID','autocapitalize="none" value="'+esc(r.upi||'')+'"')+input('receiverNumber','UPI number (optional)','inputmode="numeric" maxlength="10" value="'+esc(r.number||'')+'"')+
     '<label for="receiverQr">Payment QR image</label><input id="receiverQr" type="file" accept="image/png,image/jpeg,image/webp">'+
-    '<p class="desk-hint">The QR must pay this UPI ID and allow the player to enter the amount.</p>'+deskSwitch('receiverActive','Active for new checkouts',r.active!==false)+btn('bankSaveReceiver','Save receiver','primary wide'));
+    '<p class="desk-hint">The QR must pay this UPI ID with a blank amount and payment note.</p>'+deskSwitch('receiverActive','Active for new checkouts',r.active!==false)+btn('bankSaveReceiver','Save receiver','primary wide'));
 }
 function bankDeskLinks(){
   if(!snapshot.settings||!snapshot.managed)return '';
@@ -48,7 +48,7 @@ async function bankReviewDialog(id,query=''){
   const rows=r.rows.map(x=>'<li><strong>'+esc(x.line+' · '+x.source)+'</strong><small>'+esc(x.raw)+'</small><small>'+esc(x.issue||x.direction)+' · '+esc(x.date)+'</small>'+
     '<a href="'+esc(x.sourceUrl)+'" target="_blank" rel="noopener">Open original statement</a></li>').join('');
   const contact=[['Contact No.',r.details?.contact],['Batch',r.details?.batch]].filter(([,v])=>v).map(([k,v])=>'<div><dt>'+k+'</dt><dd>'+esc(v)+'</dd></div>').join('');
-  detail('<h2>Review payment</h2><p>'+esc(r.reason)+'</p><dl class="details-list"><div><dt>Receiver shown</dt><dd>'+esc(r.receiver)+'</dd></div><div><dt>Confirmed recipient</dt><dd>'+esc(r.confirmedRecipient||'Awaiting confirmation')+'</dd></div><div><dt>Paid for</dt><dd>'+esc([r.details?.fullName,c.beneficiary].filter(Boolean).join(' · '))+'</dd></div>'+contact+'<div><dt>Paid by</dt><dd>'+esc(c.payer)+'</dd></div><div><dt>Student UTR</dt><dd>'+esc(c.utr)+'</dd></div><div><dt>Claimed amount</dt><dd>'+esc(money(c.amount))+'</dd></div><div><dt>Paid at (IST)</dt><dd>'+esc(c.time)+'</dd></div></dl>'+
+  detail('<h2>Review payment</h2><p>'+esc(r.reason)+'</p><dl class="details-list"><div><dt>Receiver shown</dt><dd>'+esc(r.receiver)+'</dd></div><div><dt>Payment recipient</dt><dd>'+esc(r.confirmedRecipient||'Check original screenshot')+'</dd></div><div><dt>Paid for</dt><dd>'+esc([r.details?.fullName,c.beneficiary].filter(Boolean).join(' · '))+'</dd></div>'+contact+(c.payer?'<div><dt>Paid by</dt><dd>'+esc(c.payer)+'</dd></div>':'')+'<div><dt>Payment UTR</dt><dd>'+esc(c.utr||'Unreadable')+'</dd></div><div><dt>Receipt amount</dt><dd>'+esc(money(c.amount))+'</dd></div><div><dt>Paid at (IST)</dt><dd>'+esc(c.time||'Unreadable')+'</dd></div></dl>'+
     '<details><summary>Original OCR values</summary><p>'+esc([r.ocr?.utr||'UTR unreadable',r.ocr?.amount||'Amount unreadable',r.ocr?.time||'Time unreadable'].join(' · '))+'</p></details>'+
     '<div id="bankProofImage" role="status">Loading private screenshot…</div><h3>Closest statement rows</h3>'+
     input('bankLookup','Find another row by full UTR','inputmode="numeric" maxlength="12" value="'+esc(query)+'"')+btn('bankFind','Find row')+

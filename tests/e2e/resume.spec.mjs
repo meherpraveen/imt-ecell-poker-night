@@ -1,6 +1,6 @@
 import {chromium} from '@playwright/test';
 import {test,expect} from './site.mjs';
-import {club,jpegQr,receiptText,testUpi,utr} from '../payment-fixtures.mjs';
+import {club,jpegQr,receiptText,testUpi} from '../payment-fixtures.mjs';
 import {player} from './event-runtime.mjs';
 
 const button=(page,name)=>page.getByRole('button',{name,exact:true});
@@ -12,8 +12,8 @@ async function verify(page,site){
   await page.getByLabel('Six-digit code').fill(site.code(player.email));await button(page,'Verify and continue').click();
 }
 
-test('closing the browser resumes details, receiver, screenshot and OCR corrections on the same phone',async({site},testInfo)=>{
-  const api=club(site),receiver=api.makeReceiver(testUpi,'First receiver');api.makeReceiver('other@samplebank','Second receiver');
+test('closing the browser resumes registration details and the selected receiver and screenshot on the same phone',async({site},testInfo)=>{
+  const api=club(site);api.makeReceiver(testUpi,'First receiver');const receiver=api.makeReceiver('other@samplebank','Second receiver');
   site.rows.Students[1][3]='';
   const open=async()=>{
     const context=await chromium.launchPersistentContext(testInfo.outputPath('student-profile'),{channel:process.env.POKER_BROWSER_CHANNEL||undefined,viewport:{width:390,height:844}});
@@ -33,19 +33,14 @@ test('closing the browser resumes details, receiver, screenshot and OCR correcti
     await expect(page.getByLabel('Phone number')).toHaveValue('+91 98765 01234');await button(page,'Continue to payment').click();
     await page.getByRole('radio',{name:receiver.name}).check();await expect(page.locator('#receiverFeedback')).toContainText('Selected');
     site.ocr(receiptText());await page.getByLabel('Payment screenshot').setInputFiles({name:'bank-receipt.jpg',mimeType:'image/jpeg',buffer:jpegQr()});
-    await expect(page.getByLabel('UTR / UPI Transaction ID')).toHaveValue(utr);
     await expect(page.locator('#proofDraftNote')).toContainText('saved on this device');
-    await page.getByLabel('Amount paid (₹)').fill('149.0');await page.getByLabel('Who made the payment?').fill('My brother');
-    await page.getByLabel('Please confirm the recipient of your payment').selectOption(receiver.id);
-    await page.getByLabel(/I agree to play fair/).check();await context.close();
-    site.advance(11*60000);for(const key of site.cache.keys())if(key.startsWith('proof-bytes:'))site.cache.delete(key);
+    await context.close();site.advance(11*60000);
     context=await open();page=context.pages()[0]||await context.newPage();await page.goto(site.register);
     await expect(page.getByLabel('Payment screenshot')).toHaveValue(/bank-receipt\.jpg$/);
     await expect(page.getByRole('radio',{name:receiver.name})).toBeChecked();
-    await expect(page.getByLabel('Amount paid (₹)')).toHaveValue('149.0');await expect(page.getByLabel('Who made the payment?')).toHaveValue('My brother');
-    await expect(page.getByLabel('Please confirm the recipient of your payment')).toHaveValue(receiver.id);await expect(page.getByLabel(/I agree to play fair/)).toBeChecked();
-    await button(page,'Submit for verification').click();await expect(page.getByRole('heading',{name:'Payment pending'})).toBeVisible();
-    expect(site.calls.filter(s=>s==='playerStart')).toHaveLength(1);expect(site.calls.filter(s=>s==='playerReadProof')).toHaveLength(1);
+    await button(page,'Submit screenshot').click();await expect(page.getByRole('heading',{name:'Payment pending'})).toBeVisible();
+    expect(site.calls.filter(s=>s==='playerStart')).toHaveLength(1);expect(site.calls.filter(s=>s==='playerReadProof')).toHaveLength(0);
+    expect(site.calls.filter(s=>s==='playerSubmitScreenshot')).toHaveLength(1);
     expect(site.rows.Journal.filter(r=>r[1]==='Proof submitted')).toHaveLength(1);
     expect(site.mail.filter(m=>m.to===player.email)).toHaveLength(1);
     expect(await page.evaluate(()=>Object.keys(localStorage).filter(k=>k.includes(':draft:')))).toEqual([]);
@@ -79,27 +74,22 @@ test('an unfinished checkout from an earlier release asks for a phone once on th
   expect(p.status().ticket).toBe(p.hold.ticket);expect(p.status().details.contact).toBe('9876501234');
 });
 
-test('closing during OCR restores the original screenshot and keeps a manually corrected UTR',async({page,context,site})=>{
-  const api=club(site);api.makeReceiver();const p=api.student();site.ocr(receiptText());
+test('closing before upload restores the original screenshot even with an earlier release’s saved fields',async({page,context,site})=>{
+  const api=club(site);api.makeReceiver();const p=api.student();
   await page.addInitScript(token=>sessionStorage.setItem('pn26:player-login',JSON.stringify({token})),p.token);
-  let release;
-  const pending=new Promise(resolve=>{release=resolve});
-  await page.route(site.endpoint,async route=>{
-    if(route.request().postDataJSON().action!=='playerReadProof')return route.fallback();
-    await pending;await route.abort().catch(()=>{});
+  await page.goto(site.register);
+  await page.getByLabel('Payment screenshot').setInputFiles({name:'receipt.jpg',mimeType:'image/jpeg',buffer:jpegQr()});
+  await expect(page.locator('#proofDraftNote')).toContainText('saved on this device');
+  await page.evaluate(()=>{
+    const key=Object.keys(localStorage).find(k=>k.startsWith('pn26:draft:')&&k.includes(':proof:')),draft=JSON.parse(localStorage.getItem(key));
+    localStorage.setItem(key,JSON.stringify({...draft,fields:{paymentUtr:'123456789099',fairPlay:true},edited:['paymentUtr']}));
   });
-  try{
-    await page.goto(site.register);
-    await page.getByLabel('Payment screenshot').setInputFiles({name:'receipt.jpg',mimeType:'image/jpeg',buffer:jpegQr()});
-    await expect(page.locator('#proofDraftNote')).toContainText('saved on this device');
-    await page.getByLabel('UTR / UPI Transaction ID').fill('123456789099');
-    await page.close();
-  }finally{release()}
+  await page.close();
   const resumed=await context.newPage();await resumed.goto(site.register);
   await expect(resumed.locator('#proofDraftNote')).toHaveText('Restored screenshot · receipt.jpg');
-  await expect(resumed.locator('#ocrFeedback')).toContainText('Check the details read');
-  await expect(resumed.getByLabel('UTR / UPI Transaction ID')).toHaveValue('123456789099');
-  await expect(resumed.getByLabel('Amount paid (₹)')).toHaveValue('149.00');
+  await expect(resumed.locator('form[data-action="submitPayment"] input')).toHaveCount(1);
+  await button(resumed,'Submit screenshot').click();await expect(resumed.getByRole('heading',{name:'Payment pending'})).toBeVisible();
+  expect(p.status().claim.utr).toBe('');expect(p.status().claim.fairPlay).toBeUndefined();
 });
 
 test('reconnecting restores a draft and a lost registration response reopens the saved checkout once',async({page,site})=>{

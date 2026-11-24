@@ -24,7 +24,7 @@ function dropAccountDrafts(roll){
     request.onsuccess=()=>{const cursor=request.result;if(cursor){cursor.delete();cursor.continue()}};
   }).catch(()=>{});
 }
-// IndexedDB stores the selected original as a Blob, including screenshots too large for localStorage.
+// Store the original bytes in IndexedDB. Some mobile browsers cannot persist File objects.
 let proofDatabase;
 function openProofDatabase(){
   if(!proofDatabase)proofDatabase=new Promise((resolve,reject)=>{

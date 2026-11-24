@@ -9,7 +9,7 @@ function scriptAsset(src){
 let playerSession=unpack(deviceValue('player-login')),sharedSession=!!durable.get('player-login');
 let challenge=unpack(deviceValue('email-step')), pendingRequest=tabValue('seat-request'),accountInfo,accountLoad;
 let preferredReceipt=incomingReceipt||tabValue('receipt-link')||'';
-let currentReceipt=null,currentPass=null,ticketTimer,checkoutTimer,qrLibrary,proofRead=null,paymentLibrary,accountLibrary;
+let currentReceipt=null,currentPass=null,ticketTimer,checkoutTimer,qrLibrary,paymentLibrary,accountLibrary;
 function loadAccountTools(){
   if(typeof renderAccount==='function')return Promise.resolve();
   if(!accountLibrary)accountLibrary=scriptAsset('assets/player-account.js?v=__ACCOUNT_VERSION__').catch(error=>{accountLibrary=null;throw error});
@@ -50,7 +50,7 @@ function codePage(){
 }
 function resetPlayerView(){
   clearTimeout(ticketTimer);clearTimeout(checkoutTimer);clearInterval(resendTimer);
-  proofRead=null;currentReceipt=null;playerSession=null;challenge=null;pendingRequest='';preferredReceipt='';accountInfo=null;accountLoad=null;
+  currentReceipt=null;playerSession=null;challenge=null;pendingRequest='';preferredReceipt='';accountInfo=null;accountLoad=null;
   for(const key of ['player-login','seat-request','email-step','receipt-link'])tabValue(key,'');
 }
 function clearPlayer(forgetDrafts=false){

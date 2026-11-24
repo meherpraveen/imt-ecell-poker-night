@@ -319,3 +319,100 @@ test('legacy receipts require a phone for new submissions and honor proof alread
   assert.equal(f.rpc('gateAction',f.admin,'admit',ticket.entryCode,randomUUID()).status,'admitted');
   assert.ok(p.status().seat);
 });
+
+test('receiver QR configuration and cached revisions require an open amount and a blank note',()=>{
+  const f=start(),{event,receiver}=f,original=event.staff('ledger_',[]).receivers[receiver.id];
+  for(const [parameter,error] of [['tn=Registration',/blank payment note/],['TN=Booking%20note',/blank payment note/],['am=149',/no preset amount/],['mam=1',/no preset amount/]]){
+    const bad=testUpi+'&'+parameter,qr='data:image/jpeg;base64,'+jpegQr(bad).toString('base64');
+    assert.throws(()=>f.rpc('adminSaveReceiver',f.admin,{...receiver,qr}),error);
+    const file='old-'+parameter;
+    event.cache.set('upi-qr:'+event.staff('hash_',[file+':'+testUpi]),'cached-before-update');
+    assert.throws(()=>event.staff('checkoutQr_',[{...original,qrFile:file,qrPayload:'upi://pay?pa='+bad}]),error);
+  }
+  const bankQr='upi://pay?pa='+testUpi+'&pn=Club%20Receiver&cu=INR&tn=&mc=1234&sign=example';
+  assert.equal(event.staff('validatePaymentQr_',[bankQr,testUpi]),bankQr);
+});
+
+test('screenshot-only proof is owner-bound, idempotent and matches either displayed receiver without choosing one',()=>{
+  const event=createEvent(),f=club(event);
+  f.makeReceiver();const receiver=f.makeReceiver('second@samplebank','Second'),p=f.student(),other=f.student('223456789','second@example.test');
+  const submit=(data,version,token=p.token)=>f.publicRpc('playerSubmitScreenshot',token,p.hold.ticket,data,version);
+  assert.equal(p.hold.chosenReceiverId,'');
+  assert.throws(()=>submit(image,'0',other.token),/your account/);
+  assert.throws(()=>submit('','0'),/screenshot/);
+  assert.throws(()=>submit(image,'1'),/another window/);
+  event.ocr(receiptText(utr,'149.00',receiver.upi));
+  const saved=submit(image,'0'),replay=submit(image,'0');
+  assert.equal(replay.proofVersion,1);assert.equal(saved.claim.source,'screenshot');
+  assert.equal(saved.claim.paidReceiver.id,receiver.id);assert.equal(saved.claim.beneficiary,p.hold.beneficiary);
+  assert.equal(saved.claim.fairPlay,undefined);assert.equal(saved.claim.payer,undefined);
+  assert.equal(saved.entryCode,'');assert.equal(saved.needsConfirmation,false);
+  assert.throws(()=>submit('data:image/jpeg;base64,'+jpegQr('x@samplebank').toString('base64'),'0'),/another window/);
+  assert.equal(event.rows.Journal.filter(r=>r[1]==='Proof submitted').length,1);
+  assert.equal(f.apply(f.statement(receiver,[credit(utr,'149',receiver.upi)])).authorized,1);
+  assert.ok(p.status().entryCode);
+  assert.equal(submit(image,'0').entryCode,p.status().entryCode);
+});
+
+test('unreadable proof stays pending, including on a legacy hold with no receiver, and the desk can match an applied credit',()=>{
+  const event=createEvent(),f=club(event);
+  event.rows.Settings[1][1]=testUpi;event.rows.Settings[2][1]='Legacy Club';event.rows.Settings[5][1]='yes';
+  const p=f.student(),receiver=f.makeReceiver();assert.equal(p.hold.receiver,null);
+  event.ocr(null);
+  const saved=f.publicRpc('playerSubmitScreenshot',p.token,p.hold.ticket,image,'0');
+  assert.equal(saved.status,'REVIEW');assert.equal(saved.claim.utr,'');assert.equal(saved.claim.paidReceiver,null);assert.equal(saved.issue,'');
+  assert.equal(f.rpc('adminNeedsReview',f.admin).payments[0].id,p.hold.id);
+  const plan=f.statement(receiver);assert.equal(f.apply(plan).authorized,0);
+  const detail=f.rpc('adminPaymentDetail',f.admin,p.hold.id,utr);
+  assert.equal(detail.rows.length,1);assert.equal(detail.rows[0].utr,utr);
+  const approve=()=>f.rpc('adminReviewPayment',f.admin,p.hold.id,'approve',detail.rows[0].key,'Matched screenshot and original bank credit.',1);
+  approve();approve();assert.ok(p.status().entryCode);
+  assert.equal(event.rows.Journal.filter(r=>r[1]==='Payment manually authorized').length,1);
+});
+
+test('a screenshot alone cannot authorize failed, duplicate or underpaid transfers',()=>{
+  const f=start(),{p,event}=f,receiver=f.receiver,other=f.student('223456789','second@example.test');
+  event.ocr(receiptText()+'\nPayment failed');
+  const submit=student=>f.publicRpc('playerSubmitScreenshot',student.token,student.hold.ticket,image,'0');
+  submit(p);
+  const first=f.statement(receiver);assert.match(first.matches[0].reason,/unsuccessful/);assert.equal(f.apply(first).authorized,0);
+  submit(other);
+  const duplicate=f.statement(receiver);assert.match(duplicate.matches[0].reason,/Multiple registrations/);
+  const row=f.rpc('adminPaymentDetail',f.admin,p.hold.id,utr).rows[0];
+  assert.throws(()=>f.rpc('adminReviewPayment',f.admin,p.hold.id,'approve',row.key,'Checked original credit.',1),/Multiple registrations/);
+  assert.equal(p.status().entryCode,'');assert.equal(other.status().entryCode,'');
+  const g=start();g.event.ocr(null);g.publicRpc('playerSubmitScreenshot',g.p.token,g.p.hold.ticket,image,'0');
+  g.apply(g.statement(g.receiver,[credit(utr,'100')]));
+  const short=g.rpc('adminPaymentDetail',g.admin,g.p.hold.id,utr).rows[0];
+  assert.throws(()=>g.rpc('adminReviewPayment',g.admin,g.p.hold.id,'approve',short.key,'Checked original credit.',1),/fee/);
+});
+
+test('statement time resolves an unreadable screenshot across the Early Bird boundary',()=>{
+  const event=createEvent();event.at('2026-11-27T18:50:00+05:30');
+  const f=club(event),receiver=f.makeReceiver(),p=f.student();event.advance(20*60000);event.ocr(null);
+  assert.equal(f.publicRpc('playerSubmitScreenshot',p.token,p.hold.ticket,image,'0').fee,199);
+  const raw='Date,Time,UTR,Credit,Debit,Receiver UPI,Description\r\n2026-11-27,18:59,'+utr+',149,,'+testUpi+',UPI credit';
+  const plan=f.importFile(receiver.id,'bank.csv',raw);assert.equal(f.apply(plan).authorized,0);
+  const detail=f.rpc('adminPaymentDetail',f.admin,p.hold.id,utr);
+  f.rpc('adminReviewPayment',f.admin,p.hold.id,'approve',detail.rows[0].key,'Verified original credit before the cutoff.',1);
+  assert.equal(p.status().fee,149);assert.ok(p.status().entryCode);
+});
+
+test('the desk can reconcile a previously uploaded legacy screenshot without asking for a new one',()=>{
+  const event=createEvent(),f=club(event);
+  event.rows.Settings[1][1]=testUpi;event.rows.Settings[2][1]='Legacy Club';event.rows.Settings[5][1]='yes';
+  const p=f.student();f.publicRpc('playerUpload',p.token,p.hold.ticket,'',image);
+  const receiver=f.makeReceiver();f.apply(f.statement(receiver));
+  const detail=f.rpc('adminPaymentDetail',f.admin,p.hold.id,utr);assert.equal(detail.version,0);
+  f.rpc('adminReviewPayment',f.admin,p.hold.id,'approve',detail.rows[0].key,'Verified the original legacy receipt and bank credit.',detail.version);
+  assert.ok(p.status().entryCode);
+});
+
+test('only a desk decision can resolve a screenshot reader assigning the wrong receiving account',()=>{
+  const event=createEvent(),f=club(event),actual=f.makeReceiver(),misread=f.makeReceiver('other@samplebank','Other'),p=f.student();
+  event.ocr(receiptText(utr,'149',misread.upi));f.publicRpc('playerSubmitScreenshot',p.token,p.hold.ticket,image,'0');
+  assert.equal(f.apply(f.statement(actual)).authorized,0);
+  const detail=f.rpc('adminPaymentDetail',f.admin,p.hold.id,utr);assert.match(detail.reason,/different|differs/);
+  f.rpc('adminReviewPayment',f.admin,p.hold.id,'approve',detail.rows[0].key,'Verified original account and incoming UTR.',detail.version);
+  assert.ok(p.status().entryCode);
+});

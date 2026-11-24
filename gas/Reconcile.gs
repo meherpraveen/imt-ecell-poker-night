@@ -1,14 +1,26 @@
 // Exact matches and manual decisions use the same server-side credit and admission checks.
 function rowMentions_(row,utr){return !!utr&&(row.utr===utr||!row.utr&&(row.refs||String(row.raw||'').match(/\b\d{12}\b/g)||[]).includes(utr))}
 function paidReceiver_(a){return a.claim?.paidReceiver||a.receiver}
+// A statement can resolve the fee when the screenshot has no readable transfer time.
+function bankFeeFitsScreenshot_(a,row){
+  const minuteOrDay=row.time||row.date+'T00:00',start=Date.parse(minuteOrDay+':00+05:30');
+  const end=row.time?start+59999:Date.parse(row.date+'T23:59:59.999+05:30');
+  const latest=Math.min(end,a.submitted+60000,EVENT_END-1),quotedAt=a.quotedAt||a.created;
+  return start<=latest&&[start,latest].some(t=>entryOffer_(Math.max(quotedAt,t),a.kind).amount*100===row.minor);
+}
+function bankRecipient_(st,a,row){
+  // OCR is a hint. The administrator can identify the recipient from the original and bank row.
+  return (a.claim?.source!=='screenshot'&&a.claim?.paidReceiver)||st.receivers[row.account];
+}
 function paymentBlock_(st,a,row,bank){
-  if(!a.file||!a.claim||!a.receiver)return 'Missing structured proof or receiver. Ask the player to upload again.';
+  if(!a.file)return 'A payment screenshot is required.';
   if(!validBatch_(a.details?.batch))return 'Ask the player to choose their batch in registration details. Their proof is saved.';
-  if(!a.claim.paidReceiver||a.fairPlayVersion!==FAIR_PLAY_VERSION)return 'Ask the player to confirm their registration, payment recipient and fair-play declaration.';
-  const recipient=paidReceiver_(a);
-  if(row.account!==recipient.id||row.upi!==recipient.upi)return 'Bank credit belongs to a different account from the confirmed recipient.';
+  const recipient=bankRecipient_(st,a,row);
+  if(!recipient||row.account!==recipient.id||row.upi!==recipient.upi)return 'Bank credit belongs to a different account from the confirmed recipient.';
   if(row.issue||row.direction!=='CREDIT'||!row.utr)return row.issue||'No verified incoming credit.';
-  if(row.minor!==a.fee*100)return 'Bank credit differs from the server-quoted fee.';
+  if(a.claim?.source==='screenshot'){
+    if(!bankFeeFitsScreenshot_(a,row))return 'Bank credit is outside the quoted fee or transfer window.';
+  }else if(row.minor!==a.fee*100)return 'Bank credit differs from the server-quoted fee.';
   const same=bank.filter(r=>rowMentions_(r,row.utr));
   if(same.some(r=>r.account!==row.account||r.upi!==row.upi||r.minor!==row.minor||r.date!==row.date||r.direction!==row.direction||r.issue))return 'The UTR has conflicting entries, a debit or a reversal.';
   for(const credit of same){
@@ -28,9 +40,15 @@ function paymentBlock_(st,a,row,bank){
 function autoReason_(st,a,row,bank){
   const block=paymentBlock_(st,a,row,bank);if(block)return block;
   if(row.ocr)return 'PDF extraction needs visual confirmation against the original statement.';
-  if(a.claim.paidReceiver.id!==a.receiver.id)return 'Confirmed payment recipient differs from the receiver shown at checkout.';
+  const recipient=a.claim?.paidReceiver;
+  if(!recipient||!a.receiver)return 'Compare the original screenshot with the receiving bank account.';
+  if(recipient.id!==row.account||recipient.upi!==row.upi)return 'Screenshot recipient differs from the receiving bank account.';
+  const screenshot=a.claim.source==='screenshot';
+  if(screenshot&&!a.offeredReceivers?.some(option=>option.id===recipient.id))return 'The screenshot recipient was not listed at checkout.';
+  if(!screenshot&&a.fairPlayVersion!==FAIR_PLAY_VERSION)return 'Review the original payment proof at the desk.';
+  if(!screenshot&&recipient.id!==a.receiver.id)return 'Confirmed payment recipient differs from the receiver shown at checkout.';
   if(a.legacyReceiver)return 'The receiving account was supplied after the original checkout.';
-  if(a.ocr?.payee&&a.ocr.payee!==a.receiver.upi)return 'Screenshot shows a different receiving UPI ID.';
+  if(a.ocr?.payee&&a.ocr.payee!==recipient.upi)return 'Screenshot shows a different receiving UPI ID.';
   if(a.ocr?.uncertain)return 'Screenshot indicates an unsuccessful or pending transfer.';
   if(!a.ocr||!a.ocr.utr||!a.ocr.time||paise_(a.ocr.amount)===null)return 'Screenshot fields could not be independently read.';
   if(a.ocr.utr!==a.claim.utr||a.ocr.time!==a.claim.time||paise_(a.ocr.amount)!==a.claim.amount)return 'Student corrected the extracted payment details.';
@@ -38,10 +56,12 @@ function autoReason_(st,a,row,bank){
   if(a.claim.time.slice(0,10)!==row.date)return 'Payment and statement dates differ.';
   const time=Date.parse(a.claim.time+':00+05:30');
   // A player can scan either displayed QR before saving the matching radio choice.
-  const shownAtQuote=a.offeredReceivers?.some(option=>option.id===a.receiver.id);
+  const shownAtQuote=a.offeredReceivers?.some(option=>option.id===recipient.id);
   const firstShown=Math.max(a.quotedAt||a.created,shownAtQuote?0:a.receiverSelectedAt||0);
   if(time+60000<firstShown||time>=EVENT_END||time>a.submitted+60000)return 'Payment time falls outside this registration or the event.';
-  const offer=entryOffer_(time,a.kind),cutoffDate=new Date(offer.endsAt+19800000).toISOString().slice(0,10);
+  const offer=entryOffer_(time,a.kind);
+  if(row.minor!==offer.amount*100)return 'Bank credit differs from the fee at the screenshot transfer time.';
+  const cutoffDate=new Date(offer.endsAt+19800000).toISOString().slice(0,10);
   if(offer.early&&a.submitted>=offer.endsAt&&row.date===cutoffDate){
     const confirmedTime=bank.some(r=>r.utr===row.utr&&r.time&&(r.statement===row.statement||r.applied));
     if(!confirmedTime)return 'The statement shows only the cutoff date. Check the bank transfer time before authorizing the Early Bird fee.';
@@ -61,7 +81,7 @@ function statementPlan_(st,s,bank=bankRows_(st,s.id,true)){
     // Only this statement's credits may be applied by this preview.
     const row=own.find(r=>r.utr&&r.utr===a.claim?.utr);
     const reason=row?autoReason_(st,a,row,bank):'No matching UTR in this statement.';
-    return {id:a.id,version:a.proofVersion||0,roll:a.roll,utr:a.claim?.utr||'',row:row?.key||'',reason,fee:a.fee};
+    return {id:a.id,version:a.proofVersion||0,roll:a.roll,utr:a.claim?.utr||'',row:row?.key||'',reason,fee:row&&!reason?row.minor/100:a.fee};
   });
   const projected=new Map();
   for(const m of matches.filter(m=>!m.reason)){
@@ -87,7 +107,7 @@ function adminApplyStatement(token,id,version){
     must_(source===JSON.stringify([st.statements,st.bankCorrections]),'The preview changed. Open a fresh preview before applying.');
     const plan=statementPlan_(st,s,bank);
     must_(plan.version===version,'The preview changed. Open a fresh preview before applying.');
-    const decisions=plan.matches.filter(m=>!m.reason).map(m=>({id:m.id,row:m.row,utr:m.utr}));
+    const decisions=plan.matches.filter(m=>!m.reason).map(m=>({id:m.id,row:m.row,utr:m.utr,fee:m.fee}));
     const flagged=plan.matches.filter(m=>m.reason&&st.attempts[m.id].reviewReason!==m.reason).map(m=>[m.id,m.reason]);
     const now=Date.now(),result={authorized:decisions.length,review:plan.matches.length-decisions.length};
     // A single journal append commits this batch and all UTR consumption, including on retry.
@@ -105,36 +125,37 @@ function adminDispatchPasses(token){
   return {remaining:Math.max(0,items.length-4),failed};
 }
 function reviewCandidates_(a,bank){
-  const rank=r=>(r.key===a.linkedRow?200:0)+(r.utr&&r.utr===a.claim?.utr?100:0)+(r.utr&&a.suffix&&r.utr.endsWith(a.suffix)?18:0)+(r.account===paidReceiver_(a)?.id?10:0)+(r.minor===a.fee*100?5:0)+(r.date&&a.claim?.time.startsWith(r.date)?2:0);
+  const rank=r=>(r.key===a.linkedRow?200:0)+(r.utr&&r.utr===a.claim?.utr?100:0)+(r.utr&&a.suffix&&r.utr.endsWith(a.suffix)?18:0)+(r.account===paidReceiver_(a)?.id?10:0)+(r.minor===a.fee*100?5:0)+(r.date&&a.claim?.time?.startsWith(r.date)?2:0);
   return bank.map(r=>({r,rank:rank(r)})).filter(v=>v.rank>=10).sort((a,b)=>b.rank-a.rank||a.r.key.localeCompare(b.r.key)).slice(0,10).map(v=>v.r);
 }
 function adminPaymentDetail(token,id,lookup){
-  staff_(token,[]);const st=ledger_(),a=st.attempts[id];must_(a&&a.receiver,'This payment has no saved receiver.');
+  staff_(token,[]);const st=ledger_(),a=st.attempts[id];must_(a&&(a.receiver||a.file&&usesBankVerification_(st)),'Payment not found.');
   const bank=bankRows_(st,'',true),available=bank.filter(r=>r.applied),query=String(lookup||'').trim();
   must_(!query||ref_(query),'Search with a full 12-digit UTR.');
   const rows=query?available.filter(r=>rowMentions_(r,query)).slice(0,40):reviewCandidates_(a,available);
   return {version:a.proofVersion||0,linked:a.linkedRow||'',claim:a.claim||null,ocr:a.ocr||null,
-    receiver:a.receiver.name,confirmedRecipient:a.claim?.paidReceiver?.name||'',details:a.details||null,reason:paymentMatch_(st,a,bank).reason||'Exact match available.',rows:rows.map(r=>({...r,sourceUrl:'https://drive.google.com/open?id='+encodeURIComponent(st.statements[r.statement].original)}))};
+    receiver:a.receiver?.name||'Unknown',confirmedRecipient:a.claim?.paidReceiver?.name||'',details:a.details||null,reason:paymentMatch_(st,a,bank).reason||'Exact match available.',rows:rows.map(r=>({...r,sourceUrl:'https://drive.google.com/open?id='+encodeURIComponent(st.statements[r.statement].original)}))};
 }
 function adminReviewPayment(token,id,action,rowKey,reason,revision){
   const admin=staff_(token,[]);reason=String(reason||'').trim();
   must_(['approve','link','reject'].includes(action)&&reason.length>=3&&reason.length<=240,'Enter a reason for this decision (3–240 characters).');
   const result=locked_(()=>{
-    const st=ledger_(),a=st.attempts[id];must_(a&&a.receiver,'Payment not found.');
+    const st=ledger_(),a=st.attempts[id];must_(a&&(a.receiver||a.file&&usesBankVerification_(st)),'Payment not found.');
     if(action==='approve'&&issued_(a)&&a.bankRow===rowKey)return null;
-    if(action==='reject'&&a.status==='REJECTED'&&a.reason===reason&&revision===a.proofVersion)return {status:'Rejected'};
-    must_(a.status==='REVIEW'&&revision===a.proofVersion,'The payment has changed. Reopen it before deciding.');
+    if(action==='reject'&&a.status==='REJECTED'&&a.reason===reason&&revision===(a.proofVersion||0))return {status:'Rejected'};
+    must_(a.status==='REVIEW'&&revision===(a.proofVersion||0),'The payment has changed. Reopen it before deciding.');
     if(action==='reject'){commit_(st,'Proof rejected',admin.name,{attempts:[{...a,status:'REJECTED',paymentStatus:'PENDING',reason,linkedRow:'',reviewReason:reason}],note:id});return {status:'Rejected'}}
     const bank=bankRows_(st,'',true),row=bank.find(r=>r.applied&&r.key===rowKey);must_(row,'Choose an applied statement row.');
     if(action==='link'){
-      must_(row.account===paidReceiver_(a)?.id,'Select a row from the confirmed receiving account.');
+      const recipient=bankRecipient_(st,a,row);
+      must_(recipient&&row.account===recipient.id&&row.upi===recipient.upi,'Select a row from the receiving account.');
       must_(!Object.values(st.attempts).some(x=>x.id!==id&&row.utr&&x.utr===row.utr),'This bank credit has already funded an entry.');
       if(a.linkedRow!==rowKey||a.linkReason!==reason)commit_(st,'Statement row linked',admin.name,{attempts:[{...a,linkedRow:rowKey,linkReason:reason}],note:id});
       return {status:'Linked · payment pending'};
     }
     const block=paymentBlock_(st,a,row,bank);must_(!block,block);
     must_(!Object.values(st.attempts).some(x=>x.id!==id&&x.status==='REVIEW'&&x.claim?.utr===row.utr),'Another student claims this UTR. Resolve that claim first.');
-    commit_(st,'Payment manually authorized',admin.name,{bankDecisions:[{id,row:row.key,utr:row.utr,reason}],bankTime:Date.now(),bankStatement:row.statement,note:id});
+    commit_(st,'Payment manually authorized',admin.name,{bankDecisions:[{id,row:row.key,utr:row.utr,fee:row.minor/100,reason}],bankTime:Date.now(),bankStatement:row.statement,note:id});
     return null;
   },false);
   return result||{status:deliverPass_(id,admin.name)};
@@ -174,7 +195,8 @@ function adminCertifyPdfRow(token,key,values){
 function adminNeedsReview(token){
   staff_(token,[]);
   const st=ledger_(),bank=bankRows_(st,'',true),attempts=Object.values(st.attempts);
-  const payments=attempts.filter(a=>a.status==='REVIEW'&&a.receiver).map(a=>paymentMatch_(st,a,bank));
+  const managed=usesBankVerification_(st);
+  const payments=attempts.filter(a=>a.status==='REVIEW'&&(a.receiver||managed&&a.file)).map(a=>paymentMatch_(st,a,bank));
   const spent=new Map(attempts.filter(a=>a.utr).map(a=>[a.utr,a]));
   const claims=new Set(payments.map(p=>p.row));
   const rows=[];

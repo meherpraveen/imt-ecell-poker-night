@@ -141,7 +141,7 @@ test('registration and checkout cross the same price boundary while a phone stay
   await page.getByLabel('Batch',{exact:true}).selectOption('2025-27');await page.getByRole('button',{name:'Continue to payment'}).click();await expect(offer.locator('s')).toContainText('₹199');
   await expect(page.getByRole('button',{name:/Copy UPI ID/})).toHaveAttribute('data-value','club@example');
   await expect(page.locator('.payment-help')).toContainText('Enter ₹149');
-  await page.getByRole('button',{name:'Submit for review'}).click();
+  await page.getByRole('button',{name:'Submit screenshot'}).click();
   await expect(page.getByLabel('Payment screenshot')).toHaveAttribute('aria-invalid','true');
   site.advance(60000);await page.clock.fastForward(60000);
   await expect(page.getByRole('heading',{name:'Pay ₹199'})).toBeVisible();

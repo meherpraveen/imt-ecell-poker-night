@@ -89,7 +89,9 @@ test('only admins can upload, publish, replace or remove the private payment QR'
   const png='data:image/png;base64,'+bytes.toString('base64');
   c.Utilities.base64Decode=str=>Array.from(Buffer.from(str,'base64'));
   c.Utilities.base64Encode=arr=>Buffer.from(arr).toString('base64');
-  c.Utilities.newBlob=(arr,mime,name)=>({getBytes:()=>arr,getContentType:()=>mime,getName:()=>name});
+  c.Utilities.newBlob=(arr,mime,name)=>({getBytes:()=>arr,getContentType:()=>mime,getName:()=>name,getAs:()=>({getBytes:()=>arr})});
+  c.readReceiverQr_=()=>'upi://pay?pa=club@example';
+  c.CacheService={getScriptCache:()=>({get:()=>null,put:()=>{}})};
   c.DriveApp={getFileById:id=>files.get(id),getFolderById:()=>({createFile(blob){
     const id='asset'+(files.size+1);
     const file={getId:()=>id,getName:blob.getName,getBlob:()=>blob,setTrashed(flag){this.trashed=flag},
@@ -104,7 +106,7 @@ test('only admins can upload, publish, replace or remove the private payment QR'
   assert.equal(status(f,saved.ticket).paymentQr,'');assert.equal(status(f,saved.ticket).canCheckout,false);
   assert.throws(()=>save('admin',{version:'outdated',qr:png}));assert.equal(files.size,1);
   save('admin');const active=checkout(f,saved.ticket);
-  assert.equal(active.paymentQr,png);assert.equal(active.upi,'');assert.equal(active.name,'Example Club');
+  assert.match(active.paymentQr,/^data:image\/gif;base64,/);assert.equal(active.upi,'');assert.equal(active.name,'Example Club');
   assert.ok(!JSON.stringify(active).includes('asset1'));assert.equal(c.adminSettingsView_(s).hasQr,true);
   save('admin',{qr:png},'club@example');assert.ok(files.get('asset1').trashed);assert.equal(status(f,saved.ticket).upi,'club@example');
   save('admin',{removeQr:true},'club@example');assert.ok(files.get('asset2').trashed);assert.equal(status(f,saved.ticket).paymentQr,'');

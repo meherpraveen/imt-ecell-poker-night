@@ -81,12 +81,12 @@ function doPost(event){
       ['requestPlayerCode',[requestPlayerCode,1]],['verifyPlayerCode',[verifyPlayerCode,2]],['playerLogout',[playerLogout,1]],
       ['requestMatchedPlayerCode',[requestMatchedPlayerCode,2]],['signInPlayer',[signInPlayer,3]],['passInfo',[passInfo,1]],
       ['playerHome',[playerHome,2]],['playerStart',[playerStart,3]],['playerStatus',[playerStatus,2]],
-      ['playerSelectReceiver',[playerSelectReceiver,3]],['playerSaveDetails',[playerSaveDetails,3]],['playerCheckout',[playerCheckout,2]],['playerUpload',[playerUpload,4]],['playerReadProof',[playerReadProof,3]],['playerSubmitPayment',[playerSubmitPayment,4]],['playerIdentifyReceiver',[playerIdentifyReceiver,3]],
+      ['playerSelectReceiver',[playerSelectReceiver,3]],['playerSaveDetails',[playerSaveDetails,3]],['playerCheckout',[playerCheckout,2]],['playerUpload',[playerUpload,4]],['playerSubmitScreenshot',[playerSubmitScreenshot,4]],['playerReadProof',[playerReadProof,3]],['playerSubmitPayment',[playerSubmitPayment,4]],['playerIdentifyReceiver',[playerIdentifyReceiver,3]],
       ['scanEntryTicket',[scanEntryTicket,3]]
     ]);
     const method=request&&methods.get(request.action);
     must_(method&&Array.isArray(request.args)&&request.args.every(arg=>typeof arg==='string'),'Invalid event request.');
-    must_(body.length<=2410000||['playerReadProof','playerSubmitPayment'].includes(request.action),'This request is too large.');
+    must_(body.length<=2410000||['playerReadProof','playerSubmitPayment','playerSubmitScreenshot'].includes(request.action),'This request is too large.');
     must_(request.args.length===method[1]||['playerStart','playerSelectReceiver','signInEvent'].includes(request.action)&&request.args.length===4, 'Refresh the event page and sign in to continue.');
     result={ok:true,value:method[0](...request.args)};
   }catch(error){
@@ -153,7 +153,7 @@ function apply_(state,patch,action,time){
   if(patch.bankCorrection)state.bankCorrections[patch.bankCorrection.key]=patch.bankCorrection;
   for(const d of patch.bankDecisions||[]){
     const a=state.attempts[d.id];must_(a,'Missing payment in the reconciliation journal.');
-    state.attempts[d.id]={...a,status:'PAID',paymentStatus:'AUTHORIZED',utr:d.utr,bankRow:d.row,bankStatement:patch.bankStatement,verified:patch.bankTime,reviewReason:'',decisionReason:d.reason||'',delivery:'Pending delivery'};
+    state.attempts[d.id]={...a,status:'PAID',paymentStatus:'AUTHORIZED',fee:d.fee??a.fee,utr:d.utr,bankRow:d.row,bankStatement:patch.bankStatement,verified:patch.bankTime,reviewReason:'',decisionReason:d.reason||'',delivery:'Pending delivery'};
   }
   for(const [id,reason] of patch.bankFlags||[])state.attempts[id]={...state.attempts[id],reviewReason:reason};
   for(const a of patch.attempts||[]){
@@ -372,9 +372,13 @@ function receipt_(a,set,st){
   const open=checkout&&!ended&&!full&&!missingDetail_(a.details)&&currentRegistration_(st,a).id===a.id;
   const payable=open&&(managed?!!selected&&st.receivers[selected.id]?.active&&st.receivers[selected.id]?.upi===selected.upi:ready);
   const payee=selected||set;
-  const checkoutReceivers=open&&selected?checkoutOptions_(a,st):[];
+  const checkoutReceivers=open&&managed?checkoutOptions_(a,st):[];
   const pinnedQr=checkoutReceivers.find(r=>r.id===selected?.id)?.qr;
-  const paymentQr=payable?(selected?pinnedQr||'':payee.qrFile?paymentQrData_(payee.qrFile):''):'';
+  let paymentQr=payable&&selected?pinnedQr||'':'';
+  if(payable&&!selected&&payee.qrFile){
+    try{paymentQr=checkoutQr_({id:'legacy',upi:payee.upi,qrFile:payee.qrFile})}
+    catch{console.warn('Legacy payment QR unavailable')}
+  }
   return {ticket:a.id+'.'+mac_('receipt:'+a.id),id:a.id,fee:quotedFee_(a,now),offer,wave:checkout?0:a.wave+1,status:a.status,
     // Older clients use expires to discard an outdated UPI amount at the pricing cutoff.
     paymentsCloseAt:EVENT_END,expires:checkout&&offer.early?Math.min(offer.endsAt,EVENT_END):checkout?EVENT_END:0,full,upi:payable?payee.upi:'',name:payable?payee.name:'',paymentQr,
@@ -383,7 +387,7 @@ function receipt_(a,set,st){
     paymentRecipients:selected?receivers_(st).filter(r=>r.active||r.id===selected.id||r.id===a.claim?.paidReceiver?.id||a.offeredReceivers?.some(option=>option.id===r.id)).map(receiverView_):[],
     receiver:selected?{id:selected.id,name:selected.name,upi:selected.upi,number:selected.number||''}:null,
     identifyReceivers:managed&&!selected&&['HOLD','REVIEW','REJECTED'].includes(a.status)?receivers_(st).map(receiverView_):[],
-    paymentStatus:a.paymentStatus||(issued_(a)?'AUTHORIZED':'PENDING'),proofVersion:a.proofVersion||0,claim:a.claim||null,needsConfirmation:!!a.claim&&!a.claim.paidReceiver,issue:a.reviewReason||a.reason||(a.claim&&!a.claim.paidReceiver?'Confirm the payment recipient and fair-play declaration below.':''),beneficiary:a.roll,
+    paymentStatus:a.paymentStatus||(issued_(a)?'AUTHORIZED':'PENDING'),proofVersion:a.proofVersion||0,claim:a.claim||null,needsConfirmation:!!a.claim&&a.claim.source!=='screenshot'&&!a.claim.paidReceiver,issue:a.reviewReason||a.reason||(a.claim&&a.claim.source!=='screenshot'&&!a.claim.paidReceiver?'Confirm the payment recipient and fair-play declaration below.':''),beneficiary:a.roll,
     canCheckout:a.status==='REGISTERED'&&ready&&!ended,checkoutEnded:ended,delivery:a.delivery||'',reason:a.reason||'',
     seat:a.seat||null,checkedInAt:a.checkedInAt||null,entryCode:ticketActive_(a,st,now)?pass_(a.id):''};
 }

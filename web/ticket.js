@@ -118,7 +118,7 @@ async function refreshCheckoutQuote(){
     const next=await playerApi('playerStatus',r.ticket);
     if(currentReceipt!==r||!slot.isConnected)return;
     if(next.id!==r.id||next.status!==r.status){showReceipt(next);return}
-    // Keep the file input, OCR corrections and open details editor mounted.
+    // Keep the file input and open details editor mounted.
     for(const key of ['fee','offer','paymentsCloseAt','checkoutEnded','full','upi','name','paymentQr','checkoutReceivers'])r[key]=next[key];
     if(next.receiverChoiceVersion>=r.receiverChoiceVersion){
       r.receiver=next.receiver;r.chosenReceiverId=next.chosenReceiverId;r.receiverChoiceVersion=next.receiverChoiceVersion;
