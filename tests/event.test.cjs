@@ -359,7 +359,7 @@ test('all sign-in and pass emails use plain text, with one private link and a ga
   for(const [index,[,subject,plain]] of sent.entries()) {
     assert.equal(subject,'Poké Poker Night 2026 '+(index?'retry':'entry')+' pass');
     const code=plain.match(/^PN-[A-Z0-9]{16}$/m)[0];
-    const url='https://meherpraveen.github.io/imt-ecell-poker-night/event.html?view=pass#code='+code;
+    const url='https://pokernight.imtneversleeps.com/event.html?view=pass#code='+code;
     assert.deepEqual(plain.match(/https?:\/\/\S+/g),[url]);
   }
 });

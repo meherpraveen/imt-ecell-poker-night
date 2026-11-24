@@ -50,7 +50,21 @@ async function picture(file,forPaymentQr=false){
     return data;
   }finally{URL.revokeObjectURL(url)}
 }
-function heading(k,t){el('kicker').textContent=k;el('title').textContent=t}
+function heading(kicker,title){
+  for(const [id,text] of [['kicker',kicker],['title',title]]){
+    const node=el(id);
+    if(node.firstElementChild?.hasAttribute('data-shell')){
+      const shell=node.querySelector('[data-shell="'+document.documentElement.dataset.entry+'"]');
+      if((shell?.textContent||'')===text)continue;
+    }
+    if(node.textContent!==text)node.textContent=text;
+  }
+}
+function publicEventLink(view,key,value){
+  const url=new URL('event.html',document.querySelector('.appbar .brand').href);
+  url.searchParams.set('view',view);url.hash=new URLSearchParams({[key]:value}).toString();
+  return url.href;
+}
 function ticketMatrix(code){const q=qrcode(0,'M');q.addData(code);q.make();return q}
 function qr(code,matrix=ticketMatrix(code)){return '<div class="qr">'+matrix.createImgTag(8,32,'Single-use entry QR')+'</div>'}
 function localTime(t){return new Date(t).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',timeZone:'Asia/Kolkata'})}
@@ -85,7 +99,7 @@ document.addEventListener('invalid',e=>{
   if(messages[e.target.id]){e.preventDefault();fieldError(e.target.id,messages[e.target.id])}
 },true);
 function board(b){clockEnd=b.deadline;return '<div class="row"><div><p class="tag">'+esc(b.state)+'</p><h2>'+esc(b.title)+'</h2></div><div class="timer" id="clock"></div></div>'+(b.champion?'<p class="note">Winner · '+esc(b.champion)+'</p>':'')+
-  (b.tables.length?'<div class="cols">'+b.tables.map(t=>panel(t.name,'<ol class="board-list">'+t.players.map((p,i)=>'<li'+(t.seats?.[i]?' value="'+t.seats[i]+'"':'')+'>'+esc(p)+'</li>').join('')+'</ol>')).join('')+'</div>':'<p class="sub">The floor manager will publish table assignments when seating starts.</p>')+
+  (b.tables.length?'<div class="cols">'+b.tables.map(t=>panel(t.name,'<ol class="board-list">'+t.players.map((p,i)=>'<li'+(t.seats?.[i]?' value="'+t.seats[i]+'"':'')+'>'+esc(p)+'</li>').join('')+'</ol>')).join('')+'</div>':'<p class="sub">No tables published yet.</p>')+
   (b.leaderboard.length?panel('Chip leaderboard','<ol>'+b.leaderboard.map(x=>'<li>'+esc(x.alias)+' · '+x.chips.toLocaleString('en-IN')+'</li>').join('')+'</ol>'):'');
 }
 let clockTimer;

@@ -45,6 +45,7 @@ test('a delayed quote leaves the registration fields in place and a return visit
   const identifier=page.getByLabel('Roll number or registered email');
   const top=await identifier.evaluate(field=>field.getBoundingClientRect().top);
   await expect(page.getByRole('button',{name:'Send code'})).toBeEnabled();
+  await expect(page.locator('[data-rendered="schedule"]')).toContainText(format(pricing.earlyBird)+'–'+format(pricing.standard));
   release();await expect(page.locator('.price-values strong')).toHaveText(format(pricing.earlyBird));
   await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
   expect(Math.abs(await identifier.evaluate(field=>field.getBoundingClientRect().top)-top)).toBeLessThan(1);
@@ -54,7 +55,7 @@ test('a delayed quote leaves the registration fields in place and a return visit
   await page.getByRole('link',{name:'Sign in to register'}).click();await expect(identifier).toBeVisible();
   expect(site.calls.filter(name=>name==='publicPrices')).toHaveLength(1);
   const assets=await page.evaluate(()=>performance.getEntriesByType('resource').map(r=>r.name));
-  expect(assets.some(url=>/payment-form|qrcode-|gate-camera|jsQR/.test(url))).toBe(false);
+  expect(assets.some(url=>/player-account|payment-form|qrcode-|gate-camera|jsQR/.test(url))).toBe(false);
   await page.evaluate(()=>{
     sessionStorage.removeItem('pn26:public-entry-quote');
     sessionStorage.setItem('pn26:email-step',JSON.stringify({identifier:'sample@example.test',expires:Date.now()+600000,resendAt:Date.now()}));

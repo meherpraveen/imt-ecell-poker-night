@@ -65,7 +65,7 @@ async function bankAction(name,id){
   if(name==='bankSaveReceiver'){
     const file=el('receiverQr').files[0],r=receiverEdit||{};
     await api('adminSaveReceiver',token,{id:r.id||'',revision:r.revision||0,name:val('receiverName'),upi:val('receiverUpi'),number:val('receiverNumber'),active:el('receiverActive').checked,qr:file?await picture(file,'receiver'):''});
-    closeDetail();await refresh(false,true);msg('Receiver saved.');return;
+    await finishDeskChange(true);msg('Receiver saved.');return;
   }
   if(name==='bankStatements'){bankStatementsDialog();return}
   if(name==='bankUpload'){
@@ -75,9 +75,12 @@ async function bankAction(name,id){
   }
   if(name==='bankPreview'){bankPlanDialog(await api('adminStatementPreview',token,id));return}
   if(name==='bankApply'){
-    const plan=statementPreview,result=await api('adminApplyStatement',token,plan.statement.id,plan.version);closeDetail();await refresh(false,true);
-    msg(result.authorized+' authorized · '+result.review+' for review. Sending passes…');
-    const delivery=await dispatchBankPasses();await refresh(false,true);msg(result.authorized+' authorized · '+result.review+' for review. '+delivery);return;
+    const plan=statementPreview,result=await api('adminApplyStatement',token,plan.statement.id,plan.version);
+    const summary=result.authorized+' authorized · '+result.review+' for review.';
+    detail('<h2>Statement applied</h2><p role="status">'+esc(summary)+' Checking pass delivery…</p>');
+    let delivery;
+    try{delivery=await dispatchBankPasses()}finally{await finishDeskChange(true)}
+    msg(summary+' '+delivery);return;
   }
   if(name==='bankDispatch'){const delivery=await dispatchBankPasses();await refresh(false,true);msg(delivery);return}
   if(name==='bankQueue'){
@@ -95,9 +98,9 @@ async function bankAction(name,id){
     if(name==='bankApprove'&&!reviewPayment.proofVisible)throw Error('Open the readable payment screenshot before approving.');
     if(name==='bankApprove'&&!el('bankVerified')?.checked)throw Error('Confirm the original bank credit and screenshot before approving.');
     const decision={bankApprove:'approve',bankLink:'link',bankReject:'reject'}[name];
-    const result=await api('adminReviewPayment',token,reviewPayment.id,decision,val('bankRow'),val('bankReason'),reviewPayment.version);closeDetail();await refresh();msg(result.status);return;
+    const result=await api('adminReviewPayment',token,reviewPayment.id,decision,val('bankRow'),val('bankReason'),reviewPayment.version);await finishDeskChange();msg(result.status);return;
   }
   if(name==='bankOpenDesk'){
-    const result=await api('adminOpenDeskPayment',token,val('deskroll'),val('kind'));closeDetail();await refresh();msg(result.status);return;
+    const result=await api('adminOpenDeskPayment',token,val('deskroll'),val('kind'));await finishDeskChange();msg(result.status);return;
   }
 }

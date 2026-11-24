@@ -4,6 +4,11 @@ footer {background: var(--panel); color: var(--ink); border-color: var(--edge)}
 .appbar .club-logo {width: 46px}
 .appbar .brand {gap: 12px}
 .appbar .app-label {color: var(--mast-muted)}
+.event-links {display:flex; align-items:center; gap:1.25rem}
+.event-links a {color:var(--mast-type); font-size:.92rem; text-underline-offset:.2em}
+.event-links .visit-registration,html[data-entry=board] .visit-floor {display:none}
+html[data-entry=board] .visit-registration {display:inline-flex}
+@media (max-width: 520px) {.event-links time {display:none}}
 .app-label,.eyebrow,.wallet-issuer {font: 650 .75rem/1.4 var(--sans); letter-spacing: .075em}
 .app-label {text-transform: none; letter-spacing: 0; font-size: .875rem}
 .stage {padding-block: clamp(2rem,6vw,5rem); min-height: calc(100svh - 140px)}
@@ -16,6 +21,7 @@ html:is([data-entry=register],[data-entry=account],[data-entry=code],[data-entry
 .stage h2,dialog h2 {font: 650 clamp(1.35rem,3vw,1.65rem)/1.2 var(--sans); letter-spacing: -.035em; margin: 0 0 1rem}
 .stage h3,dialog h3 {font: 650 1.08rem/1.3 var(--sans); margin: .5rem 0}
 .narrow {max-width: 540px}
+.floor-guide {max-width:54ch; margin:0 0 1.5rem; font-size:1.05rem}
 #content>.narrow:not(.skeleton) {animation: appear 180ms ease}
 @keyframes appear {from {opacity: .9} to {opacity: 1}}
 .sponsors {background: var(--soft); border-color: var(--edge)}
@@ -42,7 +48,8 @@ html[data-entry=register] [data-shell=register],html[data-entry=account] [data-s
 .details-list div {display: flex; justify-content: space-between; gap: 1rem; padding-block: .3rem}
 .details-list dd {margin: 0; text-align: right; font-weight: 570}
 .offer {margin-block: 1.15rem; background: var(--offer-bg); border: 1px solid var(--offer-edge); border-radius: 13px; padding: 1rem 1.15rem; min-height: 8.25rem}
-.offer:empty,.offer[aria-busy=true],.skeleton i,.pass-image[aria-busy=true] {background: linear-gradient(100deg,var(--soft) 20%,var(--edge) 50%,var(--soft) 80%); background-size: 250% 100%; animation: breathe 1.3s ease infinite}
+.offer:empty,.offer[aria-busy=true],.skeleton i,.pass-image[aria-busy=true] {background:var(--soft)}
+.skeleton i {background:var(--edge); animation:breathe 1.3s ease-in-out infinite alternate}
 .price-label {color: var(--accent); font-size: .84rem; font-weight: 700}
 .price-values {display: flex; align-items: baseline; gap: .65rem; margin: .1rem 0}
 .price-values strong {font-size: 2.25rem; font-weight: 650; letter-spacing: -.055em; line-height: 1.17}
@@ -137,7 +144,7 @@ code,.mono,.ticket-code {font: 550 .98rem/1.45 var(--mono); overflow-wrap: anywh
 .skeleton i:first-of-type {width: 40%; height: 24px}
 .skeleton i:last-of-type {width: 55%}
 .sr-only {position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap}
-@keyframes breathe {to {background-position: -160% 0}}
+@keyframes breathe {to {opacity:.5}}
 .row,.tabs,.button-row {display: flex; align-items: center; gap: .6rem; flex-wrap: wrap}
 .row {justify-content: space-between}
 .tabs,.button-row {margin: 1rem 0}

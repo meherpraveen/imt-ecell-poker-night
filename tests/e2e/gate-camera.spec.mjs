@@ -8,7 +8,7 @@ test('the pass linked in the text email and its saved copy share one gate admiss
   site.staff('deskPayment',[desk.token,player.roll,'walk','123456784321',true,199,'2026-28']);
   const mail=site.mail.at(-1),gateCode=mail.body.match(/^PN-[A-Z0-9]{16}$/m)[0];
   const link=new URL(mail.body.match(/https:\/\/\S+/)[0]);
-  expect(link.origin+link.pathname).toBe('https://meherpraveen.github.io/imt-ecell-poker-night/event.html');
+  expect(link.origin+link.pathname).toBe('https://pokernight.imtneversleeps.com/event.html');
   expect(new URLSearchParams(link.hash.slice(1)).get('code')).toBe(gateCode);
   await page.goto(site.origin+'/event.html'+link.search+link.hash);
   const passQr=page.getByAltText('Single-use entry QR');await expect(passQr).toBeVisible();
@@ -37,6 +37,8 @@ test('the pass linked in the text email and its saved copy share one gate admiss
   expect(new URL(camera.url()).hash).toBe('');
   await camera.evaluate(image=>{
     window.testGateImage=image;
+    // Some platforms advertise QR support and then reject the detector at runtime.
+    window.BarcodeDetector=class{static async getSupportedFormats(){return ['qr_code']}async detect(){throw Error('Detector unavailable')}};
     // A real MediaStream carrying the pass pixels drives the same video and decoder as a rear camera.
     Object.defineProperty(navigator.mediaDevices,'getUserMedia',{value:async()=>{
       const frame=document.createElement('canvas');frame.width=640;frame.height=880;
@@ -70,6 +72,42 @@ test('the pass linked in the text email and its saved copy share one gate admiss
     await expect(playerPage.getByText('Seat 01',{exact:true})).toBeVisible({timeout:12000});
     await expect(playerPage.getByAltText('Single-use entry QR')).toHaveCount(0);
   }
+});
+
+test('native camera decoding can be cancelled mid-frame and needs no JavaScript QR decoder',async({page,site})=>{
+  site.at('2026-11-27T19:15:00+05:30');
+  const desk=site.staff('staffLogin',[site.team.desk,site.invite('desk')]);
+  site.staff('deskPayment',[desk.token,player.roll,'walk','111122223333',true,199,'2026-28']);
+  const code=site.mail.at(-1).body.match(/PN-[A-Z0-9]{16}/)[0];
+  const gate=site.staff('staffLogin',[site.team.gate,site.invite('gate')]);
+  const link=new URL(site.staff('staffSnapshot',[gate.token]).scannerUrl);
+  const assets=[];page.on('request',req=>assets.push(req.url()));
+  await page.goto(site.origin+'/event.html'+link.search+link.hash);
+  await page.evaluate(ticket=>{
+    window.BarcodeDetector=class{
+      static async getSupportedFormats(){return ['qr_code']}
+      async detect(){
+        if(!window.allowScan)await new Promise(resolve=>{window.finishCameraFrame=resolve});
+        return [{rawValue:ticket}];
+      }
+    };
+    navigator.mediaDevices.getUserMedia=async()=>{
+      const canvas=document.createElement('canvas');canvas.width=160;canvas.height=120;
+      const feed=canvas.captureStream(10);
+      canvas.getContext('2d').fillRect(0,0,160,120);
+      return feed;
+    };
+  },code);
+  await page.getByRole('button',{name:'Start camera'}).click();
+  await page.waitForFunction(()=>!!window.finishCameraFrame);
+  await page.getByRole('button',{name:'Close camera'}).click();
+  await page.evaluate(()=>{window.allowScan=true;window.finishCameraFrame()});
+  await expect(page.getByRole('button',{name:'Start camera'})).toBeVisible();
+  expect(site.calls.filter(name=>name==='scanEntryTicket')).toHaveLength(0);
+  await page.getByRole('button',{name:'Start camera'}).click();
+  await expect(page.getByRole('heading',{name:'Checked in'})).toBeVisible();
+  expect(site.calls.filter(name=>name==='scanEntryTicket')).toHaveLength(1);
+  expect(assets.some(url=>url.includes('jsQR-'))).toBe(false);
 });
 
 test('a lost camera response stays unconfirmed and retry recovers the original admission',async({page,site})=>{

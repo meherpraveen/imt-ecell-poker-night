@@ -13,17 +13,31 @@
     (() => {
       let entry=new URLSearchParams(location.search).get('view')||'register';
       if(!['register','board','pass','scan'].includes(entry))entry='unavailable';
-      try{
-        if(entry==='register'){
-          const saved=JSON.parse(localStorage.getItem('pn26:player-login')||sessionStorage.getItem('pn26:player-login')||'null');
-          const step=JSON.parse(localStorage.getItem('pn26:email-step')||sessionStorage.getItem('pn26:email-step')||'null');
-          if(saved?.token)entry='account';else if(step?.identifier)entry='code';
-        }
-      }catch{}
+      if(entry==='register'){
+        const read=(store,key)=>{try{return JSON.parse(window[store].getItem('pn26:'+key))}catch{return null}};
+        const saved=read('localStorage','player-login')||read('sessionStorage','player-login');
+        const step=read('sessionStorage','email-step')||read('localStorage','email-step');
+        if(saved?.token)entry='account';else if(step?.identifier)entry='code';
+      }
       document.documentElement.dataset.entry=entry;
+      // Keep the first form and the user's pending submit intact across a failed download.
+      document.addEventListener('error',event=>{
+        if(event.target.id!=='event-runtime')return;
+        const show=()=>{document.getElementById('startupFailure').hidden=false;document.getElementById('retryStartup').disabled=false};
+        if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',show,{once:true});else show();
+      },true);
+      document.addEventListener('click',event=>{
+        if(event.target.id!=='retryStartup')return;
+        event.target.disabled=true;
+        const failed=document.getElementById('event-runtime'),retry=document.createElement('script');
+        retry.id=failed.id;retry.src=failed.src;
+        retry.onload=()=>{document.getElementById('startupFailure').hidden=true};
+        failed.replaceWith(retry);
+      });
       document.addEventListener('submit',e=>{
         if(!window.pokerReady&&e.target.dataset.action==='requestCode'){
           e.preventDefault();window.pendingPokerSignIn=true;
+          e.target.querySelector('input').readOnly=true;
           const button=e.target.querySelector('button');button.disabled=true;button.setAttribute('aria-busy','true');button.textContent='Sending code…';
         }
       });
@@ -31,20 +45,26 @@
   </script>
   <link rel="preconnect" href="https://script.google.com" crossorigin>
   <link rel="preconnect" href="https://script.googleusercontent.com" crossorigin>
-  <link rel="stylesheet" href="assets/event-app.css?v=11c859ea0b43">
-  <script defer src="assets/event-app.js?v=9a8e268d30c2"></script>
+  <!-- EVENT-DATA:START -->
+  <script>window.POKER_NIGHT_WEB_APP = 'https://script.google.com/macros/s/AKfycbzPn65IjbFTE6QL8uCKfiwOuMZvTfhthGgsrVs0yvSiLr4i25lCwA6UQNJN1Pcx9Xa96Q/exec';
+const publicReads=new Map;function api(e,...t){if(!["publicPrices","liveFloor","passInfo"].includes(e))return eventRequest(e,t);const n=JSON.stringify([e,t]);return publicReads.has(n)||publicReads.set(n,eventRequest(e,t).finally(()=>publicReads.delete(n))),publicReads.get(n)}async function eventRequest(e,t){const n=window.POKER_NIGHT_WEB_APP;if(!/^https:\/\/script\.google\.com\/(?:a\/macros\/[a-z0-9.-]+\/s|macros\/s)\/[\w-]+\/exec$/.test(n||""))throw Error("The event desk is unavailable. Please contact E-Cell.");const a=["publicPrices","publicInfo","liveFloor","passInfo","playerStatus","playerHome"].includes(e),o=["playerReadProof","playerSubmitPayment"].includes(e)?12e4:a?3e4:6e4,r=Date.now()+o,s=JSON.stringify({action:e,args:t}),i=document.getElementById("net"),l="The event desk is busy. Retrying automatically…";let c=!1;try{for(let e=0;;e++){const t=new AbortController,o=setTimeout(()=>t.abort(),Math.max(1,r-Date.now()));let u,y,d;try{u=await fetch(n,{method:"POST",credentials:"omit",redirect:"follow",referrerPolicy:"no-referrer",headers:{"Content-Type":"text/plain;charset=UTF-8"},body:s,signal:t.signal}),y=await u.text()}catch{throw Error("Could not reach the event desk. Check your connection and try again.")}finally{clearTimeout(o)}try{d=JSON.parse(y)}catch{}if(u.ok&&!0===d?.ok)return d.value;const m=!d&&/too many scripts running simultaneously|too many simultaneous|too many requests|service invoked too many times in a short time/i.test(y.slice(0,12e3));if(!(!0===d?.retryable||429===u.status||m||a&&[502,503,504].includes(u.status)))throw Error(d?.error||"Could not reach the event desk. Check your connection and try again.");const h=u.headers.get("Retry-After"),p=h?/^\d+$/.test(h)?1e3*Number(h):Math.max(0,Date.parse(h)-Date.now())||0:0,f=Math.min(6500,650*2**e),w=Math.max(p,f)+Math.random()*f;if(e>=6||Date.now()+w+1e3>=r)throw Error("The event desk is busy. Give it a moment and try again.");i&&!a&&(i.textContent=l,c=!0),await new Promise(e=>setTimeout(e,w))}}finally{c&&i.textContent===l&&(i.textContent="")}}
+if(document.documentElement.dataset.entry==='board'&&!document.hidden){window.firstFloorRead=api('liveFloor');window.firstFloorRead.catch(()=>{});}</script>
+  <!-- EVENT-DATA:END -->
+  <link rel="stylesheet" href="assets/event-app.css?v=d15476680246">
+  <script id="event-runtime" defer src="assets/event-app.js?v=024c06b1ed10"></script>
 </head>
 <body data-host="pages">
   <header class="top">
     <div class="wrap appbar">
-      <a class="brand" href="./" aria-label="Poké Poker Night home"><img class="club-logo" src="assets/imt-ecell-logo.webp" width="121" height="111" alt="Entrepreneurship Cell, IMT Ghaziabad"><span class="event-lockup"><img class="event-wordmark" src="assets/poke-poker-night-small.webp" width="360" height="126" alt="Poké Poker Night"></span></a>
-      <time class="app-label" datetime="2026-11-27">27 Nov 2026</time>
+      <a class="brand" href="./" aria-label="Poké Poker Night home"><img class="club-logo" src="assets/imt-ecell-logo.webp" width="121" height="111" alt="Entrepreneurship Cell, IMT Ghaziabad"><span class="event-lockup"><img class="event-wordmark" src="assets/poke-poker-night-small.webp" srcset="assets/poke-poker-night-224.webp 224w, assets/poke-poker-night-small.webp 360w" sizes="(max-width: 480px) 92px, 111px" width="360" height="126" alt="Poké Poker Night"></span></a>
+      <nav class="event-links" aria-label="Event pages"><a class="visit-floor" href="event.html?view=board">Live floor</a><a class="visit-registration" href="event.html?view=register">Registration</a><time class="app-label" datetime="2026-11-27">27 Nov 2026</time></nav>
     </div>
   </header>
   <main class="stage">
     <div class="wrap">
       <p class="eyebrow" id="kicker"><span data-shell="board">LIVE FLOOR</span><span data-shell="pass">Poké Poker Night</span><span data-shell="account">Poké Poker Night</span><span data-shell="scan">Poké Poker Night</span><span data-shell="unavailable">Poké Poker Night</span></p>
       <h1 id="title" tabindex="-1"><span data-shell="register">Event registration</span><span data-shell="account">Your registration</span><span data-shell="code">Check your email</span><span data-shell="board">Tournament floor</span><span data-shell="pass">Your entry pass</span><span data-shell="scan">Gate scanner</span><span data-shell="unavailable">Page unavailable</span></h1>
+      <p class="floor-guide sub" data-shell="board">Find your table by trainer alias. Your entry pass shows your seat number after gate check-in.</p>
       <div id="content">
         <div class="narrow login-card" data-shell="register"><section class="panel"><h2>Email sign-in</h2>
           <div data-entry-price class="offer"></div>
@@ -61,6 +81,7 @@
         <div class="narrow skeleton" data-shell="pass" role="status"><span class="sr-only">Opening your ticket</span><i></i><i></i><i></i></div>
       </div>
       <div id="net" role="status"></div>
+      <div id="startupFailure" class="note error" role="alert" hidden>Part of the page could not load. <button type="button" id="retryStartup">Retry loading</button></div>
       <div id="ticketAnnouncement" class="sr-only" role="status" aria-atomic="true"></div>
       <div id="msg" class="note" role="status" aria-live="polite"></div>
       <noscript>Enable JavaScript to use player registration and the live floor.</noscript>

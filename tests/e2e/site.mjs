@@ -23,7 +23,7 @@ export const test=base.extend({
       if(!staffMethods.has(name))return {ok:false,error:'Unknown test operation'};
       try{
         const value=event.staff(name,args);
-        if(value?.scannerUrl)value.scannerUrl=value.scannerUrl.replace('https://meherpraveen.github.io/imt-ecell-poker-night/',origin+'/');
+        if(value?.scannerUrl)value.scannerUrl=value.scannerUrl.replace('https://pokernight.imtneversleeps.com/',origin+'/');
         return {ok:true,value};
       }catch(e){return {ok:false,error:e.message}}
     }
@@ -38,10 +38,10 @@ export const test=base.extend({
           res.setHeader('content-type','text/html; charset=utf-8');
           return res.end(staffPage(u));
         }
-        if(['/assets/event-app.js','/assets/entry-prices.js'].includes(u.pathname)){
+        if(['/event.html','/assets/entry-prices.js'].includes(u.pathname)){
           const bundle=await readFile(new URL(u.pathname.slice(1),docs),'utf8');
           const config=await readFile(new URL('../../web/config.js',import.meta.url),'utf8');
-          res.setHeader('content-type','text/javascript; charset=utf-8');
+          res.setHeader('content-type',u.pathname==='/event.html'?'text/html; charset=utf-8':'text/javascript; charset=utf-8');
           return res.end(bundle.replace(config.trim(),'window.POKER_NIGHT_WEB_APP="'+testEndpoint+'";'));
         }
         const path=u.pathname==='/'?'index.html':u.pathname.slice(1);

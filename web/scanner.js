@@ -46,25 +46,41 @@ async function startCamera(){
     mediaStream=stream;
     const video=el('cameraPreview');video.srcObject=stream;
     await video.play();
-    if(typeof jsQR!=='function'){
-      decoderReady=decoderReady||scriptAsset('assets/jsQR-1.4.0.js').catch(e=>{decoderReady=null;throw e});
-      await decoderReady;
-    }
+    let detector;
+    try{
+      if(window.BarcodeDetector&&(await BarcodeDetector.getSupportedFormats()).includes('qr_code')){
+        detector=new BarcodeDetector({formats:['qr_code']});
+      }
+    }catch{/* The local decoder also works when the platform cannot open its detector. */}
     const canvas=document.createElement('canvas'),ctx=canvas.getContext('2d',{willReadFrequently:true});
-    function frame(){
+    async function frame(){
       if(generation!==cameraGeneration)return;
       if(video.readyState>=2&&video.videoWidth){
-        const scale=Math.min(1,760/Math.max(video.videoWidth,video.videoHeight));
-        canvas.width=Math.max(1,Math.round(video.videoWidth*scale));canvas.height=Math.max(1,Math.round(video.videoHeight*scale));
-        ctx.drawImage(video,0,0,canvas.width,canvas.height);
-        const pixels=ctx.getImageData(0,0,canvas.width,canvas.height);
-        const hit=jsQR(pixels.data,pixels.width,pixels.height,{inversionAttempts:'dontInvert'});
-        if(hit?.data){readCode(hit.data);return}
+        let code;
+        if(detector){
+          try{code=(await detector.detect(video))[0]?.rawValue}catch{detector=null}
+          if(generation!==cameraGeneration)return;
+        }
+        if(!detector){
+          if(typeof jsQR!=='function'){
+            decoderReady=decoderReady||scriptAsset('assets/jsQR-1.4.0.js').catch(e=>{decoderReady=null;throw e});
+            await decoderReady;
+            if(generation!==cameraGeneration)return;
+          }
+          const scale=Math.min(1,760/Math.max(video.videoWidth,video.videoHeight));
+          const width=Math.max(1,Math.round(video.videoWidth*scale)),height=Math.max(1,Math.round(video.videoHeight*scale));
+          if(canvas.width!==width||canvas.height!==height){canvas.width=width;canvas.height=height}
+          ctx.drawImage(video,0,0,width,height);
+          const pixels=ctx.getImageData(0,0,width,height);
+          code=jsQR(pixels.data,width,height,{inversionAttempts:'dontInvert'})?.data;
+        }
+        if(code){await readCode(code);return}
       }
-      frameTimer=setTimeout(frame,180);
+      frameTimer=setTimeout(()=>frame().catch(cameraError),180);
     }
-    frame();
-  }catch(e){
+    await frame();
+  }catch(e){cameraError(e)}
+  function cameraError(e){
     if(generation===cameraGeneration)launchScanner(e.name==='NotAllowedError'?'Allow camera access in your browser, or enter the ticket code below.':'Could not start the camera. Try again or enter the ticket code below.');
   }
 }
@@ -76,3 +92,4 @@ function scannerAction(name){
 }
 document.addEventListener('visibilitychange',()=>{if(document.hidden&&document.body.dataset.scanState==='camera')launchScanner()});
 addEventListener('pagehide',stopScanner);
+addEventListener('pageshow',event=>{if(event.persisted&&document.body.dataset.scanState==='camera')launchScanner()});

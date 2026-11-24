@@ -4,6 +4,7 @@ import {fileURLToPath} from 'node:url';
 import path from 'node:path';
 import {createHash} from 'node:crypto';
 import {createRequire} from 'node:module';
+import {runInNewContext} from 'node:vm';
 const root=fileURLToPath(new URL('../',import.meta.url));
 const read=p=>fs.readFileSync(path.join(root,p),'utf8');
 const require=createRequire(import.meta.url);
@@ -14,9 +15,13 @@ const commonCode=read('web/common.js');
 const scannerVersion=writeAsset('gate-camera.js',read('web/scanner.js'));
 const paymentCode=read('web/payment-form.js');
 const paymentVersion=writeAsset('payment-form.js',(await minify(paymentCode,{ecma:2020})).code+'\n');
-const playerCode=read('web/ticket.js')+'\n'+read('web/registration-drafts.js')+'\n'+read('web/player.js').replace('__SCANNER_VERSION__',scannerVersion).replace('__PAYMENT_VERSION__',paymentVersion);
+const accountCode=['ticket','registration-drafts','player-account'].map(name=>read('web/'+name+'.js')).join('\n');
+const accountVersion=writeAsset('player-account.js',(await minify(accountCode,{ecma:2020})).code+'\n');
+const playerCode=read('web/player-storage.js')+'\n'+read('web/player.js')
+  .replace('__ACCOUNT_VERSION__',accountVersion).replace('__SCANNER_VERSION__',scannerVersion).replace('__PAYMENT_VERSION__',paymentVersion);
 const pricing=read('gas/Pricing.gs');
-const priceDisplay=read('web/prices.js');
+const publishedPrices=runInNewContext(pricing+'\nENTRY_PRICING');
+const priceDisplay=read('web/prices.js').replace('__PUBLISHED_PRICES__',JSON.stringify(publishedPrices));
 const sponsorMarkup=read('web/sponsors.html').trim();
 function withSponsors(html) {
   const slot=/<!-- SPONSORS:START -->[\s\S]*?<!-- SPONSORS:END -->/;
@@ -28,7 +33,7 @@ async function publicScript(parts){
   return read('web/config.js').trim()+'\n'+compiled.code+'\n';
 }
 const bundles={
-  js:await publicScript([read('web/public-api.js'),read('web/transport.js'),priceDisplay,commonCode,playerCode]),
+  js:(await minify([read('web/public-api.js'),priceDisplay,commonCode,playerCode].join('\n;\n'),{ecma:2020})).code+'\n',
   css:[baseStyles,eventStyles].join('\n')
 };
 function writeAsset(filename, content) {
@@ -38,11 +43,15 @@ function writeAsset(filename, content) {
   return createHash('sha256').update(normalized).digest('hex').slice(0,12);
 }
 const homeVersion=writeAsset('site.css',baseStyles+'\n'+read('web/home.css'));
-const priceVersion=writeAsset('entry-prices.js',await publicScript([read('web/transport.js'),priceDisplay]));
+const priceVersion=writeAsset('entry-prices.js',await publicScript([read('web/transport.js'),priceDisplay,read('web/home-navigation.js')]));
 const homepage=withSponsors(read('docs/index.html')).replace(/site\.css\?v=[a-z0-9]+/,'site.css?v='+homeVersion)
   .replace(/entry-prices\.js\?v=[a-z0-9]+/,'entry-prices.js?v='+priceVersion);
 fs.writeFileSync(path.join(root,'docs/index.html'),homepage);
 let publicPage=withSponsors(read('docs/event.html'));
+const transport=await publicScript([read('web/transport.js')]);
+const floorStart="if(document.documentElement.dataset.entry==='board'&&!document.hidden){window.firstFloorRead=api('liveFloor');window.firstFloorRead.catch(()=>{});}";
+publicPage=publicPage.replace(/<!-- EVENT-DATA:START -->[\s\S]*?<!-- EVENT-DATA:END -->/,
+  ()=>'<!-- EVENT-DATA:START -->\n  <script>'+transport+floorStart+'</script>\n  <!-- EVENT-DATA:END -->');
 for(const [extension,content] of Object.entries(bundles)){
   const version=writeAsset('event-app.'+extension,content);
   publicPage=publicPage.replace(new RegExp('event-app\\.'+extension+'\\?v=[a-z0-9]+'),'event-app.'+extension+'?v='+version);
@@ -77,6 +86,6 @@ const page=read('web/App.html')
   .replace('/* STAFF_STYLES */',()=>read('web/staff.css'))
   .replace('<!-- STAFF_ICONS -->',()=>deskSprite)
   .replace('/* STAFF_CODE */',()=>read('web/payment-admin.js')+'\n'+read('web/staff-views.js')+'\n'+read('web/staff.js'))
-  .replace('/* APP_CODE */',()=>paymentCode+'\n'+playerCode);
+  .replace('/* APP_CODE */',()=>paymentCode+'\n'+accountCode+'\n'+playerCode);
 fs.writeFileSync(path.join(out,'App.html'),page);
 console.log('Apps Script files ready in .deploy');

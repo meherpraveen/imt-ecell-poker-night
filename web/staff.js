@@ -20,6 +20,10 @@ function detail(html){
   d.scrollTop=0;title.focus({preventScroll:true});
 }
 function closeDetail(){el('dialog').close();opened=null}
+async function finishDeskChange(reloadSettings=false){
+  // Keep the modal in place until the underlying workspace can accept its next action.
+  try{await refresh(false,reloadSettings)}finally{closeDetail()}
+}
 function nameOf(k){return {pre:'Pre-registration',walk:'Walk-in',retry:'Round 1 retry'}[k]||k}
 function login(){
   clearDeskShell();tab='Review';
@@ -223,13 +227,13 @@ async function action(name,id){
   if(name==='logout'){const old=token;mem.set(sessionKey,'');token='';snapshot=null;login();await api('staffLogout',old);return}
   if(name==='refresh'){await openDesk();return}if(name==='inspect'){await inspect(id);return}if(name==='deskform'){deskForm();return}
   if(name==='studentform'){detail('<h2>Verify directory details</h2>'+rollField('newroll')+input('newname','Name on college ID')+input('newmail','Delivery email','type="email"')+input('newphone','WhatsApp number','type="tel"')+checkbox('newid','I verified the college ID and the contact with the student.')+btn('student','Save missing details','primary'));return}
-  if(name==='student'){await api('deskStudent',token,val('newroll'),val('newname'),val('newmail'),val('newphone'),el('newid').checked);closeDetail();msg('Directory details saved.');await refresh();return}
+  if(name==='student'){await api('deskStudent',token,val('newroll'),val('newname'),val('newmail'),val('newphone'),el('newid').checked);await finishDeskChange();msg('Directory details saved.');return}
   if(name==='image'){const pic=await api('proofImage',token,opened);const im=document.createElement('img');im.className='shot';im.alt='Private payment screenshot';im.src=pic;el('imgslot').replaceChildren(im);return}
   if(name==='approve'){
     if(!/^\d{12}$/.test(val('full')))return fieldError('full','Enter the 12 digits from the incoming payment.');
     if(!el('verified').checked)return fieldError('verified','Confirm the credit in the coordinator’s account first.');
     const r=await api('staffApprove',token,opened,val('full'),true);
-    closeDetail();msg('Payment approved. '+r.status);await refresh();return;
+    await finishDeskChange();msg('Payment approved. '+r.status);return;
   }
   if(name==='deskpay'){
     if(!/^\d{9}$/.test(val('deskroll')))return fieldError('deskroll','Enter the nine-digit college roll number.');
@@ -240,10 +244,10 @@ async function action(name,id){
     const quoted=Number(el('deskFee').dataset.fee);deskFee();
     if(Number(el('deskFee').dataset.fee)!==quoted){el('deskcheck').checked=false;throw Error('The fee has changed. Check the new amount against the incoming payment.')}
     const r=await api('deskPayment',token,val('deskroll'),val('kind'),val('deskref'),el('deskcheck').checked,quoted,val('deskBatch'),val('deskPhone'));
-    closeDetail();msg('Attempt verified. '+r.status);await refresh();return;
+    await finishDeskChange();msg('Attempt verified. '+r.status);return;
   }
-  if(name==='reject'){await api('staffReject',token,opened,val('reason'));closeDetail();msg('Proof rejected. The reason is on the player’s receipt page.');await refresh();return}
-  if(name==='move'||name==='no-show'){if(name==='no-show'&&!confirm('Mark this paid player as a no-show and release their seat?'))return;await api('releaseSeat',token,opened,name);closeDetail();msg('Seat updated.');await refresh();return}
+  if(name==='reject'){await api('staffReject',token,opened,val('reason'));await finishDeskChange();msg('Proof rejected. The reason is on the player’s receipt page.');return}
+  if(name==='move'||name==='no-show'){if(name==='no-show'&&!confirm('Mark this paid player as a no-show and release their seat?'))return;await api('releaseSeat',token,opened,name);await finishDeskChange();msg('Seat updated.');return}
   if(name==='pass'||name==='resend'){if(name==='resend'&&!confirm('Email the same code again to the registered address?'))return;
     const p=await api('staffPass',token,opened,name==='resend');const phone=p.phone.length===10?'91'+p.phone:p.phone;
     const share='E-Cell Poké Poker Night: your Round 1 wave '+p.wave+' code is '+p.code+'. Bring your college ID.';
@@ -251,7 +255,7 @@ async function action(name,id){
   if(name==='gate'){await gateOp();return}if(name==='nextGateResult'){nextGateResult();return}
   if(name==='preview'){draft=await api('gamePreview',token);previewDraw();return}
   if(name==='startStage'||name==='skip'){if(!confirm(name==='skip'?'Close this empty wave?':'Lock this draw and start all tables?'))return;
-    if(name==='skip')await api('skipEmptyWave',token,draft.n);else await api('startStage',token,draft.n,draft.n<6?draft.tables:draft.tables.map((t,i)=>t.map((_,j)=>val('s'+i+'-'+j))));closeDetail();await refresh();return}
+    if(name==='skip')await api('skipEmptyWave',token,draft.n);else await api('startStage',token,draft.n,draft.n<6?draft.tables:draft.tables.map((t,i)=>t.map((_,j)=>val('s'+i+'-'+j))));await finishDeskChange();return}
   if(name==='table'){score(Number(id));return}
   if(name==='score'){
     const h=snapshot.game.active,values={};
@@ -261,7 +265,7 @@ async function action(name,id){
       values[player]=amount;
     }
     if(!el('deskTie').hidden&&!val('tie'))return fieldError('tie','Select the winner of the witnessed tiebreak.');
-    await api('tableResult',token,h.n,opened,values,val('tie'));closeDetail();await refresh();return;
+    await api('tableResult',token,h.n,opened,values,val('tie'));await finishDeskChange();return;
   }
   if(name==='finish'){if(!confirm('Close this stage and advance only the winning player at each table?'))return;await api('finishStage',token,snapshot.game.next);await refresh();return}
   if(name==='showPaymentQr'){const preview=el('qrPreview'),data=await api('adminPaymentQr',token);preview.hidden=!data;if(data)preview.src=data;else preview.removeAttribute('src');return}

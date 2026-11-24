@@ -1,10 +1,4 @@
 'use strict';
-function scriptAsset(src){
-  return new Promise((resolve,reject)=>{
-    const script=document.createElement('script');script.onload=resolve;script.onerror=()=>{script.remove();reject(Error('Could not load this part of the ticket. Please try again.'))};
-    script.src=src;document.head.append(script);
-  });
-}
 function walletCard(r,player,standalone){
   const code=r.entryCode||r.code,used=!!r.checkedInAt;
   const wordmark=document.querySelector('.appbar .event-wordmark');
@@ -12,7 +6,7 @@ function walletCard(r,player,standalone){
   const header='<header class="wallet-head"><div><p class="wallet-issuer">E-Cell · IMT Ghaziabad</p><h2>'+name+'</h2></div><span class="suit" aria-hidden="true">♠</span></header>';
   const details='<dl class="wallet-facts"><div><dt>Event date</dt><dd>27 Nov 2026</dd></div><div><dt>Qualifier</dt><dd>Wave '+r.wave+'</dd></div></dl>';
   const title=used?(standalone?'Pass already scanned':'Checked in'):(standalone?'Show at the gate':'Payment verified');
-  const passUrl=(document.body.dataset.host==='pages'?'event.html':'https://meherpraveen.github.io/imt-ecell-poker-night/event.html')+'?view=pass#code='+encodeURIComponent(code||'');
+  const passUrl=publicEventLink('pass','code',code||'');
   const admission=used?'<strong class="wallet-seat">'+seatLabel(r.seat)+'</strong><p>'+seatLocation(r.wave,r.seat)+'</p><p class="sub">Checked in '+esc(scanTime(r.checkedInAt))+'</p>':
     '<div id="passImage" class="pass-image" aria-busy="true"></div><p class="ticket-code">'+esc(code)+'</p><p class="sub">Show this QR with your college ID.</p>';
   const action=used?'':standalone?'<a id="savePass" class="button primary wide" hidden>Save pass to phone</a>':
@@ -95,7 +89,7 @@ async function updateTicket(){
   }catch{ticketFailures++;el('net').textContent='Connection interrupted. Reconnecting for ticket updates.'}
   finally{ticketUpdating=false;scheduleTicketUpdate()}
 }
-let checkoutTimer,checkingCheckout;
+let checkingCheckout;
 function nextCheckoutChange(r){
   return r.offer.early?Math.min(r.offer.endsAt,r.paymentsCloseAt):r.paymentsCloseAt;
 }
@@ -137,4 +131,10 @@ async function refreshCheckoutQuote(){
       clearTimeout(checkoutTimer);checkoutTimer=setTimeout(checkCheckoutTime,15000);
     }
   }finally{if(checkingCheckout===r)checkingCheckout=null}
+}
+if(['register','pass'].includes(document.body.dataset.mode)){
+  document.addEventListener('click',e=>{if(e.target.closest('#checkoutPayment a')&&checkoutNeedsUpdate()){e.preventDefault();refreshCheckoutQuote()}},true);
+  document.addEventListener('visibilitychange',()=>{if(document.hidden)clearTimeout(ticketTimer);else{checkCheckoutTime();updateTicket()}});
+  addEventListener('online',()=>{checkCheckoutTime();updateTicket()});
+  addEventListener('pageshow',()=>{checkCheckoutTime();if(currentPass||currentReceipt)updateTicket()});
 }

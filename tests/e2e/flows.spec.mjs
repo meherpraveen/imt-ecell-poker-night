@@ -139,7 +139,7 @@ test('owner publishes a payment QR, checks proof and issues a single-use pass; g
   await button(admin,'Approve and send code').click();await expect(admin.locator('dialog')).not.toBeVisible();
   await button(page,'Refresh status').click();await expect(heading(page,'Payment verified')).toBeVisible();
   const passMail=site.mail.find(m=>m.to===player.email&&m.subject.includes('entry'));
-  const passLink=new URL(passMail.body.match(/https:\/\/\S+/)[0]);expect(passLink.hostname).toBe('meherpraveen.github.io');
+  const passLink=new URL(passMail.body.match(/https:\/\/\S+/)[0]);expect(passLink.hostname).toBe('pokernight.imtneversleeps.com');
   const code=new URLSearchParams(passLink.hash.slice(1)).get('code'),pass=await context.newPage();
   await pass.goto(site.origin+'/event.html'+passLink.search+passLink.hash);
   await expect(pass.getByAltText('Single-use entry QR')).toBeVisible();expect(new URL(pass.url()).hash).toBe('');

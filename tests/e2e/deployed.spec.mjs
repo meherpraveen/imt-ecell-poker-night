@@ -2,7 +2,8 @@ import {test,expect} from '@playwright/test';
 import {readFileSync} from 'node:fs';
 import {createHash} from 'node:crypto';
 
-const site=process.env.POKER_PUBLIC_SITE||'https://meherpraveen.github.io/imt-ecell-poker-night/';
+const domain=readFileSync(new URL('../../docs/CNAME',import.meta.url),'utf8').trim();
+const site=process.env.POKER_PUBLIC_SITE||'https://'+domain+'/';
 test('published navigation, mobile startup, live floor and backend validation @deployed',async({page})=>{
   test.setTimeout(110000);
   const errors=[],actions=[];
@@ -18,7 +19,7 @@ test('published navigation, mobile startup, live floor and backend validation @d
   await expect(wordmark).toBeVisible();
   await expect.poll(()=>wordmark.evaluate(img=>img.complete&&img.naturalWidth>0)).toBe(true);
   await expect(hero.getByRole('link',{name:'Sign in to register'})).toBeInViewport({ratio:1});
-  await expect(hero.locator('[data-home-fee=entry]')).toHaveText(/^₹[\d,]+/,{timeout:40000});
+  await expect(hero.locator('[data-home-fee=entry]')).toHaveText(/^₹[\d,]+$/,{timeout:40000});
   const sponsors=page.getByRole('region',{name:'Sponsored by'});await sponsors.scrollIntoViewIfNeeded();
   await expect(sponsors.locator('img')).toHaveCount(5);
   await expect.poll(()=>sponsors.locator('img').evaluateAll(imgs=>imgs.every(img=>img.complete&&img.naturalWidth>0))).toBe(true);
@@ -66,11 +67,13 @@ test('published pages, checkout module and camera assets match the release build
   for(const file of ['index.html','event.html']){
     const expected=refs(read(file));expect(expected.length).toBeGreaterThan(0);
     const live=await request.get(new URL(file,site).href);
-    expect(live.ok()).toBe(true);expect(refs(await live.text())).toEqual(expected);
+    expect(live.ok()).toBe(true);
+    const html=(await live.text()).replace(/\r\n/g,'\n');
+    expect(createHash('sha256').update(html).digest('hex'),file).toBe(createHash('sha256').update(read(file)).digest('hex'));
     for(const asset of expected)assets.add(asset);
   }
   for(const asset of refs(read('assets/event-app.js')))assets.add(asset);
-  for(const name of ['payment-form.js','gate-camera.js'])expect([...assets].some(url=>url.includes('/'+name+'?v='))).toBe(true);
+  for(const name of ['player-account.js','payment-form.js','gate-camera.js'])expect([...assets].some(url=>url.includes('/'+name+'?v='))).toBe(true);
   assets.add('assets/jsQR-1.4.0.js');assets.add('assets/qrcode-1.4.4.js');
   await Promise.all([...assets].map(async asset=>{
     const live=await request.get(new URL(asset,site).href);expect(live.ok(),asset).toBe(true);
@@ -79,4 +82,10 @@ test('published pages, checkout module and camera assets match the release build
     expect(digest(content),file).toBe(digest(read(file)));
     if(version)expect(digest(content).slice(0,12),file).toBe(version);
   }));
+  const imageRefs=new Set([read('index.html'),read('event.html')].flatMap(page=>page.match(/assets\/[\w.-]+\.(?:webp|png)/g)||[]));
+  for(const asset of imageRefs){
+    const response=await request.get(new URL(asset,site).href);
+    expect(response.ok(),asset).toBe(true);
+    expect((await response.body()).equals(readFileSync(new URL(asset,docs))),asset).toBe(true);
+  }
 });

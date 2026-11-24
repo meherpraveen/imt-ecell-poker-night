@@ -57,7 +57,20 @@ for(const manual of [false,true]){
     await expect(admin.locator('dialog dt').filter({hasText:'Ready to authorize'}).locator('..')).toContainText(manual?'0':'1');
     expect(site.mail.some(m=>m.subject.endsWith('entry pass'))).toBe(false);
     expect(await admin.locator('dialog').evaluate(d=>d.scrollWidth<=d.clientWidth+1)).toBe(true);
-    await button(admin,'Apply preview').click();await expect(admin.locator('dialog')).not.toBeVisible();
+    let resumeDelivery;
+    if(manual){
+      const held=new Promise(resolve=>{resumeDelivery=resolve});
+      await admin.route('**/test-staff-rpc',async route=>{
+        if(route.request().postDataJSON().name==='adminDispatchPasses')await held;
+        await route.fallback();
+      });
+    }
+    await button(admin,'Apply preview').click();
+    if(manual){
+      try{await expect(admin.getByRole('dialog',{name:'Statement applied'})).toBeVisible()}
+      finally{resumeDelivery()}
+    }
+    await expect(admin.locator('dialog')).not.toBeVisible();
     if(manual){
       await button(admin,'Needs Review').click();await button(admin,player.roll).click();
       await expect(admin.getByAltText('Student payment screenshot')).toBeVisible();await expect(admin.locator('dialog')).toContainText('Friend of Student');

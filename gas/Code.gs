@@ -453,7 +453,7 @@ function proofImage(token,id){staff_(token,['desk']);const a=ledger_().attempts[
 
 // MailApp supplies the executing club account as From. All event mail shares its identity.
 const EVENT_MAIL_NAME = 'Poké Poker Night 2026';
-const EVENT_PAGE = 'https://meherpraveen.github.io/imt-ecell-poker-night/event.html';
+const EVENT_PAGE = 'https://pokernight.imtneversleeps.com/event.html';
 function sendEventMail_(recipient, subject, paragraphs) {
   const body = [...paragraphs, 'Entrepreneurship Cell, IMT Ghaziabad\nYou can reply to this email for help.'].join('\n\n');
   MailApp.sendEmail(recipient, subject, body, {name:EVENT_MAIL_NAME, replyTo:clubOwner_()});
