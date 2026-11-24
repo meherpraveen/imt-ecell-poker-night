@@ -33,9 +33,12 @@ function html(source){
   return {source,setTitle(){return this},addMetaTag(){return this}};
 }
 
-export function createEvent(){
+export function createEvent({freshInstall=false}={}){
   const props=new Map([['BOOK','fixture'],['KEY',randomBytes(32).toString('hex')],['FOLDER','proofs']]);
+  if(freshInstall)props.set('PAYMENT_VERIFICATION_REQUIRED','yes');
   const cache=new Map(),files=new Map(),mail=[],calls=[];
+  let ocrText='',excelSheets=[];
+  const convertedSheet={getSheets:()=>excelSheets.map(grid=>({getName:()=>grid.name,getDataRange:()=>({getDisplayValues:()=>grid.cells.map(row=>row.slice()),getFormulas:()=>grid.formulas||grid.cells.map(row=>row.map(()=>'')),getNumRows:()=>grid.cells.length,getNumColumns:()=>Math.max(...grid.cells.map(row=>row.length))})}))};
   const team=Object.fromEntries(['admin','desk','gate','floor'].map(role=>[role,randomBytes(20).toString('hex')]));
   const rows={
     Students:[['Roll Number','Name','Mail ID','Number'],[player.roll,'Sample Student',player.email,''],['223456789','Second Student','second@example.test','']],
@@ -49,7 +52,7 @@ export function createEvent(){
   const properties={getProperty:k=>props.get(k)??null,setProperty:(k,v)=>props.set(k,v),deleteProperty:k=>props.delete(k),getProperties:()=>Object.fromEntries(props)};
   const context={
     Date:Clock,console,CLUB_RESOURCES:{owner,webAppUrl:'https://script.google.com/macros/s/test-event/exec'},
-    PropertiesService:{getScriptProperties:()=>properties},SpreadsheetApp:{openById:()=>book,flush(){}},
+    PropertiesService:{getScriptProperties:()=>properties},SpreadsheetApp:{openById:id=>id==='fixture'?book:convertedSheet,flush(){}},
     LockService:{getScriptLock:()=>({waitLock(){},releaseLock(){}})},
     CacheService:{getScriptCache:()=>({get:k=>cache.get(k),put:(k,v)=>cache.set(k,v),remove:k=>cache.delete(k)})},
     Utilities:{getUuid:randomUUID,DigestAlgorithm:{SHA_256:'sha256'},newBlob:blob,
@@ -73,8 +76,10 @@ export function createEvent(){
       return html(branch.replace(/<\?= (.*?) \?>/g,(_,key)=>key.startsWith('ownerLogin')?(this.ownerLogin?'yes':''):this[key]||''));
     }})}
   };
+  context.Drive={Files:{create(meta,file){return {id:context.DriveApp.getFolderById('proofs').createFile(file).getId()}},export(){if(ocrText===null)throw Error('OCR unavailable');return blob(ocrText)}}};
+  context.Docs={Documents:{get(){if(ocrText===null)throw Error('OCR unavailable');return {body:{content:ocrText.split('\n').map(content=>({paragraph:{elements:[{textRun:{content}}]}}))}}}}};
   vm.createContext(context);vm.runInContext(source,context);
-  return {mail,calls,team,rows,now:()=>now,advance:ms=>{now+=ms},at:s=>{now=Date.parse(s)},mailFailure:v=>{mailDown=v},
+  return {mail,calls,team,rows,ocr:text=>{ocrText=text},excel:sheets=>{excelSheets=sheets},now:()=>now,advance:ms=>{now+=ms},at:s=>{now=Date.parse(s)},mailFailure:v=>{mailDown=v},
     code(to){return mail.filter(m=>m.to===to&&m.subject.includes('sign-in')).at(-1)?.body.match(/\b\d{6}\b/)?.[0]},
     invite:role=>context.staffInvite_(team[role]),get:params=>context.doGet({parameter:params}).source,
     post(body){calls.push(body.action);return context.doPost({postData:{contents:JSON.stringify(body)}})},

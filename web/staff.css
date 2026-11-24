@@ -259,3 +259,9 @@ button.desk-payment-row:active {transform: scale(.992)}
 @media (prefers-reduced-motion: reduce) {
   [data-mode=staff] *,[data-mode=staff] *::before,[data-mode=staff] *::after {animation-duration: .01ms!important; transition-duration: .01ms!important; scroll-behavior: auto!important}
 }
+
+.bank-list {list-style:none;margin:12px 0 18px;padding:0;max-height:42vh;overflow:auto;overscroll-behavior:contain}
+.bank-list li {padding:10px 0;border-bottom:1px solid var(--edge);overflow-wrap:anywhere}
+.bank-list li small,.bank-list li strong {display:block}
+.bank-list li small {color:var(--muted);margin:4px 0;line-height:1.45}
+.bank-list li a {display:inline-flex;align-items:center;min-height:44px;color:var(--accent)}

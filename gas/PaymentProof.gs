@@ -1,0 +1,178 @@
+// Receiver revisions and proof submissions live in the private, append-only event journal.
+function receivers_(st){return Object.values(st.receivers||{})}
+function receiverView_(r){return {id:r.id,name:r.name,upi:r.upi,number:r.number||'',active:r.active,revision:r.revision}}
+function verifyUpiQr_(bytes,upi){
+  const payload=readReceiverQr_(bytes);
+  must_(payload&&/^upi:\/\/pay\?/i.test(payload),'This image must contain one readable UPI payment QR.');
+  const query=payload.slice(payload.indexOf('?')+1).split('&').map(pair=>pair.split('=').map(x=>decodeURIComponent(x.replace(/\+/g,' '))));
+  const values=key=>query.filter(p=>p[0].toLowerCase()===key).map(p=>p[1]||'');
+  must_(values('pa').length===1&&values('pa')[0].toLowerCase()===upi,'The image pays a different UPI ID. Check the QR and receiver.');
+  must_(values('am').every(x=>!x)&&values('mam').every(x=>!x)&&values('cu').every(x=>x.toUpperCase()==='INR'),'Use an INR QR with no preset amount.');
+}
+// An existing club can stage its organizer-supplied QRs in its owner-only setup folder.
+function loadInitialReceivers_(){
+  const folder=typeof CLUB_RESOURCES==='object'&&CLUB_RESOURCES.folder;
+  if(!folder||props_().getProperty('INITIAL_RECEIVERS_LOADED'))return;
+  const cache=CacheService.getScriptCache(),key='initial-receivers-absent';
+  if(cache.get(key))return;
+  const source=DriveApp.getFolderById(folder).getFilesByName('initial-payment-receivers.json');
+  if(!source.hasNext()){cache.put(key,'yes',120);return}
+  const document=source.next();must_(!source.hasNext()&&document.getSize()<32000,'Check the private receiver setup file.');
+  const config=JSON.parse(document.getBlob().getDataAsString());
+  must_(config.version===1&&Array.isArray(config.receivers)&&config.receivers.length>0&&config.receivers.length<=12,'Check the private receiver list.');
+  return locked_(()=>{
+    if(props_().getProperty('INITIAL_RECEIVERS_LOADED'))return;
+    const st=ledger_(),added=[],expected=new Set();
+    for(const item of config.receivers){
+      const {id,upi,name,number,qrFile}=item;
+      must_(/^[a-f0-9]{32}$/.test(id)&&/^[a-z0-9][a-z0-9._-]{1,127}@[a-z][a-z0-9.-]{1,63}$/.test(upi)&&typeof name==='string'&&name.length>=2&&name.length<=80&&/^\d{10}$/.test(number)&&!expected.has(upi),'Invalid initial receiver details.');
+      expected.add(upi);
+      const old=receivers_(st).find(r=>r.id===id||r.upi===upi);
+      if(old){must_(old.id===id&&old.upi===upi,'A receiver address conflicts with the private setup file.');continue}
+      const file=paymentQrFile_(qrFile),blob=file.getBlob();must_(blob.getContentType()==='image/jpeg','Initial receiver QR must be a JPEG.');
+      verifyUpiQr_(blob.getBytes(),upi);
+      added.push({id,upi,name,number,qrFile,revision:1,active:true});
+    }
+    if(added.length)commit_(st,'Payment receivers configured',clubOwner_(),{receivers:added,note:added.map(r=>r.name).join(' · ')});
+    props_().setProperty('INITIAL_RECEIVERS_LOADED','yes');
+  });
+}
+function adminSaveReceiver(token,input){
+  const admin=staff_(token,[]),v=input||{},name=String(v.name||'').trim(),upi=String(v.upi||'').trim().toLowerCase(),number=String(v.number||'').trim();
+  must_(name.length>=2&&name.length<=80&&!/[\x00-\x1f]/.test(name)&&/^[a-z0-9][a-z0-9._-]{1,127}@[a-z][a-z0-9.-]{1,63}$/.test(upi),'Enter the receiver name and a valid UPI ID.');
+  must_(!number||/^\d{10}$/.test(number),'Enter a ten-digit UPI number or leave it blank.');
+  must_(typeof v.active==='boolean','Select the receiver status.');
+  let image;
+  if(v.qr){
+    must_(typeof v.qr==='string'&&v.qr.length<=850000,'Choose a smaller QR image.');
+    image=imageBytes_(v.qr);
+    must_(image.mime==='image/jpeg','Upload the QR again using the receiver form.');
+    verifyUpiQr_(image.bytes,upi);
+  }
+  return locked_(()=>{
+    const st=ledger_(),old=v.id&&st.receivers[v.id];
+    must_(!v.id||old&&old.revision===v.revision,'The receiver changed. Reopen it and try again.');
+    must_(!receivers_(st).some(r=>r.upi===upi&&r.id!==v.id),'This UPI ID is already listed.');
+    must_(image||old?.qrFile&&old.upi===upi,'Upload the matching QR when adding or changing a UPI ID.');
+    const changedAddress=old&&old.upi!==upi;
+    const id=old&&!changedAddress?old.id:rand_(),qrFile=image?privateBlob_(image.bytes,image.mime,'event-payment-qr-'+rand_()+'.jpg').getId():old.qrFile;
+    const receiver={id,revision:old&&!changedAddress?old.revision+1:1,name,upi,number,qrFile,active:v.active};
+    commit_(st,old?'Receiver updated':'Receiver added',admin.name,{receivers:changedAddress?[{...old,active:false,revision:old.revision+1},receiver]:[receiver],note:name+(v.active?' · active':' · disabled')});
+    return receiverView_(receiver);
+  });
+}
+function privateBlob_(bytes,mime,name){
+  return DriveApp.getFolderById(props_().getProperty('FOLDER')).createFile(Utilities.newBlob(bytes,mime,name));
+}
+function attachReceiver_(a,st,now){
+  const all=receivers_(st);
+  if(!all.length||a.status!=='HOLD')return a;
+  const active=all.filter(r=>r.active);
+  must_(active.length,'No payment receiver is available. Save your registration and check again later.');
+  const count=id=>Object.values(st.attempts).filter(x=>x.receiver?.id===id).length;
+  active.sort((a,b)=>count(a.id)-count(b.id)||a.id.localeCompare(b.id));
+  return {...a,receiver:{...active[0]},quotedAt:now};
+}
+function playerIdentifyReceiver(session,ticket,id){
+  const roll=playerRoll_(session);return locked_(()=>{
+    const st=ledger_(),a=ownReceipt_(st,ticket,roll),r=st.receivers[id];
+    must_(r&&['HOLD','REVIEW','REJECTED'].includes(a.status),'Choose the receiver from your original payment.');
+    if(a.receiver){must_(a.receiver.id===id,'The payment receiver is already recorded.');return receipt_(a,settings_(),st)}
+    const next={...a,receiver:{...r},legacyReceiver:true};commit_(st,'Original receiver identified by player',roll,{attempts:[next],note:a.id});return receipt_(next,settings_(),st);
+  });
+}
+function proofDigest_(bytes){return Utilities.base64EncodeWebSafe(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256,bytes))}
+function paise_(value){
+  const s=String(value??'').trim().replace(/^(?:INR|Rs\.?|₹)\s*/i,'');
+  if(!/^(?:\d+|\d{1,3}(?:,\d{3})+|\d{1,2}(?:,\d{2})*,\d{3})(?:\.\d{1,2})?$/.test(s))return null;
+  const [whole,part='']=s.replace(/,/g,'').split('.'),n=Number(whole)*100+Number((part+'00').slice(0,2));
+  return Number.isSafeInteger(n)&&n<=100000000000?n:null;
+}
+function localPaidTime_(text){
+  const s=String(text||'').trim();
+  if(!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(s))return '';
+  const time=Date.parse(s+':00+05:30');
+  return Number.isFinite(time)&&new Date(time+19800000).toISOString().slice(0,16)===s?s:'';
+}
+function readPaymentText_(text){
+  const s=String(text||'').replace(/\u00a0/g,' ');
+  function unique(values){const options=[...new Set(values)];return options.length===1?options[0]:''}
+  const utr=unique(Array.from(s.matchAll(/(?:\bUTR(?:\s*(?:no\.?|number|id))?|\bRRN|\bUPI\s*(?:transaction|ref(?:erence)?)\s*(?:no\.?|number|id)?)\s*[:#.\s-]*([0-9]{12})(?!\d)/gi),m=>m[1]));
+  const amounts=Array.from(s.matchAll(/(?:₹|INR\b|Rs\.?)\s*([\d,]+(?:\.\d{1,2})?)(?![\d.])/gi),m=>paise_(m[1])).filter(n=>n!==null);
+  const amount=unique(amounts),months=['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
+  const dates=[],times=[];
+  for(const m of s.matchAll(/\b(\d{4})-(\d{2})-(\d{2})\b/g))dates.push(m[1]+'-'+m[2]+'-'+m[3]);
+  for(const m of s.matchAll(/\b(\d{1,2})[\s/.-]+([A-Za-z]{3,9}|\d{1,2})[\s,./-]+(\d{4})\b/g)){
+    const month=/^\d+$/.test(m[2])?Number(m[2]):months.indexOf(m[2].slice(0,3).toLowerCase())+1;
+    if(month>=1&&month<=12)dates.push(m[3]+'-'+String(month).padStart(2,'0')+'-'+m[1].padStart(2,'0'));
+  }
+  for(const m of s.matchAll(/\b(\d{1,2}):(\d{2})(?::\d{2})?\s*(am|pm)?\b/gi)){
+    let h=Number(m[1]);if(m[3]){if(h<1||h>12)continue;h=h%12+(m[3].toLowerCase()==='pm'?12:0)}
+    if(h<=23&&Number(m[2])<60)times.push(String(h).padStart(2,'0')+':'+m[2]);
+  }
+  const payees=Array.from(s.matchAll(/(?:paid to|payee(?:\s+(?:upi\s*id|vpa))?|receiver(?:\s+upi\s*id)?|beneficiary(?:\s+upi\s*id)?)\s*[:\s-]*(?:[^@\n]{1,65}\n\s*)?([a-z0-9._-]+@[a-z][a-z0-9.-]+)/gi),m=>m[1].toLowerCase());
+  return {utr,payee:unique(payees),amount:amount===''?'':(amount/100).toFixed(2),time:localPaidTime_(unique(dates)+'T'+unique(times)),
+    uncertain:new Set(payees).size>1||/\b(?:failed|pending|reversed|refunded|declined|unsuccessful)\b/i.test(s)};
+}
+function convertPaymentFile_(blob,mime,read){
+  const converted=Drive.Files.create({name:'Temporary payment extraction',mimeType:mime,parents:[props_().getProperty('FOLDER')]},blob,{ocrLanguage:'en',fields:'id'});
+  try{return read(converted.id)}
+  finally{DriveApp.getFileById(converted.id).setTrashed(true)}
+}
+function paymentDocument_(blob){
+  return convertPaymentFile_(blob,'application/vnd.google-apps.document',id=>{
+    let doc;
+    try{doc=Docs.Documents.get(id)}catch(error){
+      let text;
+      try{const plain=Drive.Files.export(id,'text/plain',{alt:'media'});text=typeof plain==='string'?plain:plain.getDataAsString()}
+      catch(exportError){text=DriveApp.getFileById(id).getAs('text/markdown').getDataAsString().replace(/^.*data:image\/[^\n]+$/gm,'')}
+      return {text,tables:[]};
+    }
+    const lines=[],tables=[],paragraphs=[];
+    function values(nodes){return (nodes||[]).map(n=>(n.paragraph?.elements||[]).map(e=>e.textRun?.content||'').join('')).join('').trim()}
+    for(const block of doc.body.content||[]){
+      if(block.paragraph){const value=values([block]);lines.push(value);paragraphs.push(value)}
+      if(block.table){const rows=block.table.tableRows.map(row=>row.tableCells.map(cell=>values(cell.content)));tables.push(rows);for(const row of rows)lines.push(row.join('\t'))}
+    }
+    return {text:lines.join('\n'),tables,paragraphs};
+  });
+}
+function proofSeal_(id,digest,fields){return mac_('proof-ocr-v1:'+JSON.stringify([id,digest,fields.utr,fields.amount,fields.time,fields.payee||'',!!fields.uncertain]))}
+function playerReadProof(session,ticket,data){
+  const roll=playerRoll_(session),a=ownReceipt_(ledger_(),ticket,roll),image=imageBytes_(data),digest=proofDigest_(image.bytes);
+  must_(!issued_(a)&&['HOLD','REVIEW','REJECTED'].includes(a.status),'This receipt is not accepting proof.');
+  const cache=CacheService.getScriptCache(),key='ocr:'+a.id+':'+digest;
+  const cached=cache.get(key);if(cached)return JSON.parse(cached);
+  locked_(()=>{
+    const key='ocr-count:'+roll,bucket=Math.floor(Date.now()/600000),prior=JSON.parse(cache.get(key)||'null');
+    const count=prior?.bucket===bucket?prior.count:0;must_(count<10,'Too many screenshot reads. Enter the details manually or try again in ten minutes.');
+    cache.put(key,JSON.stringify({bucket,count:count+1}),610);
+  },false);
+  let fields=readPaymentText_(''),message='';
+  try{fields=readPaymentText_(paymentDocument_(Utilities.newBlob(image.bytes,image.mime,'receipt.'+image.ext)).text)}
+  catch(error){console.warn('Receipt text extraction failed for '+a.id);message='Automatic reading is unavailable. Enter the details from your screenshot for manual review.'}
+  const result={...fields,seal:proofSeal_(a.id,digest,fields),message:message||(!fields.utr||!fields.amount||!fields.time?'Some details could not be read. Check the fields below.':'Check the details read from your screenshot.')};
+  cache.put(key,JSON.stringify(result),600);return result;
+}
+function playerSubmitPayment(session,ticket,data,json){
+  const roll=playerRoll_(session),form=JSON.parse(json||'{}'),im=imageBytes_(data),digest=proofDigest_(im.bytes);
+  const claim={utr:ref_(form.utr),amount:paise_(form.amount),time:localPaidTime_(form.time),payer:String(form.payer||'').trim(),beneficiary:roll_(form.beneficiary),fairPlay:form.fairPlay===true};
+  must_(claim.utr&&claim.amount>0&&claim.time,'Check the full 12-digit UTR, amount paid and payment time (IST).');
+  must_(claim.beneficiary===roll,'Submit proof from the account of the player this payment is for.');
+  must_(claim.payer.length>=2&&claim.payer.length<=90&&!/[\x00-\x1f]/.test(claim.payer),'Enter the name of the person who made the payment.');
+  must_(claim.fairPlay,'Confirm the fair-play declaration before submitting.');
+  return locked_(()=>{
+    const st=ledger_(),a=ownReceipt_(st,ticket,roll),now=Date.now(),set=settings_();
+    if(issued_(a))return receipt_(a,set,st);
+    must_(a.receiver&&a.receiver.id===form.receiver,'Reload your saved receiver before submitting payment proof.');
+    const o=form.ocr||{},trusted=o.seal&&o.seal===proofSeal_(a.id,digest,o)?{utr:o.utr,amount:o.amount,time:o.time,payee:o.payee||'',uncertain:!!o.uncertain}:null;
+    if(a.status==='REVIEW'&&a.digest===digest&&JSON.stringify(a.claim)===JSON.stringify(claim))return receipt_(a,set,st);
+    must_(Number.isInteger(form.revision)&&form.revision===(a.proofVersion||0),'Your proof changed. Refresh before replacing it.');
+    must_(['HOLD','REVIEW','REJECTED'].includes(a.status),'This registration cannot accept a payment. Contact the event desk.');
+    const file=privateBlob_(im.bytes,im.mime,a.id+'-proof-'+(form.revision+1)+'.'+im.ext);
+    const updated={...a,file:file.getId(),digest,claim,ocr:trusted,suffix:claim.utr.slice(-4),proofVersion:form.revision+1,status:'REVIEW',paymentStatus:'PENDING',submitted:now,
+      late:a.late||a.status==='HOLD'&&now>=holdEnd_(a),reason:'',reviewReason:'',linkedRow:'',linkReason:'',fairPlayVersion:'2026-11-v1'};
+    commit_(st,a.file?'Proof replaced':'Proof submitted',roll,{attempts:[updated],note:a.id});
+    return receipt_(updated,set,st);
+  });
+}

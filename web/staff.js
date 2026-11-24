@@ -81,16 +81,18 @@ async function refresh(background=false,reloadSettings=false){
     updateDesk(previous,next,reloadSettings,background);
   }finally{if(background)polling=false}
 }
-function inspect(id){
+async function inspect(id){
   const r=snapshot.records.find(x=>x.id===id);
   if(!r)throw Error('This payment has changed. Refresh the queue and open it again.');
   opened=id;
+  if(r.status==='REVIEW'&&r.managed&&snapshot.role==='admin'){await bankReviewDialog(id);return}
   const facts='<div class="desk-payment-facts"><div><small>Entry fee</small><strong>'+esc(formatFee_(r.fee))+'</strong></div>'+paymentBadge(r)+'</div>';
   let s='<h2>'+esc(r.name||r.roll)+'</h2><p class="sub">'+esc([r.roll,nameOf(r.kind),waveText(r)].filter(Boolean).join(' · '))+'</p>'+facts;
   if(r.suffix)s+='<p>Reference ending <code>'+esc(r.suffix)+'</code></p>';
   if(r.sameImage||r.sameTail)s+='<p class="note error">Possible duplicate. Compare the full reference and incoming amount in the coordinator’s account.</p>';
   if(r.image)s+=btn('image','View private screenshot')+'<div id="imgslot"></div>';
-  if(r.status==='REVIEW'){
+  if(r.status==='REVIEW'&&snapshot.managed){s+='<p>Payment pending. The administrator reconciles this proof against the receiver statement.</p>'}
+  if(r.status==='REVIEW'&&!snapshot.managed){
     s+=reference('full')+'<small id="matchTail" role="status"></small>'+checkbox('verified','I checked the incoming credit, exact fee and payer in the coordinator’s account.')+
       btn('approve','Approve and send code','primary wide')+'<details class="desk-disclosure"><summary>Other payment actions'+deskIcon('chevron-down')+'</summary><div>'+
       btn('move','Move to an open wave')+input('reason','Reason if rejecting proof')+btn('reject','Reject proof')+'</div></details>';
@@ -100,9 +102,9 @@ function inspect(id){
   if(r.status==='PAID'&&!r.used)s+='<p>'+esc(r.delivery)+'</p>'+btn('pass','View code and delivery options','primary')+btn('no-show','Mark no-show');
   detail(s);
 }
-function deskForm(){detail('<h2>Verify a desk payment</h2>'+rollField('deskroll')+'<label for="kind">Purchase</label><select id="kind"><option value="walk">Event entry</option><option value="retry">Round 1 retry</option></select><p id="deskFee" role="status"></p>'+reference('deskref')+checkbox('deskcheck','I checked the college ID, the exact fee and the full incoming payment.')+btn('deskpay','Approve and send code','primary'));deskFee()}
+function deskForm(){if(snapshot.managed){detail('<h2>Open a payment</h2>'+rollField('deskroll')+'<label for="kind">Purchase</label><select id="kind"><option value="walk">Event entry</option><option value="retry">Round 1 retry</option></select><p>The player signs in to pay their assigned receiver and upload proof.</p>'+btn('bankOpenDesk','Open player checkout','primary'));return}detail('<h2>Verify a desk payment</h2>'+rollField('deskroll')+'<label for="kind">Purchase</label><select id="kind"><option value="walk">Event entry</option><option value="retry">Round 1 retry</option></select><p id="deskFee" role="status"></p>'+reference('deskref')+checkbox('deskcheck','I checked the college ID, the exact fee and the full incoming payment.')+btn('deskpay','Approve and send code','primary'));deskFee()}
 function deskFee(){
-  const retry=val('kind')==='retry',fee=retry?snapshot.retryFee:entryOffer_(eventNow()).amount;
+  const retry=val('kind')==='retry',fee=retry?snapshot.retryFee:snapshot.offer.amount;
   el('deskFee').dataset.fee=String(fee);
   el('deskFee').textContent=(retry?'Retry fee':'Entry fee')+' '+formatFee_(fee);
 }
@@ -196,6 +198,7 @@ function updateTiebreak(){
   if(!tied||!leaders.includes(val('tie')))el('tie').value='';
 }
 async function action(name,id){
+  if(name.startsWith('bank'))return bankAction(name,id);
   if(name==='close'){closeDetail();return}
   if(name==='tab'){
     if(tab===id||!deskPages[id]?.roles.includes(snapshot.role))return;
@@ -203,7 +206,7 @@ async function action(name,id){
   }
   if(name==='nextPayment'){
     const next=snapshot.records.slice().reverse().find(r=>r.status==='REVIEW');
-    if(next)inspect(next.id);return;
+    if(next)await inspect(next.id);return;
   }
   if(name==='ownerCode'||name==='resendCode'){const reply=await api('requestOwnerCode',invite);mem.set(sessionKey+':code',JSON.stringify({resend:Date.now()+reply.resendAfter*1000,expires:Date.now()+(reply.expiresIn??600)*1000}));ownerCodePage(reply.resendAfter);return}
   if(name==='verifyOwner'||name==='login'){
@@ -211,7 +214,7 @@ async function action(name,id){
     await enterDesk(auth);return;
   }
   if(name==='logout'){const old=token;mem.set(sessionKey,'');token='';snapshot=null;login();await api('staffLogout',old);return}
-  if(name==='refresh'){await openDesk();return}if(name==='inspect'){inspect(id);return}if(name==='deskform'){deskForm();return}
+  if(name==='refresh'){await openDesk();return}if(name==='inspect'){await inspect(id);return}if(name==='deskform'){deskForm();return}
   if(name==='studentform'){detail('<h2>Verify directory details</h2>'+rollField('newroll')+input('newname','Name on college ID')+input('newmail','Delivery email','type="email"')+input('newphone','WhatsApp number','type="tel"')+checkbox('newid','I verified the college ID and the contact with the student.')+btn('student','Save missing details','primary'));return}
   if(name==='student'){await api('deskStudent',token,val('newroll'),val('newname'),val('newmail'),val('newphone'),el('newid').checked);closeDetail();msg('Directory details saved.');await refresh();return}
   if(name==='image'){const pic=await api('proofImage',token,opened);const im=document.createElement('img');im.className='shot';im.alt='Private payment screenshot';im.src=pic;el('imgslot').replaceChildren(im);return}
@@ -254,6 +257,7 @@ async function action(name,id){
   if(name==='finish'){if(!confirm('Close this stage and advance only the winning player at each table?'))return;await api('finishStage',token,snapshot.game.next);await refresh();return}
   if(name==='showPaymentQr'){const preview=el('qrPreview'),data=await api('adminPaymentQr',token);preview.hidden=!data;if(data)preview.src=data;else preview.removeAttribute('src');return}
   if(name==='save'){
+    if(snapshot.managed){const s=snapshot.settings;await api('adminSettings',token,s.upi,s.name,el('open').checked,{version:s.version,published:s.published,removeQr:false,qr:''});await refresh(false,true);msg('Registration setting saved.');return}
     const file=el('paymentQr').files[0],removeQr=!!el('removeQr')?.checked;
     if(file&&removeQr)throw Error('Choose a replacement QR or remove the saved QR.');
     const options={version:snapshot.settings.version,published:el('publish').checked,removeQr,qr:file?await picture(file,true):''};

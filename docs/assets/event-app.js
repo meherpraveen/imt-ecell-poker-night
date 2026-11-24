@@ -26,6 +26,7 @@ if(view==='scan'){
 }
 if(fragment.has('receipt')||fragment.has('code')||fragment.has('access'))history.replaceState(null,'',location.pathname+location.search);
 
+;
 async function api(action,...args){
   const endpoint=window.POKER_NIGHT_WEB_APP;
   if(!/^https:\/\/script\.google\.com\/(?:a\/macros\/[a-z0-9.-]+\/s|macros\/s)\/[\w-]+\/exec$/.test(endpoint||'')){
@@ -50,66 +51,59 @@ async function api(action,...args){
 }
 
 ;
-// Shared by Apps Script and the public pages. The cutoff includes the event's UTC offset.
-const ENTRY_PRICING = Object.freeze({
-  currency: 'INR',
-  standard: 199,
-  earlyBird: 149,
-  retry: 149,
-  earlyBirdEndsAt: '2026-11-27T19:00:00+05:30'
-});
-
-function entryOffer_(now, kind) {
-  const endsAt = Date.parse(ENTRY_PRICING.earlyBirdEndsAt);
-  const early = kind !== 'retry' && now < endsAt;
-  const amount = kind === 'retry' ? ENTRY_PRICING.retry : early ? ENTRY_PRICING.earlyBird : ENTRY_PRICING.standard;
-  return {amount, early, endsAt, standard: ENTRY_PRICING.standard, currency: ENTRY_PRICING.currency, now};
-}
-
-function formatFee_(amount, currency = ENTRY_PRICING.currency) {
-  return new Intl.NumberFormat('en-IN', {style: 'currency', currency, maximumFractionDigits: 0}).format(amount);
-}
-
 'use strict';
-let displayedOffer=entryOffer_(Date.now()),offerReceived=Date.now();
+let displayedOffer=null,offerReceived=0,offerRequest=null,retryOfferAt=0,expiredOffer='';
+function formatFee_(amount,currency='INR'){return new Intl.NumberFormat('en-IN',{style:'currency',currency,minimumFractionDigits:0,maximumFractionDigits:2}).format(amount)}
+function eventNow(){return displayedOffer?displayedOffer.now+(Date.now()-offerReceived):Date.now()}
 function syncOffer(offer){
-  if(!offer)return;
-  displayedOffer=offer;offerReceived=Date.now();
+  if(!offer||!Number.isFinite(offer.now)||!Number.isFinite(offer.amount))return;
+  if(displayedOffer&&offer.now<displayedOffer.now)return;
+  displayedOffer={...offer,retry:offer.retry??displayedOffer?.retry};offerReceived=Date.now();
   updatePrices();
 }
-function eventNow(){return displayedOffer.now+(Date.now()-offerReceived)}
 function remainingTime(ms){
   const minutes=Math.ceil(ms/60000),hours=Math.floor(minutes/60),days=Math.floor(hours/24);
-  if(days)return days+'d '+hours%24+'h left';
-  if(hours)return hours+'h '+minutes%60+'m left';
-  return minutes+' min left';
+  return days?days+'d '+hours%24+'h left':hours?hours+'h '+minutes%60+'m left':minutes+' min left';
+}
+function loadOffer(){
+  if(offerRequest||Date.now()<retryOfferAt)return;
+  retryOfferAt=Date.now()+10000;
+  offerRequest=api('publicPrices').then(syncOffer).catch(()=>{
+    for(const box of document.querySelectorAll('[data-entry-price]'))box.textContent='Entry fee unavailable. Reconnecting to the event desk…';
+  }).finally(()=>{offerRequest=null});
 }
 function updatePrices(){
+  if(document.body.dataset.mode&&document.body.dataset.mode!=='register')return;
   const offers=document.querySelectorAll('[data-entry-price]'),homeFees=document.querySelectorAll('[data-home-fee]');
   if(!offers.length&&!homeFees.length)return;
-  const offer=displayedOffer,now=eventNow(),early=offer.early&&now<offer.endsAt;
-  const amount=formatFee_(early?offer.amount:offer.standard,offer.currency);
-  const standard=formatFee_(offer.standard,offer.currency);
+  const offer=displayedOffer,now=eventNow();
+  if(!offer||offer.early&&now>=offer.endsAt){
+    for(const b of offers){if(b.dataset.rendered||!b.textContent){b.textContent='Checking the current entry fee…';delete b.dataset.rendered}}
+    for(const n of homeFees)n.textContent=n.dataset.homeFee==='label'?'Entry fee at registration':'';
+    for(const row of document.querySelectorAll('[data-early-only]'))row.hidden=true;
+    if(offer&&expiredOffer!==offer.endsAt){expiredOffer=offer.endsAt;retryOfferAt=0}
+    loadOffer();return;
+  }
+  const amount=formatFee_(offer.amount,offer.currency),standard=formatFee_(offer.standard,offer.currency);
   const end=new Date(offer.endsAt).toLocaleString('en-IN',{day:'numeric',month:'short',hour:'numeric',minute:'2-digit',timeZone:'Asia/Kolkata'})+' IST';
   for(const box of offers){
-    const remaining=early?remainingTime(offer.endsAt-now):'';
-    const key=[amount,standard,end,remaining].join('|');
+    const remaining=offer.early?remainingTime(offer.endsAt-now):'',key=[amount,standard,end,remaining].join('|');
     if(box.dataset.rendered===key)continue;
     box.dataset.rendered=key;
-    box.innerHTML='<div class="price-label">'+(early?'Early Bird':'Standard entry')+'</div><div class="price-values"><strong>'+amount+'</strong>'+
-      (early?'<s><span class="sr-only">Standard price </span>'+standard+'</s>':'')+'</div>'+
-      (early?'<p class="price-time"><b>'+remaining+'</b> · Ends '+end+'</p>':'');
+    box.innerHTML='<div class="price-label">'+(offer.early?'Early Bird':'Standard entry')+'</div><div class="price-values"><strong>'+amount+'</strong>'+
+      (offer.early?'<s><span class="sr-only">Standard price </span>'+standard+'</s>':'')+'</div>'+
+      (offer.early?'<p class="price-time"><b>'+remaining+'</b> · Ends '+end+'</p>':'');
   }
-  for(const row of document.querySelectorAll('[data-early-only]'))row.hidden=!early;
+  for(const row of document.querySelectorAll('[data-early-only]'))row.hidden=!offer.early;
   for(const node of homeFees){
     const kind=node.dataset.homeFee;
-    const value=kind==='retry'?formatFee_(ENTRY_PRICING.retry):kind==='standard'?standard:kind==='label'?(early?'Early Bird':'Standard entry'):amount;
+    const value=kind==='retry'?(offer.retry!=null?formatFee_(offer.retry,offer.currency):'See the desk'):kind==='standard'?standard:kind==='label'?(offer.early?'Early Bird':'Standard entry'):amount;
     if(node.textContent!==value)node.textContent=value;
   }
 }
-updatePrices();
-setInterval(updatePrices,1000);
+updatePrices();setInterval(updatePrices,1000);
 document.addEventListener('visibilitychange',updatePrices);
+addEventListener('online',()=>{retryOfferAt=0;updatePrices()});
 
 ;
 'use strict';
@@ -152,7 +146,7 @@ async function picture(file,forPaymentQr=false){
     const canvas=document.createElement('canvas');
     canvas.width=Math.max(1,Math.round(image.width*scale));canvas.height=Math.max(1,Math.round(image.height*scale));
     const ctx=canvas.getContext('2d');ctx.fillStyle='white';ctx.fillRect(0,0,canvas.width,canvas.height);ctx.drawImage(image,0,0,canvas.width,canvas.height);
-    let data=forPaymentQr?canvas.toDataURL('image/png'):canvas.toDataURL('image/jpeg',.83);
+    let data=forPaymentQr===true?canvas.toDataURL('image/png'):canvas.toDataURL('image/jpeg',.83);
     if(forPaymentQr&&data.length>720000)data=canvas.toDataURL('image/jpeg',.9);
     if(data.length>(forPaymentQr?720000:2400000))throw Error(forPaymentQr?'Crop the image around the payment QR and try again.':'Crop the payment receipt and upload a smaller image.');
     return data;
@@ -197,7 +191,7 @@ function tick(){const c=el('clock');if(!c)return;const left=Math.max(0,Math.ceil
 async function runAction(b,name){
   if(!b||busy)return;
   busy=true;b.disabled=true;b.setAttribute('aria-busy','true');msg();
-  const label=b.textContent,progress={requestCode:'Sending code…',resendCode:'Sending…',matchMail:'Checking your details…',ownerCode:'Sending code…',verifyCode:'Verifying…',verifyOwner:'Verifying…',upload:'Submitting…',start:'Saving…',checkout:'Opening payment…',approve:'Saving approval…',save:'Saving…'};
+  const label=b.textContent,progress={requestCode:'Sending code…',resendCode:'Sending…',matchMail:'Checking your details…',ownerCode:'Sending code…',verifyCode:'Verifying…',verifyOwner:'Verifying…',upload:'Submitting…',start:'Saving…',checkout:'Opening payment…',approve:'Saving approval…',save:'Saving…',submitPayment:'Submitting…',bankUpload:'Reading statement…',bankApply:'Applying preview…',bankSaveReceiver:'Checking receiver…',bankApprove:'Authorizing…'};
   if(progress[name])b.textContent=progress[name];
   try{await action(name,b.dataset.id)}
   catch(err){msg(err.message||'Connection failed. Try again.',true);if(el('dialog')?.open){let n=el('detail').querySelector('[data-error]');if(!n){n=document.createElement('p');n.className='note error';n.dataset.error='1';el('detail').prepend(n)}n.textContent=err.message}}
@@ -211,6 +205,53 @@ document.addEventListener('submit',e=>{
 setInterval(tick,1000);
 
 ;
+'use strict';
+let proofRead=null,readGeneration=0;
+function receiverRecovery(r){
+  return panel('Confirm your original receiver','<p>This registration predates the receiver list. Select the account shown on your payment receipt.</p><label for="originalReceiver">Who did you pay?</label><select id="originalReceiver"><option value="">Choose the receiver</option>'+
+    r.identifyReceivers.map(x=>'<option value="'+esc(x.id)+'">'+esc(x.name+' · '+x.upi)+'</option>').join('')+'</select>'+btn('identifyReceiver','Save receiver','primary'));
+}
+function proofForm(r){
+  const c=r.claim||{},person=accountInfo?.player||{};
+  return panel(r.proofVersion?'Replace payment proof':'Payment proof','<form data-action="submitPayment" novalidate>'+
+    '<label for="shot">Payment screenshot</label><input id="shot" type="file" accept="image/jpeg,image/png,image/webp" required aria-describedby="proofHint"><p id="proofHint" class="sub">Keep the UTR / UPI Transaction ID visible in your screenshot.</p>'+
+    '<p id="ocrFeedback" class="sub" role="status">Choose a screenshot to read its payment details.</p>'+
+    '<div id="proofFields" hidden>'+input('paymentUtr','UTR / UPI Transaction ID','inputmode="numeric" maxlength="12" required value="'+esc(c.utr||'')+'"')+
+    input('paymentAmount','Amount paid (₹)','inputmode="decimal" required value="'+esc(c.amount?(c.amount/100).toFixed(2):'')+'"')+
+    input('paymentTime','Payment time (IST)','type="datetime-local" required value="'+esc(c.time||'')+'"')+
+    input('paymentPayer','Who made the payment?','maxlength="90" autocomplete="name" required value="'+esc(c.payer||person.name||'')+'"')+
+    '<label for="beneficiary">Who was the payment for?</label><select id="beneficiary" required><option value="">Choose the player</option><option value="'+esc(r.beneficiary)+'">'+esc([person.name,r.beneficiary].filter(Boolean).join(' · '))+'</option></select>'+
+    '<p class="sub">If you paid for a friend, they can submit your screenshot from their own registration.</p>'+
+    checkbox('fairPlay','I agree to fair play. This is a genuine payment for one player. I will not reuse a receipt, share an entry pass or collude in play.')+'</div>'+
+    '<button class="primary wide" type="submit">Submit for verification</button></form>');
+}
+async function readSelectedProof(input){
+  const file=input.files[0],generation=++readGeneration,ticket=currentReceipt?.ticket;
+  proofRead=null;
+  if(!file)return;
+  const feedback=el('ocrFeedback'),fields=el('proofFields'),submit=input.form.querySelector('button[type=submit]');
+  fields.hidden=true;submit.disabled=true;feedback.textContent='Reading the payment screenshot…';
+  try{
+    const data=await picture(file);let ocr;
+    try{ocr=await playerApi('playerReadProof',ticket,data)}catch(error){ocr={message:'Automatic reading was unsuccessful. Enter the details for manual review. '+error.message}}
+    if(generation!==readGeneration||!input.isConnected)return;
+    proofRead={data,ocr,ticket,file};
+    for(const [key,id] of [['utr','paymentUtr'],['amount','paymentAmount'],['time','paymentTime']])el(id).value=ocr[key]||'';
+    feedback.textContent=ocr.message;fields.hidden=false;
+  }catch(error){if(input.isConnected&&generation===readGeneration){feedback.textContent=error.message;fieldError('shot',error.message)}}
+  finally{if(input.isConnected&&generation===readGeneration)submit.disabled=false}
+}
+document.addEventListener('change',e=>{if(e.target.id==='shot'&&el('proofFields'))readSelectedProof(e.target)});
+async function submitPaymentProof(){
+  const r=currentReceipt,shot=el('shot');
+  if(!shot?.files[0]||proofRead?.file!==shot.files[0]||proofRead.ticket!==r.ticket){fieldError('shot','Choose a screenshot and wait for it to be read.');return}
+  const fields=[['paymentUtr',/^\d{12}$/,'Enter the full 12-digit bank UTR.'],['paymentAmount',/^\d+(?:\.\d{1,2})?$/,'Enter the amount shown on the receipt.'],['paymentTime',/.+/,'Enter the date and time from the receipt.'],['paymentPayer',/^.{2,90}$/,'Enter the name of the person who paid.'],['beneficiary',/.+/,'Choose the player this payment was for.']];
+  for(const [id,pattern,message] of fields)if(!pattern.test(val(id))){fieldError(id,message);return}
+  if(!el('fairPlay').checked){fieldError('fairPlay','Confirm the fair-play declaration to continue.');return}
+  const form={utr:val('paymentUtr'),amount:val('paymentAmount'),time:val('paymentTime'),payer:val('paymentPayer'),beneficiary:val('beneficiary'),receiver:r.receiver.id,revision:r.proofVersion,fairPlay:true,ocr:proofRead.ocr};
+  const saved=await playerApi('playerSubmitPayment',r.ticket,proofRead.data,JSON.stringify(form));proofRead=null;showReceipt(saved);
+}
+
 'use strict';
 function scriptAsset(src){
   return new Promise((resolve,reject)=>{
@@ -298,7 +339,8 @@ async function updateTicket(){
       }
     }else if(currentReceipt&&['REGISTERED','REVIEW','WAITLIST'].includes(currentReceipt.status)){
       const before=currentReceipt,next=await playerApi('playerStatus',before.ticket);
-      if(currentReceipt===before&&(before.status!==next.status||before.canCheckout!==next.canCheckout||before.checkoutEnded!==next.checkoutEnded)){
+      if(currentReceipt===before&&(before.status!==next.status||before.canCheckout!==next.canCheckout||before.checkoutEnded!==next.checkoutEnded||before.issue!==next.issue||before.proofVersion!==next.proofVersion)){
+        if(before.status===next.status&&el('shot')?.files?.length)return;
         showReceipt(next);
         el('ticketAnnouncement').textContent=next.entryCode?'Payment verified. Your ticket is ready.':'Your registration status has changed.';
       }
@@ -309,7 +351,13 @@ async function updateTicket(){
 }
 function expireCheckout(){
   if(currentReceipt?.status==='HOLD'&&eventNow()>=currentReceipt.expires){
-    showReceipt({...currentReceipt,status:'EXPIRED',upi:'',paymentQr:''});return true;
+    const expired={...currentReceipt,status:'EXPIRED',upi:'',paymentQr:''};
+    if(currentReceipt.receiver&&el('shot')?.files.length){
+      currentReceipt=expired;
+      const instructions=document.querySelector('.hold-line')?.closest('section');
+      if(instructions){instructions.innerHTML='<h2>Hold expired</h2><p>If you already paid, finish submitting your screenshot below. The desk will check your original payment.</p>'}
+    }else showReceipt(expired);
+    return true;
   }
   return false;
 }
@@ -371,10 +419,10 @@ function accountScreen(step,body){
 function registrationPage(){
   currentReceipt=null;clearTimeout(ticketTimer);heading('Poké Poker Night','Your registration');
   const info=accountInfo,person=info.player||{};
-  const details='<dl class="details-list"><div><dt>Player</dt><dd>'+esc(person.name||'Registered student')+'</dd></div><div><dt>Roll number</dt><dd>'+esc(person.roll)+'</dd></div></dl>';
+  const details='<dl class="details-list"><div><dt>Player</dt><dd>'+esc(person.name||'Registered student')+'</dd></div><div><dt>Roll number</dt><dd>'+esc(person.roll)+'</dd></div>'+(person.email?'<div><dt>Registered email</dt><dd>'+esc(person.email)+'</dd></div>':'')+(person.phone?'<div><dt>Phone</dt><dd>'+esc(person.phone)+'</dd></div>':'')+'</dl>';
   const next=info.paymentsReady?'Continue to payment to hold your place in a qualifier wave.':'Save your details now. You can pay here when E-Cell opens checkout.';
   accountScreen(0,panel(info.open?'Entry details':'Registration closed',details+(info.open?
-    '<div data-entry-price class="offer"></div><p class="sub">'+next+'</p>'+btn('start',info.paymentsReady?'Request a seat':'Save my registration','primary wide'):
+    '<div data-entry-price class="offer"></div><p class="sub">'+next+'</p><p class="sub">Play fairly. Each payment and personal entry pass belongs to one player.</p>'+btn('start',info.paymentsReady?'Request a seat':'Save my registration','primary wide'):
     '<p>'+esc(info.message)+'</p>')));
 }
 async function loadAccount(){
@@ -390,7 +438,7 @@ function showReceipt(r){
   const ticket=!!(r.entryCode||r.checkedInAt);
   heading('Poké Poker Night',ticket?'Your ticket':'Your registration');
   let body='';
-  if(r.status==='REGISTERED'){
+  if(r.identifyReceivers?.length){body=receiverRecovery(r)}else if(r.status==='REGISTERED'){
     const next=r.checkoutEnded?'Online checkout has ended. Contact E-Cell if you already paid.':r.canCheckout?'Payment is open. Continue to hold your place and see where to pay.':'Your details are saved. Return here when E-Cell opens payment.';
     body=panel('Registration saved','<p>'+next+'</p>'+(r.checkoutEnded?'':'<div data-entry-price class="offer"></div>')+
       (r.checkoutEnded?'':r.canCheckout?btn('checkout','Continue to payment','primary wide'):btn('receipt','Check payment availability','primary wide'))+
@@ -400,7 +448,7 @@ function showReceipt(r){
     if(r.upi||r.paymentQr){
       instructions+='<p>Pay <strong>'+esc(r.name)+'</strong> using UPI.</p>';
       if(r.upi){
-        const params=new URLSearchParams({pa:r.upi,pn:r.name,am:Number(r.fee).toFixed(2),cu:r.offer?.currency||ENTRY_PRICING.currency,tn:'Poké Poker Night '+r.id});
+        const params=new URLSearchParams({pa:r.upi,pn:r.name,am:Number(r.fee).toFixed(2),cu:r.offer.currency,tn:'Poké Poker Night '+r.id});
         instructions+='<p><code>'+esc(r.upi)+'</code></p><a class="button" data-payment-link target="_blank" rel="noopener" href="upi://pay?'+esc(params.toString().replace(/\+/g,'%20'))+'">Open UPI app</a>';
       }
       if(r.paymentQr){
@@ -409,7 +457,12 @@ function showReceipt(r){
       }
       body+=panel('Pay '+formatFee_(r.fee),instructions);
     }else body+=panel('Payments paused',instructions+'<p>If you already paid, upload your proof below.</p>'+btn('receipt','Refresh payment details'));
-    body+=panel('Upload payment proof','<form data-action="upload" novalidate><label for="shot">Payment screenshot</label><input id="shot" type="file" accept="image/jpeg,image/png,image/webp">'+input('tail','Visible final digits of the UPI reference (optional)','inputmode="numeric" maxlength="12" placeholder="Last 4–12 digits"')+'<p class="sub">Keep the amount, recipient and reference visible.</p>'+checkbox('consent','I agree to share this proof with the E-Cell payment desk for verification.')+'<button class="primary wide" type="submit">Submit for review</button></form>');
+    body+=r.receiver?proofForm(r):panel('Upload payment proof','<form data-action="upload" novalidate><label for="shot">Payment screenshot</label><input id="shot" type="file" accept="image/jpeg,image/png,image/webp">'+input('tail','Visible final digits of the UPI reference (optional)','inputmode="numeric" maxlength="12" placeholder="Last 4–12 digits"')+'<p class="sub">Keep the amount, recipient and reference visible.</p>'+checkbox('consent','I agree to share this proof with the E-Cell payment desk for verification.')+'<button class="primary wide" type="submit">Submit for review</button></form>');
+  }else if(r.receiver&&['REVIEW','REJECTED','EXPIRED'].includes(r.status)){
+    const issue=r.issue||(r.status==='EXPIRED'?'The hold expired. If you already paid, submit the original receipt.':'Your screenshot is saved. Your pass will appear when the bank credit is authorized.');
+    body=panel(r.status==='REJECTED'?'Proof needs attention':r.status==='EXPIRED'?'Hold expired':'Payment pending','<p>'+esc(issue)+'</p><p class="sub">Receiver · '+esc(r.receiver.name)+'</p>'+btn('receipt','Refresh status'));
+    if(r.status==='REVIEW')body+='<details><summary>Replace my screenshot</summary>'+proofForm(r)+'</details>';else body+=proofForm(r);
+    if(r.status==='EXPIRED'&&accountInfo?.open)body+=btn('renew','Request another seat','quiet');
   }else if(ticket){
     body=walletCard(r,accountInfo?.player?.name,false);
   }else{
@@ -431,6 +484,8 @@ function showReceipt(r){
   }
 }
 async function action(name){
+  if(name==='submitPayment'){await submitPaymentProof();return}
+  if(name==='identifyReceiver'){if(!val('originalReceiver'))return fieldError('originalReceiver','Choose the receiver you paid.');showReceipt(await playerApi('playerIdentifyReceiver',currentReceipt.ticket,val('originalReceiver')));return}
   if(mode==='scan')return name==='reloadScanner'?launch():scannerAction(name);
   if(name==='reloadPass'){await renderPass();return}
   if(name==='changeLogin'){signInPage();el('identifier').focus();return}

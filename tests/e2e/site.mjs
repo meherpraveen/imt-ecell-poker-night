@@ -13,7 +13,7 @@ window.google={script:{
   history:{replace(state,params,hash){const url=new URL(location.href);url.search=new URLSearchParams(params);url.hash=hash;window.history.replaceState(state,'',url)}}
 }};
 </script>`;
-const staffMethods=new Set(['requestOwnerCode','verifyOwnerCode','completeDeskSignIn','staffLogin','staffLogout','staffSnapshot','adminSettings','adminPaymentQr','adminAddStaff','deskPayment','deskStudent','staffApprove','staffReject','staffPass','proofImage','gateAction','releaseSeat','gamePreview','startStage','skipEmptyWave','tableResult','finishStage']);
+const staffMethods=new Set(['requestOwnerCode','verifyOwnerCode','completeDeskSignIn','staffLogin','staffLogout','staffSnapshot','adminSettings','adminPaymentQr','adminAddStaff','deskPayment','deskStudent','staffApprove','staffReject','staffPass','proofImage','gateAction','releaseSeat','gamePreview','startStage','skipEmptyWave','tableResult','finishStage','adminSaveReceiver','adminImportStatement','adminStatementPreview','adminApplyStatement','adminDispatchPasses','adminPaymentDetail','adminNeedsReview','adminReviewPayment','adminCertifyPdfRow','adminOpenDeskPayment']);
 
 export const test=base.extend({
   site:async({context},use)=>{
@@ -38,8 +38,8 @@ export const test=base.extend({
           res.setHeader('content-type','text/html; charset=utf-8');
           return res.end(staffPage(u));
         }
-        if(u.pathname==='/assets/event-app.js'){
-          const bundle=await readFile(new URL('assets/event-app.js',docs),'utf8');
+        if(['/assets/event-app.js','/assets/entry-prices.js'].includes(u.pathname)){
+          const bundle=await readFile(new URL(u.pathname.slice(1),docs),'utf8');
           const config=await readFile(new URL('../../web/config.js',import.meta.url),'utf8');
           res.setHeader('content-type','text/javascript; charset=utf-8');
           return res.end(bundle.replace(config.trim(),'window.POKER_NIGHT_WEB_APP="'+testEndpoint+'";'));

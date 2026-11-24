@@ -1,7 +1,7 @@
 const {test}=require('node:test'),assert=require('node:assert/strict'),vm=require('node:vm'),fs=require('node:fs'),path=require('node:path'),crypto=require('node:crypto');
 function fixture(){
   let time=Date.parse('2026-11-25T12:00:00+05:30');class Clock extends Date{static now(){return time}}
-  const source=['Pricing','Code','Floor','Auth'].map(n=>fs.readFileSync(path.join(__dirname,'../gas',n+'.gs'),'utf8')).join('\n');
+  const source=['Pricing','Code','PaymentProof','Statements','Reconcile','Floor','Auth'].map(n=>fs.readFileSync(path.join(__dirname,'../gas',n+'.gs'),'utf8')).join('\n');
   const sent=[],loginMail=[],people={'123456789':{name:'Sample Player',email:'sample@example.test',phone:'9999999999'},'987654321':{name:'Second Player',email:'second@example.test',phone:''}};
   const properties=new Map([['KEY','fixture-only'],['FOLDER','folder']]);
   const ctx={Date:Clock,console,ticketQrEncoder_:require('qrcode-generator'),CLUB_RESOURCES:{owner:'owner@example.test'},Utilities:{getUuid:crypto.randomUUID,base64Decode:s=>Array.from(Buffer.from(s,'base64')),newBlob:(bytes,type,name)=>({bytes,type,name}),computeHmacSha256Signature:(message,key)=>[...crypto.createHmac('sha256',key).update(message).digest()]},

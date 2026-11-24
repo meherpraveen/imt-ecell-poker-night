@@ -38,7 +38,7 @@ async function picture(file,forPaymentQr=false){
     const canvas=document.createElement('canvas');
     canvas.width=Math.max(1,Math.round(image.width*scale));canvas.height=Math.max(1,Math.round(image.height*scale));
     const ctx=canvas.getContext('2d');ctx.fillStyle='white';ctx.fillRect(0,0,canvas.width,canvas.height);ctx.drawImage(image,0,0,canvas.width,canvas.height);
-    let data=forPaymentQr?canvas.toDataURL('image/png'):canvas.toDataURL('image/jpeg',.83);
+    let data=forPaymentQr===true?canvas.toDataURL('image/png'):canvas.toDataURL('image/jpeg',.83);
     if(forPaymentQr&&data.length>720000)data=canvas.toDataURL('image/jpeg',.9);
     if(data.length>(forPaymentQr?720000:2400000))throw Error(forPaymentQr?'Crop the image around the payment QR and try again.':'Crop the payment receipt and upload a smaller image.');
     return data;
@@ -83,7 +83,7 @@ function tick(){const c=el('clock');if(!c)return;const left=Math.max(0,Math.ceil
 async function runAction(b,name){
   if(!b||busy)return;
   busy=true;b.disabled=true;b.setAttribute('aria-busy','true');msg();
-  const label=b.textContent,progress={requestCode:'Sending code…',resendCode:'Sending…',matchMail:'Checking your details…',ownerCode:'Sending code…',verifyCode:'Verifying…',verifyOwner:'Verifying…',upload:'Submitting…',start:'Saving…',checkout:'Opening payment…',approve:'Saving approval…',save:'Saving…'};
+  const label=b.textContent,progress={requestCode:'Sending code…',resendCode:'Sending…',matchMail:'Checking your details…',ownerCode:'Sending code…',verifyCode:'Verifying…',verifyOwner:'Verifying…',upload:'Submitting…',start:'Saving…',checkout:'Opening payment…',approve:'Saving approval…',save:'Saving…',submitPayment:'Submitting…',bankUpload:'Reading statement…',bankApply:'Applying preview…',bankSaveReceiver:'Checking receiver…',bankApprove:'Authorizing…'};
   if(progress[name])b.textContent=progress[name];
   try{await action(name,b.dataset.id)}
   catch(err){msg(err.message||'Connection failed. Try again.',true);if(el('dialog')?.open){let n=el('detail').querySelector('[data-error]');if(!n){n=document.createElement('p');n.className='note error';n.dataset.error='1';el('detail').prepend(n)}n.textContent=err.message}}

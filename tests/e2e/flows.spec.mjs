@@ -44,10 +44,10 @@ test('first paint accepts typed input before scripts arrive and sends one reques
   await identifier.fill(player.roll);await identifier.press('Enter');
   expect(site.calls).toEqual([]);release();
   await expect(page.getByLabel('Six-digit code')).toBeVisible();
-  expect(site.calls).toEqual(['requestEventCode']);
+  expect(site.calls.filter(name=>name!=='publicPrices')).toEqual(['requestEventCode']);
   await enterCode(page,site.code(player.email),'Verify and continue');
   await expect(button(page,'Save my registration')).toBeVisible();
-  expect(site.calls).toEqual(['requestEventCode','signInEvent']);
+  expect(site.calls.filter(name=>name!=='publicPrices')).toEqual(['requestEventCode','signInEvent']);
   await button(page,'Save my registration').dblclick();
   await expect(heading(page,'Registration saved')).toBeVisible();
   expect(site.rows.Journal.filter(r=>r[1]==='Registration saved')).toHaveLength(1);

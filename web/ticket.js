@@ -85,7 +85,8 @@ async function updateTicket(){
       }
     }else if(currentReceipt&&['REGISTERED','REVIEW','WAITLIST'].includes(currentReceipt.status)){
       const before=currentReceipt,next=await playerApi('playerStatus',before.ticket);
-      if(currentReceipt===before&&(before.status!==next.status||before.canCheckout!==next.canCheckout||before.checkoutEnded!==next.checkoutEnded)){
+      if(currentReceipt===before&&(before.status!==next.status||before.canCheckout!==next.canCheckout||before.checkoutEnded!==next.checkoutEnded||before.issue!==next.issue||before.proofVersion!==next.proofVersion)){
+        if(before.status===next.status&&el('shot')?.files?.length)return;
         showReceipt(next);
         el('ticketAnnouncement').textContent=next.entryCode?'Payment verified. Your ticket is ready.':'Your registration status has changed.';
       }
@@ -96,7 +97,13 @@ async function updateTicket(){
 }
 function expireCheckout(){
   if(currentReceipt?.status==='HOLD'&&eventNow()>=currentReceipt.expires){
-    showReceipt({...currentReceipt,status:'EXPIRED',upi:'',paymentQr:''});return true;
+    const expired={...currentReceipt,status:'EXPIRED',upi:'',paymentQr:''};
+    if(currentReceipt.receiver&&el('shot')?.files.length){
+      currentReceipt=expired;
+      const instructions=document.querySelector('.hold-line')?.closest('section');
+      if(instructions){instructions.innerHTML='<h2>Hold expired</h2><p>If you already paid, finish submitting your screenshot below. The desk will check your original payment.</p>'}
+    }else showReceipt(expired);
+    return true;
   }
   return false;
 }

@@ -23,7 +23,7 @@ test('published navigation, mobile startup, live floor and backend validation @d
   await expect(page.getByLabel('Roll number or registered email')).toBeVisible();
   await expect(page.getByRole('heading',{name:'Email sign-in'})).toBeVisible();
   await page.waitForFunction(()=>window.pokerReady===true);
-  expect(actions).toEqual([]);
+  expect(actions.every(a=>a==='publicPrices')).toBe(true);
   const metrics=await page.evaluate(()=>({domContentLoadedMs:Math.round(performance.getEntriesByType('navigation')[0].domContentLoadedEventEnd),initialLayoutShift:window.layoutShift,horizontalOverflow:document.documentElement.scrollWidth>innerWidth,
     startupAssets:performance.getEntriesByType('resource').filter(r=>/\/assets\/[^/?]+\.(js|css)(\?|$)/.test(r.name)).length}));
   console.log('Published mobile registration',JSON.stringify(metrics));
@@ -45,5 +45,5 @@ test('published navigation, mobile startup, live floor and backend validation @d
   const settings=await page.evaluate(()=>api('publicInfo'));expect(typeof settings.open).toBe('boolean');
   await page.goto(site+'event.html?view=pass');await expect(page.locator('#msg')).toContainText('complete pass link');
   await page.goto(site+'event.html?view=staff');await expect(page.getByRole('heading',{name:'Page unavailable'})).toBeVisible();
-  expect(actions.every(a=>['publicInfo','liveFloor','requestEventCode','signInEvent'].includes(a))).toBe(true);expect(errors).toEqual([]);
+  expect(actions.every(a=>['publicPrices','publicInfo','liveFloor','requestEventCode','signInEvent'].includes(a))).toBe(true);expect(errors).toEqual([]);
 });

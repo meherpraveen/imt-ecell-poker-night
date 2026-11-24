@@ -90,7 +90,8 @@ function finishStage(token,n){
   });
 }
 function staffSnapshot(token){
-  const staff=staff_(token,['desk','gate','floor']),st=ledger_(),as=Object.values(st.attempts),places=Object.values(st.venue);
+  const staff=staff_(token,['desk','gate','floor']);if(staff.role==='admin')loadInitialReceivers_();
+  const st=ledger_(),as=Object.values(st.attempts),places=Object.values(st.venue);
   const finance=['admin','desk'].includes(staff.role),floor=['admin','floor'].includes(staff.role);
   const students=as.length?roster_():{},digestHits={},suffixHits={};
   for(const a of as){if(a.digest)digestHits[a.digest]=(digestHits[a.digest]||0)+1}
@@ -98,14 +99,14 @@ function staffSnapshot(token){
   const records=as.slice().reverse().filter(a=>finance||issued_(a)).map(a=>{
     const r={id:a.id,roll:a.roll,name:students[a.roll]?.name||'',kind:a.kind,status:a.status==='HOLD'&&holdEnd_(a)<=Date.now()?'EXPIRED':a.status,wave:a.wave+1,used:a.used,seat:a.seat||null,where:st.venue[a.roll]?.where||'NEVER'};
     if(finance||staff.role==='gate')r.phone=students[a.roll]?.phone||'';
-    if(finance)Object.assign(r,{fee:quotedFee_(a,Date.now()),suffix:a.suffix||'',utr:a.utr||'',image:!!a.file,sameImage:!!(a.digest&&digestHits[a.digest]>1),sameTail:!!(a.suffix&&suffixHits[a.suffix.slice(-4)]>1),delivery:a.delivery||''});
+    if(finance)Object.assign(r,{fee:quotedFee_(a,Date.now()),suffix:a.suffix||'',utr:a.utr||'',managed:!!a.receiver,issue:a.reviewReason||a.reason||'',image:!!a.file,sameImage:!!(a.digest&&digestHits[a.digest]>1),sameTail:!!(a.suffix&&suffixHits[a.suffix.slice(-4)]>1),delivery:a.delivery||''});
     return r;
   });
-  return {role:staff.role,label:staff.name,records,stats:{checked:places.length,inside:places.filter(v=>v.where==='IN').length,out:places.filter(v=>v.where==='OUT').length,
+  return {role:staff.role,label:staff.name,records,managed:usesBankVerification_(st),stats:{checked:places.length,inside:places.filter(v=>v.where==='IN').length,out:places.filter(v=>v.where==='OUT').length,
     noShow:new Set(as.filter(a=>a.status==='NO_SHOW').map(a=>a.roll)).size,pending:as.filter(a=>a.status==='REVIEW').length},
     scannerUrl:finance||staff.role==='gate'?scannerLink_(token):'',offer:entryOffer_(Date.now()),retryFee:ENTRY_PRICING.retry,
     board:publicFloor_(st),game:floor?{next:st.game.next,active:st.game.active}:null,
-    settings:staff.role==='admin'?adminSettingsView_(settings_()):null,audit:staff.role==='admin'?st.audit.slice().reverse():[]};
+    settings:staff.role==='admin'?{...adminSettingsView_(settings_()),receivers:receivers_(st).map(receiverView_),statements:Object.values(st.statements).map(statementView_).reverse(),unsent:as.filter(a=>a.bankRow&&a.delivery==='Pending delivery').length}:null,audit:staff.role==='admin'?st.audit.slice().reverse():[]};
 }
 function adminSettingsView_(s){
   const version=mac_('payment-settings:'+JSON.stringify([s.upi,s.name,s.open,s.qrFile,s.published]));
@@ -136,6 +137,7 @@ function adminSettings(token,upi,name,open,options){
   must_(!change.qr||(typeof change.qr==='string'&&change.qr.length<=720000&&!change.removeQr),'Choose one payment QR image under 525 KB.');
   return locked_(()=>{
     const old=settings_();
+    must_(!usesBankVerification_(ledger_())||upi===old.upi&&name===old.name&&!change.qr&&!change.removeQr&&change.published===old.published,'Use receiver settings to change the active payment accounts.');
     must_(!options||change.version===adminSettingsView_(old).version,'Payment settings changed. Refresh before saving.');
     const published=options?change.published:!!(open&&name&&(upi||old.qrFile));
     const keep=change.removeQr?'':old.qrFile;

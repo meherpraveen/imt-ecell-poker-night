@@ -1,4 +1,4 @@
-// Shared by Apps Script and the public pages. The cutoff includes the event's UTC offset.
+// Server-owned entry pricing. The cutoff includes the event's UTC offset.
 const ENTRY_PRICING = Object.freeze({
   currency: 'INR',
   standard: 199,
