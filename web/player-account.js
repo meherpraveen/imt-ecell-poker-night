@@ -1,6 +1,6 @@
 'use strict';
 function progress(step){
-  return '<ol class="progress" aria-label="Registration progress">'+['Details','Pay','Ticket'].map((label,i)=>
+  return '<ol class="progress" aria-label="Registration progress">'+['Details','Review','Ticket'].map((label,i)=>
     '<li class="'+(i<step?'done':'')+'"'+(i===step?' aria-current="step"':'')+'><span aria-hidden="true">'+(i<step?'✓':i+1)+'</span>'+label+'</li>').join('')+'</ol>';
 }
 function accountScreen(step,body){
@@ -34,8 +34,7 @@ function enteredDetails(){
 function registrationPage(){
   currentReceipt=null;clearTimeout(ticketTimer);heading('Poké Poker Night','Your registration');
   const info=accountInfo,person=info.player||{};
-  const next=info.paymentsReady?'':'You can pay here when E-Cell opens checkout.';
-  const form=registrationForm(person,'start',info.paymentsReady?'Continue to payment':'Save my registration',true,next);
+  const form=registrationForm(person,'start','Save my registration',true,'Online UPI payments are paused. You can still register.');
   accountScreen(0,panel(info.open?'Entry details':'Registration closed',info.open?form:'<p>'+esc(info.message)+'</p>'));
 }
 function renderAccount(info){
@@ -46,21 +45,7 @@ function renderAccount(info){
 function checkoutPanel(r){
   const price='<div data-entry-price class="offer"></div>';
   if(r.checkoutEnded||r.full)return panel(r.checkoutEnded?'Payments closed':'All waves are full','<p>If you already paid, submit your screenshot below for review.</p>');
-  let instructions=price;
-  if(r.receiver&&Array.isArray(r.checkoutReceivers))return panel('Pay '+formatFee_(r.fee),instructions+choosePaymentReceiver(r));
-  if(r.upi||r.paymentQr){
-    instructions+='<div data-payment-target><p>Pay <strong>'+esc(r.name)+'</strong> using UPI.</p>';
-    if(r.upi){
-      instructions+='<p><code>'+esc(r.upi)+'</code></p>'+paymentAppActions(r,{upi:r.upi,name:r.name});
-    }
-    if(r.receiver?.number)instructions+='<p class="sub">UPI number · '+esc(r.receiver.number)+'</p>';
-    if(r.paymentQr){
-      const fileName=r.paymentQr.startsWith('data:image/png;')?'payment-qr.png':'payment-qr.jpg';
-      instructions+='<figure class="payment-qr"><img alt="Coordinator’s UPI payment QR" src="'+esc(r.paymentQr)+'"><figcaption>Scan in your UPI app or <a download="'+fileName+'" href="'+esc(r.paymentQr)+'">save the QR image</a>.</figcaption></figure>';
-    }
-    return panel('Pay '+formatFee_(r.fee),instructions+'</div>');
-  }
-  return panel('Payments paused',instructions+'<p>If you already paid, upload your proof below.</p>'+btn('receipt','Refresh payment details'));
+  return panel('Online UPI payments paused',price+'<p>Your registration is saved. If your app declined the payment under its UPI risk policy and shows no debit, no proof is needed.</p><p>For a pending transfer, check its status in your bank app. If you already paid, upload your successful payment receipt below for E-Cell to verify.</p>');
 }
 function showReceipt(r){
   proofRead=null;currentReceipt=r;clearTimeout(checkoutTimer);preferredReceipt=r.ticket;durable.set('receipt',r.ticket);
@@ -84,25 +69,26 @@ function showReceipt(r){
   heading('Poké Poker Night',ticket?'Your ticket':'Your registration');
   let body='';
   if(r.identifyReceivers?.length){body=receiverRecovery(r)}else if(r.status==='REGISTERED'){
-    const next=r.checkoutEnded?'Online checkout has ended. Contact E-Cell if you already paid.':r.canCheckout?'Payment is open for your registration.':'Your details are saved. Return here when E-Cell opens payment.';
+    const next=r.canReportPayment?'Online UPI payments are paused. If you already paid, you can send the receipt to E-Cell.':'Your details are saved. Online UPI payments are paused. Contact E-Cell if you already paid.';
     body=panel('Registration saved','<p>'+next+'</p>'+(r.checkoutEnded?'':'<div data-entry-price class="offer"></div>')+
-      (r.checkoutEnded?'':r.canCheckout?btn('checkout','Continue to payment','primary wide'):btn('receipt','Check payment availability','primary wide'))+
+      (r.canReportPayment?btn('checkout','Report a completed payment','primary wide'):'')+
       btn('copyReceipt','Copy private receipt link','quiet')+'<div id="copyReceiptFallback"></div>');
   }else if(r.status==='HOLD'){
     body='<div id="checkoutPayment">'+checkoutPanel(r)+'</div><div id="checkoutUpdate" class="sub" role="status" hidden></div>';
     body+=r.receiver?proofForm(r):panel('Upload payment proof','<form data-action="upload" novalidate><label for="shot">Payment screenshot</label><input id="shot" type="file" accept="image/jpeg,image/png,image/webp" required><p class="sub draft-note" id="proofDraftNote"></p>'+input('tail','Visible final digits of the UPI reference (optional)','inputmode="numeric" maxlength="12" placeholder="Last 4–12 digits"')+'<p class="sub">Keep the amount, recipient and reference visible.</p>'+checkbox('consent','I agree to share this proof with the E-Cell payment desk for verification.')+'<button class="primary wide" type="submit">Submit for review</button></form>');
   }else if(r.receiver&&['REVIEW','REJECTED'].includes(r.status)){
     const issue=r.issue||'Your screenshot is saved. Your pass will appear when the bank credit is authorized.';
-    body=panel(r.status==='REJECTED'?'Proof needs attention':'Payment pending','<p>'+esc(issue)+'</p><p class="sub">Receiver · '+esc(r.receiver.name)+'</p>'+btn('receipt','Refresh status'));
+    body=panel(r.status==='REJECTED'?'Proof needs attention':'Payment pending','<p>'+esc(issue)+'</p><p class="sub">Receiver · '+esc(r.claim?.paidReceiver?.name||r.receiver.name)+'</p>'+btn('receipt','Refresh status'));
     if(r.status==='REVIEW')body+='<details'+(r.needsConfirmation?' open':'')+'><summary>'+ (r.needsConfirmation?'Confirm your payment details':'Replace my screenshot')+'</summary>'+proofForm(r)+'</details>';else body+=proofForm(r);
   }else if(ticket){
     body=walletCard(r,r.details?.fullName||accountInfo?.player?.name,false);
   }else{
-    const labels={REVIEW:['Payment under review','The desk will check the coordinator’s incoming payment. Keep this page. Please pay only once.'],WAITLIST:['On the waitlist','All qualifier waves are full. Payment will open here if a place becomes available.'],REJECTED:['Proof needs attention',r.reason||'Contact the desk with your receipt.'],NO_SHOW:['No-show recorded','Speak to the desk if you are at the venue.'],RELEASED:['Offer released','Speak to the desk for your current attempt.']};
+    const labels={REVIEW:['Payment under review','The desk will check the incoming payment. Keep this page for your ticket.'],WAITLIST:['On the waitlist','All qualifier waves are full. E-Cell can review proof of a completed payment.'],REJECTED:['Proof needs attention',r.reason||'Contact the desk with your receipt.'],NO_SHOW:['No-show recorded','Speak to the desk if you are at the venue.'],RELEASED:['Offer released','Speak to the desk for your current attempt.']};
     const [title,bodyText]=labels[r.status]||['Entry closed','This qualifier is closed. Speak to the event desk about your ticket.'];
     const renew=['RELEASED','REJECTED'].includes(r.status)&&accountInfo?.open;
     body+=panel(title,'<p>'+esc(bodyText)+'</p>'+(r.wave?'<p class="sub">Round 1 · Wave '+r.wave+'</p>':'')+
-      (renew?btn('renew','Request another seat','primary wide'):btn('receipt','Refresh status','primary wide')));
+      (renew?btn('renew','Request another seat','primary wide'):btn('receipt','Refresh status','primary wide'))+
+      (r.status==='WAITLIST'&&r.canReportPayment?btn('checkout','Report a completed payment'):''));
   }
   accountScreen(ticket||['PAID','NO_SHOW','QUALIFIED','ELIMINATED','WINNER'].includes(r.status)?2:1,body);
   if(typeof mountPaymentDraft==='function')mountPaymentDraft(r);
@@ -117,7 +103,7 @@ function showReceipt(r){
   }
 }
 async function accountAction(name){
-  if(name==='copyUpi')return copyPaymentUpi();
+
   if(name==='submitPayment'){await submitPaymentProof();return}
   if(name==='identifyReceiver'){if(!val('originalReceiver'))return fieldError('originalReceiver','Choose the receiver you paid.');showReceipt(await playerApi('playerIdentifyReceiver',currentReceipt.ticket,val('originalReceiver')));return}
   if(name==='renew'){preferredReceipt='';pendingRequest='';tabValue('seat-request','');durable.set('receipt','');registrationPage();return}
@@ -144,7 +130,7 @@ async function accountAction(name){
   }
   if(name==='start'){
     const details=enteredDetails();if(!details)return;
-    if(accountInfo.paymentsReady)warmPaymentForm();
+    if(accountInfo.proofReady)warmPaymentForm();
     if(!pendingRequest){pendingRequest=globalThis.crypto?.randomUUID?.()||'';tabValue('seat-request',pendingRequest)}
     const form=el('regName').form,saved=await playerApi('playerStart',preferredReceipt||'',pendingRequest,JSON.stringify(details));
     finishDetailsDraft(form,saved);showReceipt(saved);

@@ -1,9 +1,7 @@
-import {createRequire} from 'node:module';
 import {devices} from '@playwright/test';
 import {test,expect} from './site.mjs';
 import {club,jpegQr,receiptText,testUpi,utr} from '../payment-fixtures.mjs';
 
-const require=createRequire(import.meta.url);
 const alternate='alternate@samplebank';
 const image={name:'payment.jpg',mimeType:'image/jpeg',buffer:jpegQr()};
 
@@ -13,7 +11,7 @@ async function openCheckout(page,site){
   const player=api.student();
   await page.addInitScript(token=>sessionStorage.setItem('pn26:player-login',JSON.stringify({token,expires:Date.now()+3600000})),player.token);
   await page.goto(site.register);
-  await expect(page.getByRole('group',{name:'Who would you like to pay?'})).toBeVisible();
+  await expect(page.getByRole('heading',{name:'Online UPI payments paused'})).toBeVisible();
   return {api,player,first,second};
 }
 function holdRequest(page,endpoint,action){
@@ -27,190 +25,108 @@ function holdRequest(page,endpoint,action){
   return page.route(endpoint,handler).then(()=>({release,seen}));
 }
 
-test('both payment codes scan at their displayed size on a small phone, tablet and desktop',async({page,site})=>{
-  const {player,second}=await openCheckout(page,site);
-  await page.addScriptTag({path:require.resolve('jsqr')});
-  const images=page.getByRole('img',{name:/UPI payment QR for/});
-  await expect(images).toHaveCount(2);
-  await expect(page.locator('input[name=checkoutReceiver]:checked')).toHaveCount(0);
-  await expect(page.getByRole('link',{name:/Open UPI app/})).toHaveCount(0);
-  for(const width of [320,390,768,1280]){
-    await page.setViewportSize({width,height:844});await page.emulateMedia({colorScheme:width<400?'dark':'light'});
-    const codes=await images.evaluateAll(async imgs=>Promise.all(imgs.map(async img=>{
-      await img.decode();
-      const {y,width}=img.getBoundingClientRect(),canvas=document.createElement('canvas');
-      canvas.width=canvas.height=Math.round(width);
-      const ctx=canvas.getContext('2d');ctx.imageSmoothingEnabled=false;ctx.drawImage(img,0,0,canvas.width,canvas.height);
-      const pixels=ctx.getImageData(0,0,canvas.width,canvas.height);
-      return {y,width,value:window.jsQR(pixels.data,pixels.width,pixels.height)?.data};
-    })));
-    expect(codes.map(c=>c.value)).toEqual([testUpi,alternate].map(id=>'upi://pay?pa='+id+'&cu=INR'));
-    expect(Math.abs(codes[0].y-codes[1].y)).toBeLessThan(1);
-    expect(codes.every(c=>c.width>=100)).toBe(true);
-    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
-  }
-  const target=page.getByRole('radio',{name:'Second receiver'});
-  await target.focus();await page.keyboard.press('Space');
-  await expect(page.getByRole('link',{name:'Open UPI app to pay Second receiver'})).toHaveAttribute('href',/alternate%40samplebank/);
-  await expect(images).toHaveCount(2);await page.reload();
-  await expect(target).toBeChecked();expect(player.status().chosenReceiverId).toBe(second.id);
-});
+async function expectNoPaymentDestination(page){
+  await expect(page.locator('#checkoutPayment a, #checkoutPayment img, #checkoutPayment input, [data-payment-link]')).toHaveCount(0);
+  await expect(page.getByRole('link',{name:/Google Pay|PhonePe|Paytm|BHIM|Open UPI app|Save QR/i})).toHaveCount(0);
+  await expect(page.getByRole('button',{name:'Copy UPI ID'})).toHaveCount(0);
+  await expect(page.locator('body')).not.toContainText('@samplebank');
+}
 
-test.describe('iPhone payment apps',()=>{
-  const {userAgent,viewport,isMobile,hasTouch}=devices['iPhone 13'];
-  test.use({userAgent,viewport,isMobile,hasTouch});
-
-  test('each app opens only on tap with the confirmed receiver and current quote',async({page,site})=>{
-    site.at('2026-11-27T18:59:45+05:30');
-    await page.clock.install({time:new Date(site.now())});
-    const {player,first,second}=await openCheckout(page,site);
-    const picker=page.getByRole('group',{name:'Choose a UPI app'});
-    await expect(picker.getByRole('link')).toHaveCount(0);
-    await expect(picker.locator('button:disabled')).toHaveCount(4);
-    await page.getByRole('radio',{name:first.name}).check();
-    await expect(picker.getByRole('link',{name:/^Google Pay/})).toHaveAttribute('href',/am=149\.00/);
-
-    const saving=await holdRequest(page,site.endpoint,'playerSelectReceiver');
-    await page.getByRole('radio',{name:second.name}).check();await saving.seen;
-    await expect(picker.getByRole('link')).toHaveCount(0);
-    site.advance(16000);await page.clock.fastForward(16000);
-    await expect(page.locator('#checkoutUpdate')).toBeVisible();
-    saving.release();
-    await expect(picker.getByRole('link')).toHaveCount(4);
-    await expect(page.locator('#checkoutPayment a[href^="upi://"]')).toHaveCount(0);
-    expect(await picker.getByRole('link').evaluateAll(links=>links.every(link=>{
-      const {width,height}=link.getBoundingClientRect();return width>=44&&height>=44;
-    }))).toBe(true);
-    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
-
-    // Observe the actual tap destination without launching a financial app on the test host.
-    await page.evaluate(()=>{
-      window.paymentTaps=[];
-      document.addEventListener('click',event=>{
-        const link=event.target.closest('[data-payment-link]');
-        if(link&&!event.defaultPrevented){event.preventDefault();window.paymentTaps.push(link.href)}
-      });
-      Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async text=>{window.copiedUpi=text}}});
+for(const deviceName of ['iPhone 13','Pixel 7','iPad (gen 7)']){
+  test.describe(deviceName,()=>{
+    const {userAgent,viewport,isMobile,hasTouch}=devices[deviceName];
+    test.use({userAgent,viewport,isMobile,hasTouch});
+    test('a risk decline leaves the registration saved without another payment request',async({page,site})=>{
+      const {player}=await openCheckout(page,site);
+      await expect(page.getByText(/UPI risk policy and shows no debit/)).toBeVisible();
+      await expectNoPaymentDestination(page);
+      for(const width of [320,viewport.width]){
+        await page.setViewportSize({width,height:viewport.height});
+        expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+      }
+      await page.reload();await expect(page.getByLabel('Payment screenshot')).toBeVisible();
+      await expectNoPaymentDestination(page);
+      expect(player.status().entryCode).toBe('');expect(player.status().proofVersion).toBe(0);
+      expect(site.calls).not.toContain('playerSelectReceiver');
+      expect(site.calls.filter(method=>method==='playerStart')).toHaveLength(1);
     });
-    const routes={'Google Pay':'gpay://upi/pay',PhonePe:'phonepe://pay',Paytm:'paytmmp://pay',BHIM:'bhim://upi/pay'};
-    for(const [name,base] of Object.entries(routes)){
-      const link=picker.getByRole('link',{name:name+' to pay '+second.name,exact:true});
-      await expect(link).toHaveAttribute('target','_top');
-      await link.click();
-      const url=new URL(await page.evaluate(()=>window.paymentTaps.at(-1)));
-      expect(url.href.split('?')[0]).toBe(base);
-      expect(Object.fromEntries(url.searchParams)).toEqual({
-        pa:second.upi,pn:second.name,am:'199.00',cu:'INR',tr:player.hold.id,tn:'Poké Poker Night '+player.hold.id
-      });
-    }
-    await page.getByRole('button',{name:'Copy UPI ID'}).click();
-    await expect(page.getByRole('status').filter({hasText:'UPI ID copied.'})).toBeVisible();
-    expect(await page.evaluate(()=>window.copiedUpi)).toBe(second.upi);
-    expect(player.status().paymentStatus).toBe('PENDING');
-    await page.reload();
-    await expect(picker.getByRole('link',{name:'Google Pay to pay '+second.name})).toBeVisible();
   });
+}
+
+test('a cached response from the previous release cannot recreate an app link or QR on iPad desktop mode',async({page,site})=>{
+  await page.addInitScript(()=>{
+    Object.defineProperties(navigator,{platform:{get:()=>'MacIntel'},maxTouchPoints:{get:()=>5}});
+  });
+  let mixed=false;
+  await page.route(site.endpoint,route=>{
+    const request=route.request().postDataJSON();
+    if(request.action!=='playerHome')return route.fallback();
+    const result=site.post(request),r=result.value.receipt;
+    Object.assign(r,{upi:testUpi,name:'Old payee',paymentQr:'data:image/gif;base64,R0lG',checkoutReceivers:[{...r.receiver,upi:testUpi,qr:'data:image/gif;base64,R0lG'}]});
+    mixed=true;return route.fulfill({json:result,headers:{'Access-Control-Allow-Origin':'*'}});
+  });
+  await openCheckout(page,site);expect(mixed).toBe(true);await expectNoPaymentDestination(page);
 });
 
-test('iPad desktop mode offers app links and a selectable UPI ID on an older checkout',async({page,site})=>{
-  site.rows.Settings[1][1]=testUpi;site.rows.Settings[2][1]='Club & Events';site.rows.Settings[5][1]='yes';
-  const player=club(site).student();
-  await page.addInitScript(({token,userAgent})=>{
-    Object.defineProperties(navigator,{
-      userAgent:{get:()=>userAgent},platform:{get:()=>'MacIntel'},maxTouchPoints:{get:()=>5},
-      clipboard:{get:()=>({writeText:async()=>{throw Error('Clipboard unavailable')}})}
-    });
-    sessionStorage.setItem('pn26:player-login',JSON.stringify({token,expires:Date.now()+3600000}));
-  },{token:player.token,userAgent:devices['Desktop Safari'].userAgent});
-  await page.goto(site.register);
-  const picker=page.getByRole('group',{name:'Choose a UPI app'});
-  await expect(picker.getByRole('link')).toHaveCount(4);
-  const href=await picker.getByRole('link',{name:'PhonePe to pay Club & Events'}).getAttribute('href');
-  expect(new URL(href).searchParams.get('pn')).toBe('Club & Events');
-  await page.getByRole('button',{name:'Copy UPI ID'}).click();
-  const manual=page.getByRole('textbox',{name:'UPI ID to copy'});
-  await expect(manual).toBeVisible();await expect(manual).toBeFocused();await expect(manual).toHaveValue(testUpi);
+test('the embedded Apps Script release keeps prior recipients private and can recover a completed payment',async({page,site})=>{
+  const api=club(site);api.makeReceiver();const player=api.student();
+  await page.addInitScript(token=>sessionStorage.setItem('pn26:player-login',JSON.stringify({token})),player.token);
+  await page.route('**/test-staff-rpc',route=>{
+    const {name,args}=route.request().postDataJSON();
+    return route.fulfill({json:site.post({action:name,args})});
+  });
+  await page.goto(site.origin+'/club?view=register');
+  await expect(page.getByRole('heading',{name:'Online UPI payments paused'})).toBeVisible();
+  await expectNoPaymentDestination(page);await expect(page.getByLabel('Payment screenshot')).toBeVisible();
+  await expect(page.getByRole('link',{name:'Open this receipt on the event site'})).toHaveAttribute('href',/view=register/);
+  site.ocr(receiptText());await page.getByLabel('Payment screenshot').setInputFiles(image);
+  await expect(page.getByLabel('UTR / UPI Transaction ID')).toHaveValue(utr);
+  await page.getByLabel('Please confirm the recipient of your payment').selectOption(player.hold.receiver.id);
+  await page.getByLabel(/I agree to play fair/).check();await page.getByRole('button',{name:'Submit for verification'}).click();
+  await expect(page.getByRole('heading',{name:'Payment pending'})).toBeVisible();
+  expect(player.status().proofVersion).toBe(1);expect(player.status().entryCode).toBe('');
 });
 
-test('a busy payment desk retries on its own and a cache miss reuses the selected screenshot',async({page,site})=>{
-  const {player,second}=await openCheckout(page,site);
-  const radio=page.getByRole('radio',{name:second.name}),shot=page.getByLabel('Payment screenshot');
-  let limited=0,posted=[];
-  await page.route(site.endpoint,async route=>{
+test('a busy proof reader retries and a cache miss reuses the selected file for the actual recipient',async({page,site})=>{
+  const {api,player,second}=await openCheckout(page,site);
+  let reads=0;const posted=[];
+  await page.route(site.endpoint,route=>{
     const {action,args}=route.request().postDataJSON();
-    if(action==='playerSelectReceiver'&&limited++===0)return route.fulfill({status:429,headers:{'Retry-After':'1'},body:'Too many requests'});
+    if(action==='playerReadProof'&&reads++===0)return route.fulfill({status:429,headers:{'Retry-After':'1'},body:'Too many requests'});
     if(action==='playerSubmitPayment')posted.push(args[2].startsWith('proof:')?'reference':'original');
     return route.fallback();
   });
-  await radio.check();await expect(page.locator('#net')).toContainText('Retrying automatically');
-  await expect(page.getByRole('link',{name:'Open UPI app to pay Second receiver'})).toBeVisible();
-  expect(limited).toBe(2);await expect(radio).toBeChecked();
-  site.ocr(receiptText(utr,'149.00',second.upi));await shot.setInputFiles(image);
-  await expect(page.getByLabel('UTR / UPI Transaction ID')).toHaveValue(utr);
+  site.ocr(receiptText(utr,'149.00',second.upi));await page.getByLabel('Payment screenshot').setInputFiles(image);
+  await expect(page.locator('#net')).toContainText('Retrying automatically');
+  await expect(page.getByLabel('UTR / UPI Transaction ID')).toHaveValue(utr);expect(reads).toBe(2);
   for(const key of site.cache.keys())if(key.startsWith('proof-bytes:'))site.cache.delete(key);
   await page.getByLabel('Please confirm the recipient of your payment').selectOption(second.id);
-  await page.getByLabel(/I agree to play fair/).check();
-  await page.getByRole('button',{name:'Submit for verification'}).click();
-  await expect(page.getByRole('heading',{name:'Payment pending'})).toBeVisible();
-  expect(posted).toEqual(['reference','original']);expect(player.status().proofVersion).toBe(1);
-});
-
-test('a lost choice response, rapid switches and conflicting tabs preserve the proof draft',async({page,site})=>{
-  const {api,player,first,second}=await openCheckout(page,site);
-  site.ocr(receiptText());await page.getByLabel('Payment screenshot').setInputFiles(image);
-  await expect(page.getByLabel('UTR / UPI Transaction ID')).toHaveValue(utr);
-  const payer=page.getByLabel('Who made the payment?');await payer.fill('My original payer');
-  const a=page.getByRole('radio',{name:'First receiver'}),b=page.getByRole('radio',{name:'Second receiver'});
-  const feedback=page.locator('#receiverFeedback'),upi=page.getByRole('link',{name:/Open UPI app/});
-  await page.route(site.endpoint,async route=>{
-    if(route.request().postDataJSON().action!=='playerSelectReceiver')return route.fallback();
-    site.post(route.request().postDataJSON());await route.abort();
-  },{times:1});
-  await a.click();await expect(feedback).toContainText('Choose again');await expect(upi).toHaveCount(0);
-  await a.check();await expect(upi).toHaveAccessibleName('Open UPI app to pay First receiver');
-  expect(player.status().receiverChoiceVersion).toBe(1);
-  const gate=await holdRequest(page,site.endpoint,'playerSelectReceiver');
-  await b.check();await gate.seen;await a.check();await expect(upi).toHaveCount(0);gate.release();
-  await expect(upi).toHaveAccessibleName('Open UPI app to pay First receiver');
-  const saved=player.status();expect(saved.receiverChoiceVersion).toBe(3);
-  api.publicRpc('playerSelectReceiver',player.token,saved.ticket,second.id,'3');
-  await b.check();await expect(upi).toHaveAccessibleName('Open UPI app to pay Second receiver');
-  api.publicRpc('playerSelectReceiver',player.token,saved.ticket,first.id,'4');
-  api.publicRpc('playerSelectReceiver',player.token,saved.ticket,second.id,'5');
-  await a.click();await expect(feedback).toContainText('another window');await expect(upi).toHaveCount(0);
-  await a.check();await expect(upi).toHaveAccessibleName('Open UPI app to pay First receiver');
-  await expect(payer).toHaveValue('My original payer');await expect(page.locator('#shot')).toHaveValue(/payment\.jpg$/);
-  expect(player.status().chosenReceiverId).toBe(first.id);
-});
-
-test('checkout keeps both QRs and the payment draft open for hours on the original registration',async({page,site})=>{
-  await page.clock.install({time:new Date(site.now())});
-  const {player,first}=await openCheckout(page,site);
-  await page.getByRole('radio',{name:first.name}).check();
-  await expect(page.locator('#receiverFeedback')).toContainText('Selected');
-  site.ocr(receiptText());await page.getByLabel('Payment screenshot').setInputFiles(image);
-  await expect(page.getByLabel('UTR / UPI Transaction ID')).toHaveValue(utr);
-  const elapsed=3*60*60000;site.advance(elapsed);await page.clock.fastForward(elapsed);
-  await expect(page.getByRole('heading',{name:'Pay ₹149'})).toBeVisible();
-  await page.getByRole('radio',{name:'Second receiver'}).check();
-  await expect(page.getByRole('img',{name:/UPI payment QR/})).toHaveCount(2);
-  await expect(page.getByRole('link',{name:'Open UPI app to pay Second receiver'})).toBeVisible();
-  await page.getByRole('radio',{name:first.name}).check();await expect(page.locator('#receiverFeedback')).toContainText(first.name);
-  await expect(page.getByLabel('UTR / UPI Transaction ID')).toHaveValue(utr);
-  await page.getByLabel('Please confirm the recipient of your payment').selectOption(first.id);
-  await expect(page.getByLabel('Who was the payment for?')).toHaveValue(new RegExp(player.hold.beneficiary));
   await page.getByLabel(/I agree to play fair/).check();await page.getByRole('button',{name:'Submit for verification'}).click();
   await expect(page.getByRole('heading',{name:'Payment pending'})).toBeVisible();
-  expect(player.status().entryCode).toBe('');
+  await expect(page.getByText('Receiver · Second receiver')).toBeVisible();
+  expect(posted).toEqual(['reference','original']);expect(player.status().proofVersion).toBe(1);
+  expect(player.status().entryCode).toBe('');expect(api.rpc('adminNeedsReview',api.admin).payments).toHaveLength(1);
+});
+
+test('a pending transfer screenshot cannot automatically issue an entry pass',async({page,site})=>{
+  const {api,player,first}=await openCheckout(page,site);
+  site.ocr(receiptText().replace('Successfully paid','Payment pending'));
+  await page.getByLabel('Payment screenshot').setInputFiles(image);
+  await expect(page.getByLabel('UTR / UPI Transaction ID')).toHaveValue(utr);
+  await page.getByLabel('Please confirm the recipient of your payment').selectOption(first.id);
+  await page.getByLabel(/I agree to play fair/).check();await page.getByRole('button',{name:'Submit for verification'}).click();
+  await expect(page.getByRole('heading',{name:'Payment pending'})).toBeVisible();
+  const plan=api.statement(first);expect(plan.matches[0].reason).toContain('pending');
+  expect(api.apply(plan).authorized).toBe(0);await page.getByRole('button',{name:'Refresh status'}).click();
+  expect(player.status().entryCode).toBe('');await expect(page.getByAltText('Single-use entry QR')).toHaveCount(0);
 });
 
 test('editing registration keeps the receiver, screenshot, OCR and verified PGP ID on the same checkout',async({page,site})=>{
   const {player,second}=await openCheckout(page,site);
-  await page.getByRole('radio',{name:second.name}).check();
-  await expect(page.locator('#receiverFeedback')).toContainText(second.name);
   site.ocr(receiptText());const reading=await holdRequest(page,site.endpoint,'playerReadProof');
   const shot=page.getByLabel('Payment screenshot');await shot.setInputFiles(image);await reading.seen;
   await page.getByLabel('Who made the payment?').fill('A friend');
+  await page.getByLabel('Please confirm the recipient of your payment').selectOption(second.id);
   const editor=page.locator('#registrationEditor');await editor.locator('summary').click();
   await expect(editor.getByLabel('PGP ID')).toHaveAttribute('readonly','');
   await expect(editor.getByLabel('Batch')).toHaveValue('2026-28');
@@ -220,7 +136,7 @@ test('editing registration keeps the receiver, screenshot, OCR and verified PGP 
   await expect(editor.locator('#regBatchError')).toHaveText('Choose your batch to continue.');
   await editor.getByLabel('Batch').selectOption('2025-27');await editor.getByRole('button',{name:'Save changes'}).click();
   await expect(page.locator('#detailsSaved')).toHaveText('Saved');reading.release();
-  await expect(page.getByRole('radio',{name:second.name})).toBeChecked();
+  await expect(page.getByLabel('Please confirm the recipient of your payment')).toHaveValue(second.id);
   await expect(shot).toHaveValue(/payment\.jpg$/);await expect(page.getByLabel('UTR / UPI Transaction ID')).toHaveValue(utr);
   await expect(page.getByLabel('Who made the payment?')).toHaveValue('A friend');
   await expect(page.getByLabel('Who was the payment for?')).toHaveValue('Edited Student · '+player.hold.beneficiary);
@@ -230,7 +146,7 @@ test('editing registration keeps the receiver, screenshot, OCR and verified PGP 
   expect(site.calls.filter(action=>action==='playerStart')).toHaveLength(1);
 });
 
-test('a returning registration with a missing batch opens payment as soon as the batch is saved',async({page,site})=>{
+test('a returning registration with a missing batch opens proof intake as soon as the batch is saved',async({page,site})=>{
   const api=club(site),p=api.student(),old=site.staff('ledger_',[]).attempts[p.hold.id];
   expect(old.status).toBe('REGISTERED');
   site.rows.Journal.push([site.now(),'Previous release','Fixture',JSON.stringify({attempts:[{...old,details:{...old.details,batch:''},detailsRevision:0}]})]);
@@ -242,31 +158,33 @@ test('a returning registration with a missing batch opens payment as soon as the
   await page.getByRole('button',{name:'Save and continue'}).click();
   await expect(page.locator('#regBatchError')).toHaveText('Choose your batch to continue.');
   await page.getByLabel('Batch').selectOption('2025-27');await page.getByRole('button',{name:'Save and continue'}).click();
-  await expect(page.getByRole('img',{name:/UPI payment QR/})).toHaveCount(2);
+  await expect(page.getByLabel('Payment screenshot')).toBeVisible();await expectNoPaymentDestination(page);
   expect(p.status().ticket).toBe(p.hold.ticket);expect(p.status().details.batch).toBe('2025-27');
   expect(Object.values(site.staff('ledger_',[]).attempts)).toHaveLength(1);
 });
 
-test('a receiver choice in flight at the price cutoff stays selected at the new price',async({page,site})=>{
-  site.at('2026-11-27T18:59:45+05:30');await page.clock.install({time:new Date(site.now())});
-  const {player,second}=await openCheckout(page,site);
-  const pending=await holdRequest(page,site.endpoint,'playerSelectReceiver');
-  await page.getByRole('radio',{name:second.name}).check();await pending.seen;
-  site.advance(16000);await page.clock.fastForward(16000);
-  await expect(page.locator('#checkoutUpdate')).toHaveText('Checking the current entry fee…');
-  await expect(page.locator('#checkoutUpdate')).toBeVisible();
-  await expect(page.getByRole('link',{name:/Open UPI app/})).toHaveCount(0);
-  pending.release();
-  await expect(page.getByRole('link',{name:'Open UPI app to pay Second receiver'})).toHaveAttribute('href',/am=199\.00/);
-  await expect(page.getByRole('radio',{name:second.name})).toBeChecked();
-  expect(player.status().chosenReceiverId).toBe(second.id);
+test('a waitlisted player can report a past debit without claiming a seat when every wave is full',async({page,site})=>{
+  const api=club(site),receiver=api.makeReceiver();
+  const seats=Array.from({length:216},(_,index)=>({id:'a'+String(index).padStart(15,'0'),roll:String(300000000+index),wave:Math.floor(index/36),kind:'pre',fee:149,created:site.now(),status:'PAID'}));
+  site.rows.Journal.push([site.now(),'Existing paid seats','Fixture',JSON.stringify({attempts:seats})]);
+  const player=api.student();expect(player.hold.status).toBe('WAITLIST');
+  await page.addInitScript(token=>sessionStorage.setItem('pn26:player-login',JSON.stringify({token})),player.token);
+  await page.goto(site.register);
+  await page.getByRole('button',{name:'Report a completed payment'}).click();
+  await expect(page.getByRole('heading',{name:'All waves are full'})).toBeVisible();await expectNoPaymentDestination(page);
+  site.ocr(receiptText());await page.getByLabel('Payment screenshot').setInputFiles(image);
+  await expect(page.getByLabel('UTR / UPI Transaction ID')).toHaveValue(utr);
+  await page.getByLabel('Please confirm the recipient of your payment').selectOption(receiver.id);
+  await page.getByLabel(/I agree to play fair/).check();await page.getByRole('button',{name:'Submit for verification'}).click();
+  await expect(page.getByRole('heading',{name:'Payment pending'})).toBeVisible();
+  expect(player.status().ticket).toBe(player.hold.ticket);expect(player.status().wave).toBe(0);
+  expect(api.apply(api.statement(receiver)).authorized).toBe(0);
 });
 
-test('a pricing change withdraws the old payment link and keeps the details and proof drafts during a retry',async({page,site})=>{
+test('a pricing change keeps the details and proof drafts during a retry',async({page,site})=>{
   site.at('2026-11-27T18:55:00+05:30');await page.clock.install({time:new Date(site.now())});
-  const {first}=await openCheckout(page,site);
-  await page.getByRole('radio',{name:first.name}).check();
-  const link=page.getByRole('link',{name:/Open UPI app/});await expect(link).toHaveAttribute('href',/am=149\.00/);
+  await openCheckout(page,site);
+  const amount=page.locator('#checkoutPayment .price-values strong');await expect(amount).toHaveText('₹149');
   site.ocr(receiptText());await page.getByLabel('Payment screenshot').setInputFiles(image);
   await expect(page.getByLabel('UTR / UPI Transaction ID')).toHaveValue(utr);
   await page.locator('#registrationEditor summary').click();
@@ -278,20 +196,15 @@ test('a pricing change withdraws the old payment link and keeps the details and 
   });
   site.advance(6*60000);await page.clock.fastForward(6*60000);
   const retry=page.getByRole('button',{name:'Retry payment details'});await expect(retry).toBeVisible();
-  await expect(link).toHaveCount(0);await retry.click();
-  await expect(link).toHaveAttribute('href',/am=199\.00/);await expect(page.getByRole('heading',{name:'Pay ₹199'})).toBeVisible();
+  await expect(amount).toBeHidden();await retry.click();
+  await expect(amount).toHaveText('₹199');await expectNoPaymentDestination(page);
   await expect(page.getByLabel('Full Name')).toHaveValue('Still editing');
   await expect(page.getByLabel('Payment screenshot')).toHaveValue(/payment\.jpg$/);
   await expect(page.getByLabel('UTR / UPI Transaction ID')).toHaveValue(utr);
 });
 
-test('delayed OCR preserves typing, clearing a file recovers, and a disabled receiver withdraws its QR',async({page,site})=>{
-  const {api,first,second}=await openCheckout(page,site);
-  const a=page.getByRole('radio',{name:'First receiver'}),b=page.getByRole('radio',{name:'Second receiver'});
-  api.rpc('adminSaveReceiver',api.admin,{...first,active:false});
-  await a.click();await expect(page.getByAltText('UPI payment QR for First receiver')).toHaveCount(0);
-  await expect(page.getByAltText('UPI payment QR for Second receiver')).toBeVisible();
-  await b.check();await expect(page.locator('#receiverFeedback')).toContainText(second.name);
+test('delayed OCR preserves typing and clearing a screenshot recovers without a second debit',async({page,site})=>{
+  const {second}=await openCheckout(page,site);
   site.ocr(receiptText());
   const shot=page.getByLabel('Payment screenshot'),submit=page.getByRole('button',{name:'Submit for verification'});
   await submit.click();await expect(shot).toHaveAttribute('aria-describedby',/proofLimit proofHint shotError/);

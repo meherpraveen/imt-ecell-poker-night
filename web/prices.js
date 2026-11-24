@@ -70,7 +70,7 @@ function updatePrices(){
     if(homeFees.length||offers.some(box=>box.closest('.login-card')))showPublishedFees(offers,homeFees);
     else for(const b of offers){b.setAttribute('aria-busy','true');if(b.dataset.rendered||!b.textContent){b.textContent='Checking the current entry fee…';delete b.dataset.rendered}}
     if(offer&&expiredOffer!==offer.endsAt){expiredOffer=offer.endsAt;retryOfferAt=0}
-    // Checkout refreshes its fee and payment links together through playerStatus.
+    // The receipt refreshes its fee at the cutoff without replacing the proof form.
     if(offer&&document.getElementById('checkoutPayment'))return;
     loadOffer();if(!offerRequest)schedulePrices(Math.max(1000,retryOfferAt-Date.now()));return;
   }

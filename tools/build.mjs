@@ -89,7 +89,7 @@ const qrSource=fs.readFileSync(require.resolve('jsqr'),'utf8');
 const wrapModule=source=>'(()=>{const module={exports:{}},exports=module.exports;\n'+source+'\nreturn module.exports})()';
 const qrReader='function readReceiverQr_(bytes){const decode='+wrapModule(decoderSource)+',scan='+wrapModule(qrSource)+';const im=decode(bytes,{useTArray:true,maxResolutionInMP:3,maxMemoryUsageInMB:48});return scan(new Uint8ClampedArray(im.data),im.width,im.height)?.data||""}';
 const paymentServer=['PaymentProof','Statements','Reconcile'].map(name=>read('gas/'+name+'.gs')).join('\n');
-fs.writeFileSync(path.join(out,'Code.gs'),pricing+'\n'+read('gas/Code.gs')+'\n'+paymentServer+'\n'+qrReader+'\nconst ticketQrEncoder_=(function(){\n'+library+'\nreturn qrcode;\n})();\n');
+fs.writeFileSync(path.join(out,'Code.gs'),pricing+'\n'+read('gas/Code.gs')+'\n'+paymentServer+'\n'+qrReader+'\n');
 const feather=require('feather-icons');
 const deskIcons=['activity','arrow-right','camera','check-circle','chevron-down','chevron-right','clock','credit-card','grid','inbox','log-out','refresh-cw','search','settings','user','user-plus','users','x'];
 const iconSymbols=deskIcons.map(name=>'<symbol id="desk-i-'+name+'" viewBox="0 0 24 24">'+feather.icons[name].contents+'</symbol>').join('');

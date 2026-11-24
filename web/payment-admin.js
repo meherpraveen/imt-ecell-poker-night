@@ -2,7 +2,7 @@
 let statementPreview,reviewPayment,receiverEdit;
 function receiverSettings(p){
   const lines=p.receivers.map(r=>'<li>'+btn('bankReceiver',r.name+' · '+(r.active?'Active':'Disabled'),'',r.id)+'<small>'+esc(r.upi)+'</small></li>').join('');
-  return '<div class="desk-form-group"><h3>UPI receivers</h3><p class="desk-hint">New checkouts use an active receiver. Each player keeps the account and fee they were shown.</p>'+
+  return '<div class="desk-form-group"><h3>UPI receivers</h3><p class="desk-hint">These accounts identify incoming credits on bank statements. Online UPI collection is paused.</p>'+
     (lines?'<ul class="bank-list">'+lines+'</ul>':'')+btn('bankReceiver','Add receiver')+'</div>';
 }
 function receiverDialog(id){
@@ -11,7 +11,7 @@ function receiverDialog(id){
   detail('<h2>'+(r.id?'Edit receiver':'Add receiver')+'</h2>'+input('receiverName','Receiver name','maxlength="80" value="'+esc(r.name||'')+'"')+
     input('receiverUpi','UPI ID','autocapitalize="none" value="'+esc(r.upi||'')+'"')+input('receiverNumber','UPI number (optional)','inputmode="numeric" maxlength="10" value="'+esc(r.number||'')+'"')+
     '<label for="receiverQr">Payment QR image</label><input id="receiverQr" type="file" accept="image/png,image/jpeg,image/webp">'+
-    '<p class="desk-hint">The QR must pay this UPI ID and allow the player to enter the amount.</p>'+deskSwitch('receiverActive','Active for new checkouts',r.active!==false)+btn('bankSaveReceiver','Save receiver','primary wide'));
+    '<p class="desk-hint">Use the account’s original QR to verify its UPI ID for reconciliation.</p>'+deskSwitch('receiverActive','Active receiving account',r.active!==false)+btn('bankSaveReceiver','Save receiver','primary wide'));
 }
 function bankDeskLinks(){
   if(!snapshot.settings||!snapshot.managed)return '';

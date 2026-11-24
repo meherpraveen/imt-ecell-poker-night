@@ -2,101 +2,9 @@
 let readGeneration=0;
 function receiverRecovery(r){
   return panel('Confirm your original receiver','<p>This registration predates the receiver list. Select the account shown on your payment receipt.</p><label for="originalReceiver">Who did you pay?</label><select id="originalReceiver"><option value="">Choose the receiver</option>'+
-    r.identifyReceivers.map(x=>'<option value="'+esc(x.id)+'">'+esc(x.name+' · '+x.upi)+'</option>').join('')+'</select>'+btn('identifyReceiver','Save receiver','primary'));
+    r.identifyReceivers.map(x=>'<option value="'+esc(x.id)+'">'+esc(x.name)+'</option>').join('')+'</select>'+btn('identifyReceiver','Save receiver','primary'));
 }
-const iosUpiApps=[
-  ['Google Pay','gpay://upi/pay'],
-  ['PhonePe','phonepe://pay'],
-  ['Paytm','paytmmp://pay'],
-  ['BHIM','bhim://upi/pay']
-];
-function paymentAppActions(r,receiver){
-  // iPadOS can request a desktop site and identify itself as a Mac.
-  const device=navigator.userAgent+' '+navigator.platform;
-  const ios=/iPhone|iPad|iPod/i.test(device)||(navigator.maxTouchPoints>1&&/MacIntel|Macintosh/.test(device));
-  const apps=ios?iosUpiApps:[['Open UPI app','upi://pay']];
-  const query=receiver?new URLSearchParams({
-    pa:receiver.upi,pn:receiver.name,am:Number(r.fee).toFixed(2),cu:r.offer.currency,tr:r.id,tn:'Poké Poker Night '+r.id
-  }).toString().replace(/\+/g,'%20'):'';
-  const links=apps.map(([label,base])=>{
-    const style=ios?'button':'button primary';
-    if(!receiver)return '<button type="button" class="'+style+'" aria-describedby="receiverFeedback" disabled>'+label+'</button>';
-    return '<a class="'+style+'" data-payment-link target="'+(ios?'_top':'_blank')+'" rel="noopener noreferrer" href="'+base+'?'+esc(query)+'">'+label+'<span class="sr-only"> to pay '+esc(receiver.name)+'</span></a>';
-  }).join('');
-  const saveQr=receiver?.qr?'<a class="qr-save" download="payment-qr.gif" href="'+esc(receiver.qr)+'">Save QR<span class="sr-only"> for '+esc(receiver.name)+'</span></a>':'';
-  if(!ios)return links+saveQr;
-  const alternatives=receiver?'<div class="upi-fallback">'+btn('copyUpi','Copy UPI ID','quiet')+saveQr+'</div>'+
-    '<p id="upiCopyStatus" class="sub" role="status">If your app doesn’t open, copy the UPI ID and pay in your app.</p>'+
-    '<input id="upiCopyValue" aria-label="UPI ID to copy" readonly hidden value="'+esc(receiver.upi)+'">':'';
-  return '<div class="upi-payment"><fieldset class="upi-apps"><legend>Choose a UPI app</legend><div class="upi-app-grid">'+links+'</div></fieldset>'+alternatives+'</div>';
-}
-function receiverActions(r,id){
-  return paymentAppActions(r,r.checkoutReceivers.find(option=>option.id===id&&option.qr));
-}
-async function copyPaymentUpi(){
-  if(checkoutNeedsUpdate())return refreshCheckoutQuote();
-  const input=el('upiCopyValue'),status=el('upiCopyStatus');
-  try{
-    await navigator.clipboard.writeText(input.value);
-    status.textContent='UPI ID copied.';
-  }catch{
-    if(!input.isConnected)return;
-    input.hidden=false;input.focus();input.select();
-    status.textContent='Touch and hold the UPI ID to copy it.';
-  }
-}
-function choosePaymentReceiver(r){
-  const options=r.checkoutReceivers;
-  if(!options.length)return '<p>Payment is paused. If you already paid, upload your screenshot below.</p>'+btn('receipt','Refresh payment details');
-  const cards=options.map(x=>{
-    const checked=r.chosenReceiverId===x.id;
-    const radio='<input type="radio" name="checkoutReceiver" value="'+esc(x.id)+'" aria-label="'+esc(x.name)+'"'+(checked?' checked':'')+(x.qr?'':' disabled')+'>';
-    const code=x.qr?'<img width="192" height="192" alt="UPI payment QR for '+esc(x.name)+'" src="'+esc(x.qr)+'">':'<span class="qr-unavailable">QR unavailable</span>';
-    return '<label class="receiver-card">'+code+'<span class="receiver-name">'+radio+'<strong>'+esc(x.name)+'</strong></span><small>'+esc(x.upi)+'</small>'+(x.number?'<small>UPI no. '+esc(x.number)+'</small>':'')+'</label>';
-  }).join('');
-  const help=r.chosenReceiverId?'Selected · '+options.find(x=>x.id===r.chosenReceiverId).name:'Choose the account you will pay.';
-  const refresh=options.some(x=>!x.qr)?btn('receipt','Refresh unavailable QR','quiet'):'';
-  return '<fieldset id="receiverChoices" class="receiver-choices" aria-describedby="receiverFeedback"><legend>Who would you like to pay?</legend><div class="receiver-grid">'+cards+'</div></fieldset>'+
-    '<p id="receiverFeedback" class="sub receiver-feedback" role="status">'+esc(help)+'</p><div id="receiverActions" class="receiver-actions">'+receiverActions(r,r.chosenReceiverId)+'</div>'+refresh;
-}
-async function saveReceiverChoice(r,group){
-  const feedback=el('receiverFeedback'),actions=el('receiverActions');
-  feedback.textContent='Saving your choice…';actions.innerHTML=receiverActions(r,'');
-  try{
-    while(group.isConnected&&r===currentReceipt){
-      const wanted=group.dataset.wanted;
-      const saved=await playerApi('playerSelectReceiver',r.ticket,wanted,String(r.receiverChoiceVersion));
-      if(!group.isConnected||r!==currentReceipt)return;
-      if(saved.unavailable){
-        const option=Array.from(group.querySelectorAll('input')).find(input=>input.value===wanted);
-        option?.closest('label').remove();
-        r.checkoutReceivers=r.checkoutReceivers.filter(x=>x.id!==wanted);
-        if(group.dataset.wanted!==wanted)continue;
-        r.chosenReceiverId='';feedback.textContent=r.checkoutReceivers.length?'That receiver is unavailable. Choose another account.':'Payments are paused. You can still submit proof if you already paid.';
-        return;
-      }
-      r.receiverChoiceVersion=saved.receiverChoiceVersion;r.receiver=saved.receiver;
-      if(saved.conflict)throw Error('Your choice changed in another window.');
-      r.chosenReceiverId=saved.receiver.id;
-      if(group.dataset.wanted!==wanted)continue;
-      actions.innerHTML=receiverActions(r,wanted);feedback.textContent='Selected · '+saved.receiver.name;
-      return;
-    }
-  }catch(error){
-    if(group.isConnected&&r===currentReceipt){
-      r.chosenReceiverId='';
-      for(const radio of group.querySelectorAll('input'))radio.checked=false;
-      feedback.textContent=error.message+' Choose again to retry.';
-    }
-  }finally{delete group.pendingChoice}
-}
-document.addEventListener('change',e=>{
-  const input=e.target;
-  if(input.name!=='checkoutReceiver'||!input.checked)return;
-  const group=input.closest('fieldset');group.dataset.wanted=input.value;
-  group.pendingChoice??=saveReceiverChoice(currentReceipt,group);
-  if(checkoutNeedsUpdate())refreshCheckoutQuote();
-});
+
 function proofForm(r){
   const c=r.claim||{},person=accountInfo?.player||{},name=r.details?.fullName||person.name||'';
   const recipients=(r.paymentRecipients||[]).map(x=>'<option value="'+esc(x.id)+'">'+esc(x.name)+'</option>').join('');
@@ -217,22 +125,14 @@ document.addEventListener('change',e=>{
   }else if(paymentFields.includes(e.target.id))rememberPaymentFields(e.target.form);
 });
 async function submitPaymentProof(){
-  const r=currentReceipt,shot=el('shot'),choices=el('receiverChoices');
-  if(choices&&!el('checkoutPayment')?.hidden&&choices.querySelector('input:enabled')&&(!r.chosenReceiverId||choices.pendingChoice)){
-    el('receiverFeedback').textContent=choices.pendingChoice?'Saving your choice. Submit after it is confirmed.':'Choose the receiver you paid before submitting.';
-    choices.querySelector('input:enabled').focus();return;
-  }
+  const r=currentReceipt,shot=el('shot');
   if(!proofRead||proofRead.file!==(shot?.files[0]||shot?.form.savedFile)||proofRead.ticket!==r.ticket){fieldError('shot','Choose a screenshot and wait for it to be read.');return}
   const fields=[['paymentUtr',/^\d{12}$/,'Enter the full 12-digit bank UTR.'],['paymentAmount',/^\d+(?:\.\d{1,2})?$/,'Enter the amount shown on the receipt.'],['paymentTime',/.+/,'Enter the date and time from the receipt.'],['paidReceiver',/.+/,'Select the person who received your payment.'],['paymentPayer',/^.{2,90}$/,'Enter the name of the person who paid.'],['beneficiary',/.+/,'Choose the player this payment was for.']];
   for(const [id,pattern,message] of fields)if(!pattern.test(val(id))){fieldError(id,message);return}
   if(!el('fairPlay').checked){fieldError('fairPlay','Confirm the fair-play declaration to continue.');return}
   const form={utr:val('paymentUtr'),amount:val('paymentAmount'),time:val('paymentTime'),payer:val('paymentPayer'),beneficiary:val('beneficiary'),receiver:r.receiver.id,receiverChoiceVersion:r.receiverChoiceVersion,paidReceiver:val('paidReceiver'),agreementVersion:r.fairPlayVersion,revision:r.proofVersion,fairPlay:true,ocr:proofRead.ocr};
-  if(choices)choices.disabled=true;
   const proof=proofRead,details=JSON.stringify(form);
-  try{
-    let saved=await playerApi('playerSubmitPayment',r.ticket,proof.ocr.uploadRef||proof.data,details);
-    if(saved.uploadRequired)saved=await playerApi('playerSubmitPayment',r.ticket,proof.data,details);
-    if(currentReceipt===r){removeProofDraft(shot.form.dataset.proofKey,shot.form.proofDraft?.marker);showReceipt(saved)}
-  }
-  finally{if(choices?.isConnected)choices.disabled=false}
+  let saved=await playerApi('playerSubmitPayment',r.ticket,proof.ocr.uploadRef||proof.data,details);
+  if(saved.uploadRequired)saved=await playerApi('playerSubmitPayment',r.ticket,proof.data,details);
+  if(currentReceipt===r){removeProofDraft(shot.form.dataset.proofKey,shot.form.proofDraft?.marker);showReceipt(saved)}
 }

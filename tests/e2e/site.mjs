@@ -1,4 +1,6 @@
 import {createServer} from 'node:http';
+import {randomInt} from 'node:crypto';
+import {once} from 'node:events';
 import {readFile} from 'node:fs/promises';
 import {test as base,expect} from '@playwright/test';
 import {createEvent} from './event-runtime.mjs';
@@ -50,11 +52,17 @@ export const test=base.extend({
         res.setHeader('content-type',(types[path.split('.').pop()]||'application/octet-stream')+'; charset=utf-8');res.end(bytes);
       }catch{res.statusCode=500;res.end('Fixture request failed')}
     });
-    await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+    // Some Windows hosts allocate browser-blocked ports such as 10080 when asked for port zero.
+    for(let attempt=1;;attempt++){
+      const listening=once(server,'listening');
+      server.listen(randomInt(49152,65536),'127.0.0.1');
+      try{await listening;break}
+      catch(error){if(attempt>=10||!['EADDRINUSE','EACCES'].includes(error.code))throw error}
+    }
     const origin='http://127.0.0.1:'+server.address().port;
     const attach=target=>target.route('**/*',async route=>{
       const url=route.request().url();
-      if(url.startsWith(origin+'/'))return route.continue();
+      if(url.startsWith(origin+'/')||url.startsWith('blob:'))return route.continue();
       if(url.startsWith(testEndpoint+'?')&&route.request().isNavigationRequest())return route.fulfill({contentType:'text/html; charset=utf-8',body:staffPage(new URL(url))});
       if(url==='https://script.google.com/test-staff-rpc')return route.fulfill({json:staffReply(route.request().postDataJSON())});
       if(url===testEndpoint)return route.fulfill({json:event.post(route.request().postDataJSON()),headers:{'Access-Control-Allow-Origin':'*'}});
