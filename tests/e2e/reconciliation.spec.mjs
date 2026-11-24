@@ -40,11 +40,13 @@ for(const manual of [false,true]){
     }
     await register(page,site);
     if(manual){
-      await page.getByText('Choose a payment receiver',{exact:true}).click();await page.getByLabel('Who would you like to pay?').selectOption({label:'Sample Treasurer'});
-      await button(page,'Show selected QR').click();await expect(page.getByRole('link',{name:'Open UPI app'})).toHaveAttribute('href',/pa=club%40samplebank/);
+      await expect(page.getByRole('img',{name:/UPI payment QR for/})).toHaveCount(2);
+      await expect(page.getByRole('link',{name:/Open UPI app/})).toHaveCount(0);
+      await page.getByRole('radio',{name:'Sample Treasurer',exact:true}).check();
+      await expect(page.getByRole('link',{name:/Open UPI app/})).toHaveAttribute('href',/pa=club%40samplebank/);
     }
-    await expect(page.getByAltText('Coordinator’s UPI payment QR')).toBeVisible();
-    await expect(page.getByRole('link',{name:'Open UPI app'})).toHaveAttribute('href',/am=149\.00/);
+    await expect(page.getByRole('img',{name:'UPI payment QR for Sample Treasurer'})).toBeVisible();
+    await expect(page.getByRole('link',{name:/Open UPI app/})).toHaveAttribute('href',/am=149\.00/);
     await proof(page,site,manual);
     await button(admin,'Payments').click();await button(admin,'Bank statements').click();
     const receiver=admin.getByLabel('Receiving account on the statement');

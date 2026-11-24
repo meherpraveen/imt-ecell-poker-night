@@ -28,3 +28,37 @@ test('the homepage updates both entry quotes at the cutoff and keeps its event l
   await expect(page).toHaveURL(/#format$/);
   await expect(page.getByRole('heading',{name:'Tournament format'})).toBeInViewport();
 });
+
+test('a delayed quote leaves the registration fields in place and a return visit reuses the server quote',async({page,site})=>{
+  let release;
+  const held=new Promise(resolve=>{release=resolve});
+  await page.route(site.endpoint,async route=>{
+    if(route.request().postDataJSON().action==='publicPrices')await held;
+    await route.fallback();
+  });
+  await page.addInitScript(()=>{
+    window.shiftTotal=0;
+    new PerformanceObserver(list=>{for(const e of list.getEntries())if(!e.hadRecentInput)window.shiftTotal+=e.value}).observe({type:'layout-shift',buffered:true});
+  });
+  await page.emulateMedia({reducedMotion:'reduce'});
+  await page.setViewportSize({width:320,height:750});await page.goto(site.register);
+  const identifier=page.getByLabel('Roll number or registered email');
+  const top=await identifier.evaluate(field=>field.getBoundingClientRect().top);
+  await expect(page.getByRole('button',{name:'Send code'})).toBeEnabled();
+  release();await expect(page.locator('.price-values strong')).toHaveText(format(pricing.earlyBird));
+  await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+  expect(Math.abs(await identifier.evaluate(field=>field.getBoundingClientRect().top)-top)).toBeLessThan(1);
+  expect(await page.evaluate(()=>window.shiftTotal)).toBeLessThan(0.01);
+  await page.getByRole('link',{name:'Poké Poker Night home'}).click();
+  await expect(page.locator('[data-home-fee=entry]')).toHaveText(format(pricing.earlyBird));
+  await page.getByRole('link',{name:'Sign in to register'}).click();await expect(identifier).toBeVisible();
+  expect(site.calls.filter(name=>name==='publicPrices')).toHaveLength(1);
+  const assets=await page.evaluate(()=>performance.getEntriesByType('resource').map(r=>r.name));
+  expect(assets.some(url=>/payment-form|qrcode-|gate-camera|jsQR/.test(url))).toBe(false);
+  await page.evaluate(()=>{
+    sessionStorage.removeItem('pn26:public-entry-quote');
+    sessionStorage.setItem('pn26:email-step',JSON.stringify({identifier:'sample@example.test',expires:Date.now()+600000,resendAt:Date.now()}));
+  });
+  await page.reload();await expect(page.getByLabel('Six-digit code')).toBeVisible();
+  expect(site.calls.filter(name=>name==='publicPrices')).toHaveLength(1);
+});

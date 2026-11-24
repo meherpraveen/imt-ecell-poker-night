@@ -36,7 +36,7 @@ function ownerCodePage(delay){
 }
 function updateDesk(previous,next,reloadSettings,background){
   if(!previous||previous.role!==next.role){staffView();return}
-  for(const value of document.querySelectorAll('[data-stat]'))value.textContent=next.stats[value.dataset.stat];
+  for(const value of document.querySelectorAll('[data-stat]'))if(value.textContent!==String(next.stats[value.dataset.stat]))value.textContent=next.stats[value.dataset.stat];
   const changed=(a,b)=>JSON.stringify(a)!==JSON.stringify(b);
   if(tab==='Review'||tab==='Gate'){
     if(changed(previous.records,next.records))filterRecords();
@@ -45,14 +45,14 @@ function updateDesk(previous,next,reloadSettings,background){
     return;
   }
   if(tab==='Settings'){
-    const stale=next.settings.version!==previous.settings.version;
+    const stale=next.settings.version!==previous.settings.version||changed(previous.settings.receivers,next.settings.receivers);
     if(!reloadSettings&&el('content').dataset.modified==='yes'&&(background||!stale)){
       if(stale)el('net').textContent='Payment settings changed on another device. Refresh to load the saved settings.';
       // A save must still detect conflicting edits while this form is being filled in.
       snapshot.settings=previous.settings;
       return;
     }
-    if(!reloadSettings&&next.settings.version===previous.settings.version)return;
+    if(!reloadSettings&&!stale)return;
   }
   if(tab==='Tables')syncFloorClock(next.board);
   if(tab==='Tables'&&!changed(previous.game,next.game)&&!changed(previous.board.tables,next.board.tables)&&

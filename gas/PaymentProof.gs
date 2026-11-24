@@ -37,10 +37,17 @@ function receiverView_(r){return {id:r.id,name:r.name,upi:r.upi,number:r.number|
 function verifyUpiQr_(bytes,upi){
   const payload=readReceiverQr_(bytes);
   must_(payload&&/^upi:\/\/pay\?/i.test(payload),'This image must contain one readable UPI payment QR.');
-  const query=payload.slice(payload.indexOf('?')+1).split('&').map(pair=>pair.split('=').map(x=>decodeURIComponent(x.replace(/\+/g,' '))));
+  let query;
+  try{
+    query=payload.slice(payload.indexOf('?')+1).split('&').map(pair=>{
+      const split=pair.indexOf('='),parts=split<0?[pair,'']:[pair.slice(0,split),pair.slice(split+1)];
+      return parts.map(value=>decodeURIComponent(value.replace(/\+/g,' ')));
+    });
+  }catch{must_(false,'The UPI QR contains an unreadable payment address.')}
   const values=key=>query.filter(p=>p[0].toLowerCase()===key).map(p=>p[1]||'');
   must_(values('pa').length===1&&values('pa')[0].toLowerCase()===upi,'The image pays a different UPI ID. Check the QR and receiver.');
   must_(values('am').every(x=>!x)&&values('mam').every(x=>!x)&&values('cu').every(x=>x.toUpperCase()==='INR'),'Use an INR QR with no preset amount.');
+  return payload;
 }
 // An existing club can stage its organizer-supplied QRs in its owner-only setup folder.
 function loadInitialReceivers_(){
@@ -63,8 +70,8 @@ function loadInitialReceivers_(){
       const old=receivers_(st).find(r=>r.id===id||r.upi===upi);
       if(old){must_(old.id===id&&old.upi===upi,'A receiver address conflicts with the private setup file.');continue}
       const file=paymentQrFile_(qrFile),blob=file.getBlob();must_(blob.getContentType()==='image/jpeg','Initial receiver QR must be a JPEG.');
-      verifyUpiQr_(blob.getBytes(),upi);
-      added.push({id,upi,name,number,qrFile,revision:1,active:true});
+      const qrPayload=verifyUpiQr_(blob.getBytes(),upi);
+      added.push({id,upi,name,number,qrFile,qrPayload,revision:1,active:true});
     }
     if(added.length)commit_(st,'Payment receivers configured',clubOwner_(),{receivers:added,note:added.map(r=>r.name).join(' · ')});
     props_().setProperty('INITIAL_RECEIVERS_LOADED','yes');
@@ -80,7 +87,7 @@ function adminSaveReceiver(token,input){
     must_(typeof v.qr==='string'&&v.qr.length<=850000,'Choose a smaller QR image.');
     image=imageBytes_(v.qr);
     must_(image.mime==='image/jpeg','Upload the QR again using the receiver form.');
-    verifyUpiQr_(image.bytes,upi);
+    image.payload=verifyUpiQr_(image.bytes,upi);
   }
   return locked_(()=>{
     const st=ledger_(),old=v.id&&st.receivers[v.id];
@@ -89,7 +96,7 @@ function adminSaveReceiver(token,input){
     must_(image||old?.qrFile&&old.upi===upi,'Upload the matching QR when adding or changing a UPI ID.');
     const changedAddress=old&&old.upi!==upi;
     const id=old&&!changedAddress?old.id:rand_(),qrFile=image?privateBlob_(image.bytes,image.mime,'event-payment-qr-'+rand_()+'.jpg').getId():old.qrFile;
-    const receiver={id,revision:old&&!changedAddress?old.revision+1:1,name,upi,number,qrFile,active:v.active};
+    const receiver={id,revision:old&&!changedAddress?old.revision+1:1,name,upi,number,qrFile,qrPayload:image?.payload||old?.qrPayload||"",active:v.active};
     commit_(st,old?'Receiver updated':'Receiver added',admin.name,{receivers:changedAddress?[{...old,active:false,revision:old.revision+1},receiver]:[receiver],note:name+(v.active?' · active':' · disabled')});
     return receiverView_(receiver);
   });
@@ -102,26 +109,59 @@ function attachReceiver_(a,st,now){
   if(!all.length||a.status!=='HOLD')return a;
   const active=all.filter(r=>r.active);
   must_(active.length,'No payment receiver is available. Save your registration and check again later.');
-  const count=id=>Object.values(st.attempts).filter(x=>x.receiver?.id===id).length;
-  active.sort((a,b)=>count(a.id)-count(b.id)||a.id.localeCompare(b.id));
-  return {...a,receiver:{...active[0]},quotedAt:now};
+  return {...a,receiver:receiverView_(active[0]),offeredReceivers:active.map(r=>({id:r.id,revision:r.revision})),quotedAt:now};
 }
-function playerSelectReceiver(session,ticket,id){
-  const roll=playerRoll_(session);
-  return locked_(()=>{
-    const st=ledger_(),a=ownReceipt_(st,ticket,roll),receiver=st.receivers[id];
-    must_(a.status==='HOLD'&&a.receiver&&!a.file&&!a.legacyReceiver&&Date.now()<holdEnd_(a),'The payment hold changed. Refresh your checkout.');
-    must_(Object.hasOwn(st.receivers,id)&&receiver.active,'This receiver is unavailable. Refresh to choose an active account.');
-    if(a.receiver.id!==id)commit_(st,'Player selected payment receiver',roll,{attempts:[{...a,receiver:{...receiver},receiverSelectedAt:Date.now()}],note:a.id});
-    return receipt_(st.attempts[a.id],settings_(),st);
+function checkoutQr_(r){
+  const cache=CacheService.getScriptCache(),key="upi-qr:"+hash_(r.qrFile+":"+r.upi);
+  const cached=cache.get(key);if(cached)return cached;
+  // Older receiver revisions only contain the original private Drive image.
+  let payload=r.qrPayload;
+  if(!payload){
+    const props=props_(),propKey="verified-qr:"+r.id,stored=props.getProperty(propKey);
+    const prior=stored&&JSON.parse(stored);
+    if(prior&&prior.key===key)payload=prior.payload;
+    else{payload=verifyUpiQr_(paymentQrFile_(r.qrFile).getBlob().getBytes(),r.upi);props.setProperty(propKey,JSON.stringify({key,payload}))}
+  }
+  // The encoder's default byte mode accepts one byte per JavaScript character.
+  const qr=ticketQrEncoder_(0,'M');qr.addData(unescape(encodeURIComponent(payload)));qr.make();
+  const image=qr.createDataURL(4,16);cache.put(key,image,21600);return image;
+}
+function checkoutOptions_(a,st){
+  const eligible=a.legacyReceiver?receivers_(st).filter(r=>r.id===a.receiver.id):receivers_(st);
+  return eligible.filter(r=>r.active).map(r=>{
+    try{return {...receiverView_(r),qr:checkoutQr_(r)}}
+    catch(error){console.warn("Payment QR unavailable for receiver "+r.id);return {...receiverView_(r),qr:""}}
   });
+}
+function chosenReceiver_(a,options){
+  const pinned=options.find(r=>r.id===a.receiver?.id&&r.qr);
+  return pinned&&(a.receiverSelectedAt||a.legacyReceiver||options.length===1)?pinned.id:"";
+}
+function playerSelectReceiver(session,ticket,id,expectedVersion){
+  const roll=playerRoll_(session),compact=expectedVersion!==undefined;
+  if(compact)must_(/^\d{1,9}$/.test(expectedVersion),"Refresh your checkout and try again.");
+  const result=locked_(()=>{
+    const st=ledger_(),a=ownReceipt_(st,ticket,roll),receiver=st.receivers[id];
+    must_(a.status==="HOLD"&&a.receiver&&!a.file&&!a.legacyReceiver&&Date.now()<holdEnd_(a),"The payment hold changed. Refresh your checkout.");
+    if(compact&&Object.hasOwn(st.receivers,id)&&!receiver.active)return {unavailable:true};
+    must_(Object.hasOwn(st.receivers,id)&&receiver.active,"This receiver is unavailable. Refresh to choose an active account.");
+    const version=a.receiverChoiceVersion||0,already=a.receiverSelectedAt&&a.receiver.id===id;
+    if(compact&&!already&&Number(expectedVersion)!==version)return {conflict:true,receiverChoiceVersion:version,receiver:receiverView_(a.receiver)};
+    if(!already){
+      const next={...a,receiver:receiverView_(receiver),receiverSelectedAt:Date.now(),receiverChoiceVersion:version+1};
+      commit_(st,"Player selected payment receiver",roll,{attempts:[next],note:a.id});
+    }
+    const saved=st.attempts[a.id];
+    return compact?{receiver:receiverView_(saved.receiver),receiverChoiceVersion:saved.receiverChoiceVersion||0}:{a:saved,st};
+  });
+  return compact?result:receipt_(result.a,settings_(),result.st);
 }
 function playerIdentifyReceiver(session,ticket,id){
   const roll=playerRoll_(session);return locked_(()=>{
     const st=ledger_(),a=ownReceipt_(st,ticket,roll),r=st.receivers[id];
     must_(r&&['HOLD','REVIEW','REJECTED'].includes(a.status),'Choose the receiver from your original payment.');
     if(a.receiver){must_(a.receiver.id===id,'The payment receiver is already recorded.');return receipt_(a,settings_(),st)}
-    const next={...a,receiver:{...r},legacyReceiver:true};commit_(st,'Original receiver identified by player',roll,{attempts:[next],note:a.id});return receipt_(next,settings_(),st);
+    const next={...a,receiver:receiverView_(r),legacyReceiver:true};commit_(st,'Original receiver identified by player',roll,{attempts:[next],note:a.id});return receipt_(next,settings_(),st);
   });
 }
 function proofDigest_(bytes){return Utilities.base64EncodeWebSafe(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256,bytes))}
@@ -208,6 +248,11 @@ function playerSubmitPayment(session,ticket,data,json){
     const st=ledger_(),a=ownReceipt_(st,ticket,roll),now=Date.now(),set=settings_();
     if(issued_(a))return receipt_(a,set,st);
     must_(a.receiver&&a.receiver.id===form.receiver,'Reload your saved receiver before submitting payment proof.');
+    if(a.status==='HOLD'&&now<holdEnd_(a)){
+      const hasMultiple=a.offeredReceivers?.length>1&&receivers_(st).filter(r=>r.active).length>1;
+      must_(!hasMultiple||a.receiverSelectedAt,'Choose your payment receiver before submitting proof.');
+      must_(form.receiverChoiceVersion===undefined||form.receiverChoiceVersion===(a.receiverChoiceVersion||0),'The receiver changed in another window. Check your selection before submitting.');
+    }
     must_(a.details,'Complete your registration details before submitting proof.');
     const paid=st.receivers[form.paidReceiver];must_(Object.hasOwn(st.receivers,form.paidReceiver)&&paid,'Confirm the recipient who received this payment.');
     claim.paidReceiver=a.claim?.paidReceiver?.id===paid.id?a.claim.paidReceiver:{id:paid.id,name:paid.name,upi:paid.upi};

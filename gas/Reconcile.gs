@@ -33,7 +33,10 @@ function autoReason_(st,a,row,bank){
   if(a.claim.amount!==row.minor)return 'Screenshot amount differs from the bank credit.';
   if(a.claim.time.slice(0,10)!==row.date)return 'Payment and statement dates differ.';
   const time=Date.parse(a.claim.time+':00+05:30');
-  if(time+60000<Math.max(a.quotedAt||a.created,a.receiverSelectedAt||0)||time>=holdEnd_(a)||time>a.submitted+60000)return 'Payment time falls outside the quoted payment window.';
+  // A player can scan either displayed QR before saving the matching radio choice.
+  const shownAtQuote=a.offeredReceivers?.some(option=>option.id===a.receiver.id);
+  const firstShown=Math.max(a.quotedAt||a.created,shownAtQuote?0:a.receiverSelectedAt||0);
+  if(time+60000<firstShown||time>=holdEnd_(a)||time>a.submitted+60000)return 'Payment time falls outside the quoted payment window.';
   return '';
 }
 function paymentMatch_(st,a,bank){

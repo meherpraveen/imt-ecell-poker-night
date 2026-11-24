@@ -1,7 +1,10 @@
 import {test,expect} from '@playwright/test';
+import {readFileSync} from 'node:fs';
+import {createHash} from 'node:crypto';
 
 const site=process.env.POKER_PUBLIC_SITE||'https://meherpraveen.github.io/imt-ecell-poker-night/';
 test('published navigation, mobile startup, live floor and backend validation @deployed',async({page})=>{
+  test.setTimeout(110000);
   const errors=[],actions=[];
   page.on('pageerror',e=>errors.push(e.message));
   page.on('request',req=>{if(req.method()==='POST'&&req.url().startsWith('https://script.google.com/macros/'))actions.push(req.postDataJSON().action)});
@@ -15,6 +18,7 @@ test('published navigation, mobile startup, live floor and backend validation @d
   await expect(wordmark).toBeVisible();
   await expect.poll(()=>wordmark.evaluate(img=>img.complete&&img.naturalWidth>0)).toBe(true);
   await expect(hero.getByRole('link',{name:'Sign in to register'})).toBeInViewport({ratio:1});
+  await expect(hero.locator('[data-home-fee=entry]')).toHaveText(/^₹[\d,]+/,{timeout:40000});
   const sponsors=page.getByRole('region',{name:'Sponsored by'});await sponsors.scrollIntoViewIfNeeded();
   await expect(sponsors.locator('img')).toHaveCount(5);
   await expect.poll(()=>sponsors.locator('img').evaluateAll(imgs=>imgs.every(img=>img.complete&&img.naturalWidth>0))).toBe(true);
@@ -23,7 +27,9 @@ test('published navigation, mobile startup, live floor and backend validation @d
   await expect(page.getByLabel('Roll number or registered email')).toBeVisible();
   await expect(page.getByRole('heading',{name:'Email sign-in'})).toBeVisible();
   await page.waitForFunction(()=>window.pokerReady===true);
-  expect(actions.every(a=>a==='publicPrices')).toBe(true);
+  await expect(page.locator('.offer .price-values strong')).toHaveText(/^₹[\d,]+/);
+  await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+  expect(actions).toEqual(['publicPrices']);
   const metrics=await page.evaluate(()=>({domContentLoadedMs:Math.round(performance.getEntriesByType('navigation')[0].domContentLoadedEventEnd),initialLayoutShift:window.layoutShift,horizontalOverflow:document.documentElement.scrollWidth>innerWidth,
     startupAssets:performance.getEntriesByType('resource').filter(r=>/\/assets\/[^/?]+\.(js|css)(\?|$)/.test(r.name)).length}));
   console.log('Published mobile registration',JSON.stringify(metrics));
@@ -33,7 +39,7 @@ test('published navigation, mobile startup, live floor and backend validation @d
     api('requestEventCode','').catch(e=>e.message),api('signInEvent','','','').catch(e=>e.message)
   ]));
   for(const message of validation)expect(message).toContain('nine-digit roll number');
-  const guarded=await page.evaluate(()=>Promise.all([api('playerSaveDetails','','','{}').catch(e=>e.message),api('playerSubmitPayment','','','','{}').catch(e=>e.message)]));
+  const guarded=await page.evaluate(()=>Promise.all([api('playerSaveDetails','','','{}').catch(e=>e.message),api('playerSubmitPayment','','','','{}').catch(e=>e.message),api('playerSelectReceiver','','','','0').catch(e=>e.message)]));
   for(const message of guarded)expect(message).toContain('Sign in with your registered email');
   await page.getByLabel('Roll number or registered email').fill('invalid');
   await page.getByRole('button',{name:'Send code',exact:true}).click();await expect(page.locator('#identifierError')).toContainText('nine-digit');
@@ -47,5 +53,28 @@ test('published navigation, mobile startup, live floor and backend validation @d
   const settings=await page.evaluate(()=>api('publicInfo'));expect(typeof settings.open).toBe('boolean');
   await page.goto(site+'event.html?view=pass');await expect(page.locator('#msg')).toContainText('complete pass link');
   await page.goto(site+'event.html?view=staff');await expect(page.getByRole('heading',{name:'Page unavailable'})).toBeVisible();
-  expect(actions.every(a=>['publicPrices','publicInfo','liveFloor','requestEventCode','signInEvent','playerSaveDetails','playerSubmitPayment'].includes(a))).toBe(true);expect(errors).toEqual([]);
+  expect(actions.every(a=>['publicPrices','publicInfo','liveFloor','requestEventCode','signInEvent','playerSaveDetails','playerSubmitPayment','playerSelectReceiver'].includes(a))).toBe(true);expect(errors).toEqual([]);
+});
+
+test('published pages, checkout module and camera assets match the release build @deployed',async({request})=>{
+  const docs=new URL('../../docs/',import.meta.url);
+  const read=name=>readFileSync(new URL(name,docs),'utf8').replace(/\r\n/g,'\n');
+  const refs=source=>source.match(/assets\/[\w.-]+\.(?:js|css)\?v=[a-f0-9]{12}/g)||[];
+  const assets=new Set();
+  for(const file of ['index.html','event.html']){
+    const expected=refs(read(file));expect(expected.length).toBeGreaterThan(0);
+    const live=await request.get(new URL(file,site).href);
+    expect(live.ok()).toBe(true);expect(refs(await live.text())).toEqual(expected);
+    for(const asset of expected)assets.add(asset);
+  }
+  for(const asset of refs(read('assets/event-app.js')))assets.add(asset);
+  for(const name of ['payment-form.js','gate-camera.js'])expect([...assets].some(url=>url.includes('/'+name+'?v='))).toBe(true);
+  assets.add('assets/jsQR-1.4.0.js');assets.add('assets/qrcode-1.4.4.js');
+  await Promise.all([...assets].map(async asset=>{
+    const live=await request.get(new URL(asset,site).href);expect(live.ok(),asset).toBe(true);
+    const content=(await live.text()).replace(/\r\n/g,'\n'),[file,version]=asset.split('?v=');
+    const digest=text=>createHash('sha256').update(text).digest('hex');
+    expect(digest(content),file).toBe(digest(read(file)));
+    if(version)expect(digest(content).slice(0,12),file).toBe(version);
+  }));
 });

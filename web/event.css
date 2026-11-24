@@ -11,7 +11,7 @@ footer {background: var(--panel); color: var(--ink); border-color: var(--edge)}
 body:is([data-mode=register],[data-mode=pass],[data-mode=scan]) .stage>.wrap,
 html:is([data-entry=register],[data-entry=account],[data-entry=code],[data-entry=pass],[data-entry=scan]) .stage>.wrap {max-width: 540px}
 .stage .eyebrow {margin: 0 0 .5rem; color: var(--muted); text-transform: uppercase}
-.eyebrow:empty,html:is([data-entry=register],[data-entry=account],[data-entry=code]) #kicker:has([data-shell]) {display: none}
+.eyebrow:empty,html:is([data-entry=register],[data-entry=code]) #kicker:has([data-shell]) {display: none}
 .stage h1 {font: 660 clamp(2.1rem,5vw,3.25rem)/1.07 var(--sans); letter-spacing: -.055em; margin: 0 0 1.5rem; text-wrap: balance}
 .stage h2,dialog h2 {font: 650 clamp(1.35rem,3vw,1.65rem)/1.2 var(--sans); letter-spacing: -.035em; margin: 0 0 1rem}
 .stage h3,dialog h3 {font: 650 1.08rem/1.3 var(--sans); margin: .5rem 0}
@@ -36,8 +36,8 @@ html[data-entry=register] [data-shell=register],html[data-entry=account] [data-s
 .details-list {margin: 0; display: grid; gap: .35rem}
 .details-list div {display: flex; justify-content: space-between; gap: 1rem; padding-block: .3rem}
 .details-list dd {margin: 0; text-align: right; font-weight: 570}
-.offer {margin-block: 1.15rem; background: var(--offer-bg); border: 1px solid var(--offer-edge); border-radius: 13px; padding: 1rem 1.15rem; min-height: 83px}
-.offer:empty,.skeleton i,.pass-image[aria-busy=true] {background: linear-gradient(100deg,var(--soft) 20%,var(--edge) 50%,var(--soft) 80%); background-size: 250% 100%; animation: breathe 1.3s ease infinite}
+.offer {margin-block: 1.15rem; background: var(--offer-bg); border: 1px solid var(--offer-edge); border-radius: 13px; padding: 1rem 1.15rem; min-height: 8.25rem}
+.offer:empty,.offer[aria-busy=true],.skeleton i,.pass-image[aria-busy=true] {background: linear-gradient(100deg,var(--soft) 20%,var(--edge) 50%,var(--soft) 80%); background-size: 250% 100%; animation: breathe 1.3s ease infinite}
 .price-label {color: var(--accent); font-size: .84rem; font-weight: 700}
 .price-values {display: flex; align-items: baseline; gap: .65rem; margin: .1rem 0}
 .price-values strong {font-size: 2.25rem; font-weight: 650; letter-spacing: -.055em; line-height: 1.17}
@@ -93,11 +93,28 @@ summary {cursor: pointer; align-content: center; color: var(--accent); font-weig
 .wallet-body h3 {margin: 0 0 .3rem; font-size: 1.25rem}
 .wallet-body p {margin: .5rem 0}
 .wallet-player {color: var(--muted)}
-.pass-image {width: min(100%,212px); min-height: 190px; margin: .7rem auto; border-radius: 12px}
+.pass-image {width: min(100%,212px); aspect-ratio: 1; margin: .7rem auto; border-radius: 12px}
 .qr {display: grid; place-items: center; background: #fff; width: max-content; max-width: 100%; border-radius: 12px; margin-inline: auto}
 .qr img {display: block; width: min(100%,212px); height: auto; image-rendering: pixelated}
 code,.mono,.ticket-code {font: 550 .98rem/1.45 var(--mono); overflow-wrap: anywhere}
 .wallet-seat {display: block; font-size: 3rem; letter-spacing: -.06em; color: var(--accent); margin-top: 1rem}
+.receiver-choices {min-width: 0; border: 0; margin: 1.2rem 0 0; padding: 0}
+.receiver-choices legend {padding: 0; font-size: 1.06rem; font-weight: 650}
+.receiver-grid {display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: clamp(.45rem,2vw,.85rem); margin-top: .65rem}
+.receiver-card {min-width: 0; display: flex; flex-direction: column; align-items: stretch; gap: .35rem; margin: 0; padding: clamp(.4rem,1.7vw,.75rem); border: 1px solid var(--field-edge); border-radius: 13px; cursor: pointer; transition: border-color 180ms ease,background-color 180ms ease}
+.receiver-card:has(input:checked) {background: var(--accent-soft); border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent)}
+.receiver-card:has(input:focus-visible) {outline: 3px solid var(--accent); outline-offset: 3px}
+.receiver-card img,.qr-unavailable {width: 100%; max-width: 192px; height: auto; aspect-ratio: 1; align-self: center; background: #fff; border-radius: 5px; image-rendering: pixelated}
+.qr-unavailable {display: grid; place-items: center; text-align: center; background: var(--soft); color: var(--muted)}
+.receiver-name {display: flex; align-items: flex-start; gap: .35rem; line-height: 1.25; margin-top: .2rem; overflow-wrap: anywhere}
+.receiver-name input {appearance: auto; width: 1rem; height: 1rem; min-height: 0; flex: none; margin: .05rem 0 0; padding: 0; accent-color: var(--accent)}
+.receiver-card small {overflow-wrap: anywhere; color: var(--muted); font-size: .75rem; line-height: 1.35; font-weight: 480}
+.panel .receiver-feedback {margin: .75rem 0 .25rem; min-height: 1.5em; font-size: .88rem}
+.receiver-actions {display: flex; align-items: center; flex-wrap: wrap; gap: .75rem; min-height: 48px}
+.receiver-actions .button {margin: 0}
+.qr-save {font-size: .875rem}
+@media (max-width: 400px) {.offer {min-height: 9.25rem}}
+@media (max-width: 370px) {.receiver-grid {margin-inline: -.5rem}.receiver-name {font-size: .86rem}}
 .payment-qr {margin: 1rem 0}
 .payment-qr img,.payment-preview,.shot {display: block; max-width: min(100%,280px); max-height: 320px; object-fit: contain; background: white; border-radius: 8px}
 .payment-qr figcaption {font-size: .875rem}

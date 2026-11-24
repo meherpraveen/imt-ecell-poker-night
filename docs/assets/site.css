@@ -159,7 +159,7 @@ footer .wrap {flex-wrap: wrap; font-size: .9rem}
 .register-link:active {transform: scale(.98)}
 .entry-quote {display: flex; flex-direction: column; gap: 2px; margin: 0; line-height: 1.25}
 .entry-quote>[data-home-fee=label] {font-size: .77rem; color: var(--muted); font-weight: 550}
-.quote-amount {display: flex; align-items: baseline; gap: 7px; font-variant-numeric: tabular-nums}
+.quote-amount {min-height: 1.35rem; display: flex; align-items: baseline; gap: 7px; font-variant-numeric: tabular-nums}
 .quote-amount strong {font-size: 1.05rem; font-weight: 650; letter-spacing: -.035em}
 .quote-amount s {color: var(--muted); font-size: .84rem; text-decoration-thickness: 1px}
 
@@ -196,7 +196,7 @@ footer .wrap {flex-wrap: wrap; font-size: .9rem}
 .round-list h3 {margin: 0; font: 635 1.13rem/1.35 var(--sans); letter-spacing: -.026em}
 .round-list li>div>p {max-width: 42ch; margin: 3px 0 0}
 .entry-section {border-left: 1px solid var(--edge); padding-left: clamp(24px,4.8vw,70px)}
-.entry-breakdown {margin: 18px 0 14px; min-height: 70px}
+.entry-breakdown {margin: 18px 0 14px; min-height: 5.5rem}
 .entry-breakdown .price-label {color: var(--accent); font-size: .85rem; font-weight: 640}
 .entry-breakdown .price-values {display: flex; align-items: baseline; gap: 11px; margin-top: 2px; font-variant-numeric: tabular-nums}
 .price-values strong {font-size: 2rem; line-height: 1.15; letter-spacing: -.055em; font-weight: 630}

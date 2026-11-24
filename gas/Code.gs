@@ -80,7 +80,7 @@ function doPost(event){
     const method=request&&methods.get(request.action);
     must_(method&&Array.isArray(request.args)&&request.args.every(arg=>typeof arg==='string'),'Invalid event request.');
     must_(body.length<=2410000||['playerReadProof','playerSubmitPayment'].includes(request.action),'This request is too large.');
-    must_(request.args.length===method[1]||request.action==='playerStart'&&request.args.length===4, 'Refresh the event page and sign in to continue.');
+    must_(request.args.length===method[1]||['playerStart','playerSelectReceiver'].includes(request.action)&&request.args.length===4, 'Refresh the event page and sign in to continue.');
     result={ok:true,value:method[0](...request.args)};
   }catch(error){
     const validation=error.name==='EventValidationError';
@@ -281,13 +281,13 @@ function accountForRoll_(roll,preferred){
 function playerStart(session,previous,requestId,detailsJson){
   const roll=playerRoll_(session);
   must_(!requestId||(typeof requestId==='string'&&/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(requestId)),'Refresh the page and try again.');
-  return locked_(()=>{
+  const result=locked_(()=>{
     const set=settings_(),st=ledger_(),now=Date.now();
-    if(previous){const a=fromReceipt_(st,previous);if(a&&a.roll===roll)return receipt_(a,set,st);}
+    if(previous){const a=fromReceipt_(st,previous);if(a&&a.roll===roll)return {a,set,st};}
     const startHash=requestId?hash_('seat-request:'+requestId):'';
     if(startHash){
       const existing=Object.values(st.attempts).find(a=>a.roll===roll&&a.startHash===startHash);
-      if(existing)return receipt_(existing,set,st);
+      if(existing)return {a:existing,set,st};
     }
     const info=signupInfo_(set,now,st);
     must_(info.open,info.message);
@@ -300,8 +300,9 @@ function playerStart(session,previous,requestId,detailsJson){
     if(detailsJson)a.details=registrationDetails_(roll,detailsJson);
     else if(usesBankVerification_(st)){const p=roster_()[roll];a.details=registrationDetails_(roll,{fullName:p?.name,pgpId:roll,contact:'',batch:''})}
     if(startHash)a.startHash=startHash;
-    commit_(st,a.status==='REGISTERED'?'Registration saved':'Seat request','Player',{attempts:[a],note:a.id});return receipt_(a,set,st);
+    commit_(st,a.status==='REGISTERED'?'Registration saved':'Seat request','Player',{attempts:[a],note:a.id});return {a,set,st};
   });
+  return receipt_(result.a,result.set,result.st);
 }
 function fromReceipt_(st,t){const [id,sig]=String(t||'').split('.');return st.attempts[id]&&sig===mac_('receipt:'+id)?st.attempts[id]:null}
 function ownReceipt_(st,ticket,roll){
@@ -318,10 +319,14 @@ function receipt_(a,set,st){
   const selected=a.receiver;
   const payable=hold&&(managed?!!selected&&st.receivers[selected.id]?.active&&st.receivers[selected.id]?.upi===selected.upi:ready);
   const payee=selected||set;
+  const checkoutReceivers=hold&&selected?checkoutOptions_(a,st):[];
+  const pinnedQr=checkoutReceivers.find(r=>r.id===selected?.id)?.qr;
+  const paymentQr=payable?(selected?pinnedQr||'':payee.qrFile?paymentQrData_(payee.qrFile):''):'';
   return {ticket:a.id+'.'+mac_('receipt:'+a.id),id:a.id,fee:quotedFee_(a,now),offer:entryOffer_(now,a.kind),wave:a.wave+1,status:a.status==='HOLD'&&!hold?'EXPIRED':a.status,
-    expires,upi:payable?payee.upi:'',name:payable?payee.name:'',paymentQr:payable&&payee.qrFile?paymentQrData_(payee.qrFile):'',
+    expires,upi:payable?payee.upi:'',name:payable?payee.name:'',paymentQr,
+    checkoutReceivers,chosenReceiverId:chosenReceiver_(a,checkoutReceivers),receiverChoiceVersion:a.receiverChoiceVersion||0,
     managed,canChooseReceiver:hold&&!!selected&&!a.file&&!a.legacyReceiver,details:a.details||null,fairPlay:FAIR_PLAY_DECLARATION,fairPlayVersion:FAIR_PLAY_VERSION,
-    paymentRecipients:selected?receivers_(st).filter(r=>r.active||r.id===selected.id||r.id===a.claim?.paidReceiver?.id).map(receiverView_):[],
+    paymentRecipients:selected?receivers_(st).filter(r=>r.active||r.id===selected.id||r.id===a.claim?.paidReceiver?.id||a.offeredReceivers?.some(option=>option.id===r.id)).map(receiverView_):[],
     receiver:selected?{id:selected.id,name:selected.name,upi:selected.upi,number:selected.number||''}:null,
     identifyReceivers:managed&&!selected&&['HOLD','REVIEW','REJECTED'].includes(a.status)?receivers_(st).map(receiverView_):[],
     paymentStatus:a.paymentStatus||(issued_(a)?'AUTHORIZED':'PENDING'),proofVersion:a.proofVersion||0,claim:a.claim||null,needsConfirmation:!!a.claim&&!a.claim.paidReceiver,issue:a.reviewReason||a.reason||(a.claim&&!a.claim.paidReceiver?'Confirm the payment recipient and fair-play declaration below.':''),beneficiary:a.roll,
@@ -334,17 +339,18 @@ function playerStatus(session,ticket){
 }
 function playerCheckout(session,ticket){
   const roll=playerRoll_(session);
-  return locked_(()=>{
+  const result=locked_(()=>{
     const st=ledger_(),a=ownReceipt_(st,ticket,roll),set=settings_(),now=Date.now();
-    if(a.status!=='REGISTERED')return receipt_(a,set,st);
+    if(a.status!=='REGISTERED')return {a,set,st};
     must_(now<NEW_CLOSE,'New payment holds have ended. Contact E-Cell if you already paid.');
     must_(paymentReadyFor_(set,st),'The club has not published payment details yet. Your registration is saved.');
     const wave=waveFor_(st,a.roll,now);
     const next=attachReceiver_({...a,...paymentTerms_(a.kind,now),wave,status:wave<0?'WAITLIST':'HOLD'},st,now);
     if(wave<0)next.expires=0;
     commit_(st,'Seat request','Player',{attempts:[next],note:a.id});
-    return receipt_(next,set,st);
+    return {a:next,set,st};
   });
+  return receipt_(result.a,result.set,result.st);
 }
 function imageBytes_(data){
   must_(typeof data==='string'&&data.length<=2400000,'Choose an image under 1.7 MB after compression.');

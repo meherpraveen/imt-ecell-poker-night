@@ -20,7 +20,7 @@ function walletCard(r,player,standalone){
   return '<article class="wallet">'+header+details+'<div class="wallet-body"><h3>'+title+'</h3>'+
     (player?'<p class="wallet-player">'+esc(player)+'</p>':'')+admission+action+'</div></article>';
 }
-function passPng(code,wave){
+function passPng(code,wave,matrix){
   const canvas=document.createElement('canvas');canvas.width=720;canvas.height=980;
   const ctx=canvas.getContext('2d');
   ctx.fillStyle='#ffffff';ctx.fillRect(0,0,720,980);
@@ -34,7 +34,7 @@ function passPng(code,wave){
   ctx.fillStyle='#162b48';ctx.font='bold 32px system-ui';ctx.fillText('27 Nov 2026',48,285);
   ctx.textAlign='right';ctx.fillText('Wave '+wave,672,285);
   ctx.strokeStyle='#a4b4c9';ctx.setLineDash([8,8]);ctx.beginPath();ctx.moveTo(0,335);ctx.lineTo(720,335);ctx.stroke();
-  const matrix=ticketMatrix(code),count=matrix.getModuleCount(),cell=Math.floor(492/(count+8));
+  const count=matrix.getModuleCount(),cell=Math.floor(492/(count+8));
   const left=Math.floor((canvas.width-count*cell)/2),top=370+4*cell;
   ctx.fillStyle='#000000';
   for(let row=0;row<count;row++)for(let col=0;col<count;col++)if(matrix.isDark(row,col))ctx.fillRect(left+col*cell,top+row*cell,cell,cell);
@@ -50,9 +50,9 @@ async function fillTicketQr(code,wave){
       await qrLibrary;
     }
     if(!slot.isConnected)return;
-    slot.innerHTML=qr(code);
+    const matrix=ticketMatrix(code);slot.innerHTML=qr(code,matrix);
     const save=el('savePass');
-    if(save){save.href=passPng(code,wave);save.download='Poke-Poker-Night-Wave-'+wave+'.png';save.hidden=false}
+    if(save){save.href=passPng(code,wave,matrix);save.download='Poke-Poker-Night-Wave-'+wave+'.png';save.hidden=false}
   }catch{if(slot.isConnected)slot.textContent='Show the entry code below at the gate.'}
   finally{slot.removeAttribute('aria-busy')}
 }
@@ -95,9 +95,16 @@ async function updateTicket(){
   }catch{el('net').textContent='Connection interrupted. Reconnecting for ticket updates.'}
   finally{ticketUpdating=false;scheduleTicketUpdate()}
 }
+let holdTimer;
+function scheduleHoldExpiry(){
+  clearTimeout(holdTimer);
+  if(currentReceipt?.status==='HOLD')holdTimer=setTimeout(()=>{
+    if(!expireCheckout())scheduleHoldExpiry();
+  },Math.max(1,currentReceipt.expires-eventNow()));
+}
 function expireCheckout(){
   if(currentReceipt?.status==='HOLD'&&eventNow()>=currentReceipt.expires){
-    const expired={...currentReceipt,status:'EXPIRED',upi:'',paymentQr:''};
+    const expired={...currentReceipt,status:'EXPIRED',upi:'',paymentQr:'',checkoutReceivers:[],chosenReceiverId:''};
     if(currentReceipt.receiver&&el('shot')?.files.length){
       currentReceipt=expired;
       const instructions=document.querySelector('.hold-line')?.closest('section');

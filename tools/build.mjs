@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import {minify} from 'terser';
 import {fileURLToPath} from 'node:url';
 import path from 'node:path';
 import {createHash} from 'node:crypto';
@@ -11,7 +12,9 @@ const baseStyles=read('web/base.css');
 const eventStyles=read('web/event.css');
 const commonCode=read('web/common.js');
 const scannerVersion=writeAsset('gate-camera.js',read('web/scanner.js'));
-const playerCode=read('web/payment-form.js')+'\n'+read('web/ticket.js')+'\n'+read('web/player.js').replace('__SCANNER_VERSION__',scannerVersion);
+const paymentCode=read('web/payment-form.js');
+const paymentVersion=writeAsset('payment-form.js',(await minify(paymentCode,{ecma:2020})).code+'\n');
+const playerCode=read('web/ticket.js')+'\n'+read('web/player.js').replace('__SCANNER_VERSION__',scannerVersion).replace('__PAYMENT_VERSION__',paymentVersion);
 const pricing=read('gas/Pricing.gs');
 const priceDisplay=read('web/prices.js');
 const sponsorMarkup=read('web/sponsors.html').trim();
@@ -20,8 +23,12 @@ function withSponsors(html) {
   if (!slot.test(html)) throw new Error('Missing sponsor section in public page');
   return html.replace(slot, ()=>'<!-- SPONSORS:START -->\n'+sponsorMarkup+'\n<!-- SPONSORS:END -->');
 }
+async function publicScript(parts){
+  const compiled=await minify(parts.join('\n;\n'),{ecma:2020});
+  return read('web/config.js').trim()+'\n'+compiled.code+'\n';
+}
 const bundles={
-  js:[read('web/config.js'),read('web/public-api.js'),read('web/transport.js'),priceDisplay,commonCode,playerCode].join('\n;\n'),
+  js:await publicScript([read('web/public-api.js'),read('web/transport.js'),priceDisplay,commonCode,playerCode]),
   css:[baseStyles,eventStyles].join('\n')
 };
 function writeAsset(filename, content) {
@@ -31,7 +38,7 @@ function writeAsset(filename, content) {
   return createHash('sha256').update(normalized).digest('hex').slice(0,12);
 }
 const homeVersion=writeAsset('site.css',baseStyles+'\n'+read('web/home.css'));
-const priceVersion=writeAsset('entry-prices.js',[read('web/config.js'),read('web/transport.js'),priceDisplay].join('\n;\n'));
+const priceVersion=writeAsset('entry-prices.js',await publicScript([read('web/transport.js'),priceDisplay]));
 const homepage=withSponsors(read('docs/index.html')).replace(/site\.css\?v=[a-z0-9]+/,'site.css?v='+homeVersion)
   .replace(/entry-prices\.js\?v=[a-z0-9]+/,'entry-prices.js?v='+priceVersion);
 fs.writeFileSync(path.join(root,'docs/index.html'),homepage);
@@ -70,6 +77,6 @@ const page=read('web/App.html')
   .replace('/* STAFF_STYLES */',()=>read('web/staff.css'))
   .replace('<!-- STAFF_ICONS -->',()=>deskSprite)
   .replace('/* STAFF_CODE */',()=>read('web/payment-admin.js')+'\n'+read('web/staff-views.js')+'\n'+read('web/staff.js'))
-  .replace('/* APP_CODE */',()=>playerCode);
+  .replace('/* APP_CODE */',()=>paymentCode+'\n'+playerCode);
 fs.writeFileSync(path.join(out,'App.html'),page);
 console.log('Apps Script files ready in .deploy');

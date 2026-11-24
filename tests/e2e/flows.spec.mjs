@@ -42,6 +42,7 @@ test('first paint accepts typed input before scripts arrive and sends one reques
   await page.goto(site.register,{waitUntil:'commit'});
   const identifier=page.getByLabel('Roll number or registered email');
   await identifier.fill(player.roll);await identifier.press('Enter');
+  await expect(button(page,'Sending code…')).toBeDisabled();
   expect(site.calls).toEqual([]);release();
   await expect(page.getByLabel('Six-digit code')).toBeVisible();
   expect(site.calls.filter(name=>name!=='publicPrices')).toEqual(['requestEventCode']);
@@ -76,7 +77,7 @@ test('club email at the public sign-in opens the private admin desk with one cod
   expect(storage.origins.every(origin=>!origin.localStorage.some(item=>item.name.includes('staff:')))).toBe(true);
   await page.goto(site.register);
   await expect(page.getByLabel('Roll number or registered email')).toBeVisible();
-  expect(await page.evaluate(()=>Object.keys(sessionStorage).filter(key=>key.startsWith('pn26:')))).toEqual([]);
+  expect(await page.evaluate(()=>Object.keys(sessionStorage).filter(key=>key.startsWith('pn26:')&&key!=='pn26:public-entry-quote'))).toEqual([]);
 });
 
 test('mail failure, mismatched details, cooldown and delayed email can all be recovered',async({page,site})=>{
