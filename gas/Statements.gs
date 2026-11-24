@@ -175,15 +175,23 @@ function adminImportStatement(token,receiverId,filename,data){
   try{rows=parseStatement_(source.blob,source.ext,receiver)}
   catch(e){throw Error('Statement could not be imported. '+e.message)}
   const folder=DriveApp.getFolderById(props_().getProperty('FOLDER'));
-  locked_(()=>{
-    const live=ledger_(),prior=live.statements[id];
-    if(prior){must_(prior.receiver.id===receiverId,'These same statement bytes belong to another receiver.');return}
-    must_(live.receivers[receiverId]?.revision===receiver.revision,'The receiving account changed. Check it before uploading again.');
-    const original=folder.createFile(source.blob);
-    const contents=JSON.stringify(rows),manifest=folder.createFile(Utilities.newBlob(contents,'application/json','bank-rows-'+id+'.json'));
+  let original,manifest,journalAttempted=false;
+  try{
+    original=folder.createFile(source.blob);
+    const contents=JSON.stringify(rows);
+    manifest=folder.createFile(Utilities.newBlob(contents,'application/json','bank-rows-'+id+'.json'));
     const item={id,name:source.name,ext:source.ext,receiver:receiverView_(receiver),original:original.getId(),manifest:manifest.getId(),manifestDigest:hash_(contents),count:rows.length,created:Date.now(),applied:false};
-    commit_(live,'Statement uploaded for preview',user.name,{statements:[item],note:receiver.name+' · '+source.name});
-  });
+    locked_(()=>{
+      const live=ledger_(),prior=live.statements[id];
+      if(prior){
+        must_(prior.receiver.id===receiverId,'These same statement bytes belong to another receiver.');
+        commit_(live,'Duplicate statement upload',user.name,{note:source.name+' · '+id});return;
+      }
+      must_(live.receivers[receiverId]?.revision===receiver.revision,'The receiving account changed. Check it before uploading again.');
+      journalAttempted=true;
+      commit_(live,'Statement uploaded for preview',user.name,{statements:[item],note:receiver.name+' · '+source.name});
+    },false);
+  }finally{if(!journalAttempted){discardStagedFile_(original);discardStagedFile_(manifest)}}
   return adminStatementPreview(token,id);
 }
 function bankRows_(st,includeId,includeStaged=false){

@@ -24,7 +24,7 @@ function playerIdentity_(identifier) {
   if (!email) return null;
   const matches = Object.keys(people).filter(roll => emailAddress_(people[roll].email) === email);
   if (matches.length !== 1) return null;
-  return {scope:'player', id:matches[0], email};
+  return {scope:'player', id:matches[0], email, person:people[matches[0]]};
 }
 
 function ownerIdentity_(invite) {
@@ -45,10 +45,9 @@ function authCleanup_(now) {
   const properties = props_();
   if (Number(properties.getProperty('AUTH_CLEAN_AFTER')) > now) return;
   const values = properties.getProperties();
-  Object.keys(values).filter(key => key.startsWith('AUTH_CODE_') || key.startsWith('AUTH_SESSION_')).forEach(key => {
-    if (JSON.parse(values[key]).expires <= now) properties.deleteProperty(key);
-  });
-  properties.setProperty('AUTH_CLEAN_AFTER', String(now + AUTH_DAY));
+  const expired=Object.keys(values).filter(key=>(key.startsWith('AUTH_CODE_')||key.startsWith('AUTH_SESSION_'))&&JSON.parse(values[key]).expires<=now);
+  for(const key of expired.slice(0,8))properties.deleteProperty(key);
+  properties.setProperty('AUTH_CLEAN_AFTER',String(now+(expired.length>8?60000:AUTH_DAY)));
 }
 
 function challengeKey_(identity) {
@@ -111,16 +110,15 @@ function planCode_(identity, owner) {
     state.failures=0;state.codeUntil=now+CODE_LIFETIME;
   }
   state.expires = Math.max(state.windowEnd, now + CODE_LIFETIME);
-  properties.setProperty(key, JSON.stringify(state));
-  properties.setProperty('MAIL_IN_FLIGHT', JSON.stringify(slots));
+  properties.setProperties({[key]:JSON.stringify(state),MAIL_IN_FLIGHT:JSON.stringify(slots)});
   return {key,ref,nonce,active,code};
 }
 
 function finishMail_(plan,accepted) {
   const properties=props_(), now=Date.now(), slots=pendingMail_(now);
-  delete slots[plan.ref];properties.setProperty('MAIL_IN_FLIGHT',JSON.stringify(slots));
+  delete slots[plan.ref];
   const state=JSON.parse(properties.getProperty(plan.key) || '{}');
-  if(state.pending!==plan.ref)return {wait:60,expiresIn:0,delivery:'superseded'};
+  if(state.pending!==plan.ref){properties.setProperty('MAIL_IN_FLIGHT',JSON.stringify(slots));return {wait:60,expiresIn:0,delivery:'superseded'}}
   delete state.pending;
   if(accepted){
     state.lastSent=now;
@@ -131,7 +129,7 @@ function finishMail_(plan,accepted) {
     state.sends=Math.max(0,state.sends-1);
     if(!plan.active&&state.nonce===plan.nonce){delete state.verifier;delete state.nonce;state.codeUntil=0}
   }
-  properties.setProperty(plan.key,JSON.stringify(state));
+  properties.setProperties({[plan.key]:JSON.stringify(state),MAIL_IN_FLIGHT:JSON.stringify(slots)});
   return {wait:60,expiresIn:Math.max(0,Math.ceil(((state.codeUntil || 0)-now)/1000)),delivery:accepted?'accepted':'failed'};
 }
 
@@ -231,7 +229,7 @@ function signInPlayer(identifier,code,preferred) {
 function signedInPlayer_(identity,code,preferred) {
   const session=authenticatePlayer_(identity,code);
   // A temporary checkout read failure must never consume the student's sign-in without returning the session.
-  try { return {session,account:accountForRoll_(identity.id,preferred)} }
+  try { return {session,account:accountForRoll_(identity.id,preferred,identity.person)} }
   catch { return {session,account:null} }
 }
 
@@ -258,13 +256,13 @@ function completeDeskSignIn(invite,ticket) {
   },false);
 }
 
-function playerRoll_(token) {
-  const session = authSession_(token, 'player');
-  must_(session, PLAYER_SIGN_IN);
-  const email = emailAddress_(roster_()[session.roll]?.email);
-  must_(email && session.emailTag === mac_('mail:' + email), PLAYER_SIGN_IN);
-  return session.roll;
+function playerDirectory_(token) {
+  const session=authSession_(token,'player');must_(session,PLAYER_SIGN_IN);
+  const person=directoryPlayer_(session.roll);
+  const email=emailAddress_(person?.email);must_(email&&session.emailTag===mac_('mail:'+email),PLAYER_SIGN_IN);
+  return {roll:session.roll,person};
 }
+function playerRoll_(token){return playerDirectory_(token).roll}
 
 function playerLogout(token) { return endSession_(token, 'player'); }
 
@@ -275,7 +273,7 @@ function verifyOwnerCode(invite, code) {
     const owner = ownerIdentity_(invite);
     consumeLoginCode_(owner, code);
     return staffSession_(owner.row);
-  });
+  },false);
 }
 
 function staffSession_(row) {

@@ -4,9 +4,10 @@
   "type": "module",
   "scripts": {
     "build": "node tools/build.mjs",
-    "test": "node tools/build.mjs && node --test tests/event.test.cjs tests/gate-race.test.cjs tests/payments.test.mjs",
+    "test": "node tools/build.mjs && node --test tests/event.test.cjs tests/gate-race.test.cjs tests/payments.test.mjs tests/capacity.test.mjs",
     "test:e2e": "node tools/build.mjs && playwright test --grep-invert @deployed",
-    "test:deploy": "playwright test deployed.spec.mjs"
+    "test:deploy": "playwright test deployed.spec.mjs",
+    "test:capacity:live": "node tests/live-capacity.mjs"
   },
   "dependencies": {
     "jpeg-js": "0.4.4",

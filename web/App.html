@@ -2,7 +2,16 @@
 /* EVENT_STYLES */
 </style></head><body data-mode="<?= route ?>" data-pass="<?= pass ?>" data-invite="<?= invite ?>" data-owner-login="<?= ownerLogin ? 'yes' : '' ?>" data-owner-email="<?= ownerEmail ?>" data-verified-entry="<?= verifiedEntry ?>"><header class="top"><div class="wrap appbar"><a class="brand" href="https://meherpraveen.github.io/imt-ecell-poker-night/" aria-label="Poké Poker Night home"><img class="club-logo" src="__CLUB_LOGO__" width="121" height="111" alt="Entrepreneurship Cell, IMT Ghaziabad"><span class="event-lockup"><img class="event-wordmark" src="__EVENT_WORDMARK__" width="360" height="126" alt="Poké Poker Night"></span></a><time class="app-label" datetime="2026-11-27">27 Nov 2026</time></div></header><main class="stage"><div class="wrap"><p class="eyebrow" id="kicker"></p><h1 id="title"></h1><div id="content"></div><div id="net" role="status"></div><div id="msg" class="note" role="status" aria-live="polite"></div></div></main>
 <div id="ticketAnnouncement" class="sr-only" role="status" aria-atomic="true"></div>
-<script>const api=(name,...args)=>new Promise((ok,no)=>google.script.run.withSuccessHandler(ok).withFailureHandler(no)[name](...args));const incomingReceipt='';</script>
+<script>async function api(name,...args){
+  for(let attempt=0;;attempt++){
+    try{return await new Promise((ok,no)=>google.script.run.withSuccessHandler(ok).withFailureHandler(no)[name](...args))}
+    catch(error){
+      // A new request can safely retry acquiring the gate lock. An uncertain mail send needs desk confirmation.
+      if(name==='staffPass'||attempt>=4||!String(error.message).includes('The event desk is busy. Please try again in a moment.'))throw error;
+      await new Promise(resolve=>setTimeout(resolve,650*2**attempt*(1+Math.random())));
+    }
+  }
+}const incomingReceipt='';</script>
 <script>/* QR_LIBRARY */</script><script>/* COMMON_CODE */</script>
 <? if (route === 'staff') { ?>
 <style>/* STAFF_STYLES */</style>

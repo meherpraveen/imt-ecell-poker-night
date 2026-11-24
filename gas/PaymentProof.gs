@@ -24,7 +24,7 @@ function playerSaveDetails(session,ticket,json){
       commit_(st,a.details?'Registration details updated':'Registration details confirmed',roll,{attempts:[{...a,details,detailsRevision:revision+1}],note:a.id});
     }
     return {a:openSavedCheckout_(st.attempts[a.id],set,st,Date.now()),set,st};
-  });
+  },false);
   return {...receipt_(result.a,result.set,result.st),detailsConflict:!!result.conflict};
 }
 function proofImageBytes_(data){
@@ -162,7 +162,7 @@ function playerSelectReceiver(session,ticket,id,expectedVersion){
     }
     const saved=st.attempts[a.id];
     return compact?{receiver:receiverView_(saved.receiver),receiverChoiceVersion:saved.receiverChoiceVersion||0}:{a:saved,st};
-  });
+  },false);
   return compact?result:receipt_(result.a,settings_(),result.st);
 }
 function playerIdentifyReceiver(session,ticket,id){
@@ -230,6 +230,26 @@ function paymentDocument_(blob){
   });
 }
 function proofSeal_(id,digest,fields){return mac_('proof-ocr-v1:'+JSON.stringify([id,digest,fields.utr,fields.amount,fields.time,fields.payee||'',!!fields.uncertain]))}
+// Reuse the exact bytes already supplied for OCR. Drive only receives submitted evidence.
+const PROOF_CACHE_CHUNK=84000,PROOF_CACHE_PARTS=12;
+function rememberProof_(cache,id,digest,data){
+  const count=Math.ceil(data.length/PROOF_CACHE_CHUNK);
+  if(count>PROOF_CACHE_PARTS)return '';
+  try{
+    const parts={};
+    for(let i=0;i<count;i++)parts['proof-bytes:'+id+':'+digest+':'+i]=data.slice(i*PROOF_CACHE_CHUNK,(i+1)*PROOF_CACHE_CHUNK);
+    cache.putAll(parts,600);return 'proof:'+count+':'+digest;
+  }catch{return ''}
+}
+function recalledProof_(id,ref){
+  const match=/^proof:(\d{1,2}):([\w-]{43}=?)$/.exec(ref);
+  must_(match&&Number(match[1])>0&&Number(match[1])<=PROOF_CACHE_PARTS,'Choose your payment screenshot again.');
+  const keys=Array.from({length:Number(match[1])},(_,i)=>'proof-bytes:'+id+':'+match[2]+':'+i);
+  try{
+    const parts=CacheService.getScriptCache().getAll(keys);
+    return keys.every(key=>typeof parts[key]==='string')?keys.map(key=>parts[key]).join(''):'';
+  }catch{return ''}
+}
 function playerReadProof(session,ticket,data){
   const roll=playerRoll_(session),a=ownReceipt_(ledger_(),ticket,roll),image=proofImageBytes_(data),digest=proofDigest_(image.bytes);
   must_(!issued_(a)&&['HOLD','REVIEW','REJECTED'].includes(a.status),'This receipt is not accepting proof.');
@@ -243,19 +263,49 @@ function playerReadProof(session,ticket,data){
   let fields=readPaymentText_(''),message='';
   try{fields=readPaymentText_(paymentDocument_(Utilities.newBlob(image.bytes,image.mime,'receipt.'+image.ext)).text)}
   catch(error){console.warn('Receipt text extraction failed for '+a.id);message='Automatic reading is unavailable. Enter the details from your screenshot for manual review.'}
-  const result={...fields,seal:proofSeal_(a.id,digest,fields),message:message||(!fields.utr||!fields.amount||!fields.time?'Some details could not be read. Check the fields below.':'Check the details read from your screenshot.')};
+  const result={...fields,uploadRef:rememberProof_(cache,a.id,digest,data),seal:proofSeal_(a.id,digest,fields),message:message||(!fields.utr||!fields.amount||!fields.time?'Some details could not be read. Check the fields below.':'Check the details read from your screenshot.')};
   cache.put(key,JSON.stringify(result),600);return result;
 }
+function discardStagedFile_(file){
+  if(file)try{file.setTrashed(true)}catch{console.warn('Could not discard staged event file '+file.getId())}
+}
+function saveProofFile_(roll,ticket,image,filename,changesFor){
+  const check=st=>{const a=ownReceipt_(st,ticket,roll);return {st,a,changes:changesFor(st,a)}};
+  const before=check(ledger_());
+  if(!before.changes)return receipt_(before.a,settings_(),before.st);
+  const file=privateBlob_(image.bytes,image.mime,before.a.id+'-'+filename+'.'+image.ext);
+  let journalAttempted=false;
+  try{
+    const saved=locked_(()=>{
+      const {st,a,changes}=check(ledger_());
+      if(!changes)return {a,st};
+      const updated={...a,...changes,file:file.getId()};
+      // If Sheets loses the acknowledgement, the journal may still reference this file.
+      journalAttempted=true;
+      commit_(st,a.file?'Proof replaced':'Proof submitted',roll,{attempts:[updated],note:a.id});
+      return {a:updated,st};
+    },false);
+    return receipt_(saved.a,settings_(),saved.st);
+  }finally{
+    if(!journalAttempted)discardStagedFile_(file);
+  }
+}
 function playerSubmitPayment(session,ticket,data,json){
-  const roll=playerRoll_(session),form=JSON.parse(json||'{}'),im=proofImageBytes_(data),digest=proofDigest_(im.bytes);
+  const roll=playerRoll_(session),form=JSON.parse(json||'{}'),ref=String(data).startsWith('proof:')?data:'';
+  if(ref){
+    const a=ownReceipt_(ledger_(),ticket,roll);
+    data=recalledProof_(a.id,ref);if(!data)return {uploadRequired:true};
+  }
+  const im=proofImageBytes_(data),digest=proofDigest_(im.bytes);
+  if(ref&&!ref.endsWith(':'+digest))return {uploadRequired:true};
   const claim={utr:ref_(form.utr),amount:paise_(form.amount),time:localPaidTime_(form.time),payer:String(form.payer||'').trim(),beneficiary:roll_(form.beneficiary),fairPlay:form.fairPlay===true};
   must_(claim.utr&&claim.amount>0&&claim.time,'Check the full 12-digit UTR, amount paid and payment time (IST).');
   must_(claim.beneficiary===roll,'Submit proof from the account of the player this payment is for.');
   must_(claim.payer.length>=2&&claim.payer.length<=90&&!/[\x00-\x1f]/.test(claim.payer),'Enter the name of the person who made the payment.');
   must_(claim.fairPlay&&form.agreementVersion===FAIR_PLAY_VERSION,'Review the current fair-play declaration before submitting.');
-  return locked_(()=>{
-    const st=ledger_(),a=ownReceipt_(st,ticket,roll),now=Date.now(),set=settings_();
-    if(issued_(a))return receipt_(a,set,st);
+  return saveProofFile_(roll,ticket,im,'proof-'+(form.revision+1),(st,a)=>{
+    const now=Date.now();
+    if(issued_(a))return null;
     must_(a.receiver&&a.receiver.id===form.receiver,'Reload your saved receiver before submitting payment proof.');
     must_(currentRegistration_(st,a).id===a.id,'Open your current registration to submit proof.');
     if(a.status==='HOLD'&&now<EVENT_END&&waveFor_(st,roll,now)>=0){
@@ -267,15 +317,12 @@ function playerSubmitPayment(session,ticket,data,json){
     const paid=st.receivers[form.paidReceiver];must_(Object.hasOwn(st.receivers,form.paidReceiver)&&paid,'Confirm the recipient who received this payment.');
     claim.paidReceiver=a.claim?.paidReceiver?.id===paid.id?a.claim.paidReceiver:{id:paid.id,name:paid.name,upi:paid.upi};
     const o=form.ocr||{},trusted=o.seal&&o.seal===proofSeal_(a.id,digest,o)?{utr:o.utr,amount:o.amount,time:o.time,payee:o.payee||'',uncertain:!!o.uncertain}:null;
-    if(a.status==='REVIEW'&&a.digest===digest&&JSON.stringify(a.claim)===JSON.stringify(claim))return receipt_(a,set,st);
+    if(a.status==='REVIEW'&&a.digest===digest&&JSON.stringify(a.claim)===JSON.stringify(claim))return null;
     must_(Number.isInteger(form.revision)&&form.revision===(a.proofVersion||0),'Your proof changed. Refresh before replacing it.');
     must_(['HOLD','REVIEW','REJECTED'].includes(a.status),'This registration cannot accept a payment. Contact the event desk.');
-    const file=privateBlob_(im.bytes,im.mime,a.id+'-proof-'+(form.revision+1)+'.'+im.ext);
     const transferTime=Date.parse(claim.time+':00+05:30');
     const fee=entryOffer_(Math.max(a.quotedAt||a.created,Math.min(transferTime,now)),a.kind).amount;
-    const updated={...a,wave:proofWave_(st,a,now),fee,file:file.getId(),digest,claim,ocr:trusted,suffix:claim.utr.slice(-4),proofVersion:form.revision+1,status:'REVIEW',paymentStatus:'PENDING',submitted:now,
+    return {wave:proofWave_(st,a,now),fee,digest,claim,ocr:trusted,suffix:claim.utr.slice(-4),proofVersion:form.revision+1,status:'REVIEW',paymentStatus:'PENDING',submitted:now,
       late:false,reason:'',reviewReason:'',linkedRow:'',linkReason:'',fairPlayVersion:FAIR_PLAY_VERSION,agreement:FAIR_PLAY_DECLARATION};
-    commit_(st,a.file?'Proof replaced':'Proof submitted',roll,{attempts:[updated],note:a.id});
-    return receipt_(updated,set,st);
   });
 }

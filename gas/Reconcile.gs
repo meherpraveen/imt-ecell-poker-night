@@ -55,8 +55,8 @@ function paymentMatch_(st,a,bank){
   const reason=row?autoReason_(st,a,row,bank):staged?'Matching UTR in a staged statement. Check and apply its preview.':'No matching bank UTR. Check the receiver statement.';
   return {id:a.id,version:a.proofVersion||0,roll:a.roll,utr:a.claim?.utr||'',row:row?.key||'',reason,fee:a.fee};
 }
-function statementPlan_(st,s){
-  const bank=bankRows_(st,s.id,true),own=bank.filter(r=>r.statement===s.id),pending=Object.values(st.attempts).filter(a=>a.status==='REVIEW'&&paidReceiver_(a)?.id===s.receiver.id);
+function statementPlan_(st,s,bank=bankRows_(st,s.id,true)){
+  const own=bank.filter(r=>r.statement===s.id),pending=Object.values(st.attempts).filter(a=>a.status==='REVIEW'&&paidReceiver_(a)?.id===s.receiver.id);
   const matches=pending.map(a=>{
     // Only this statement's credits may be applied by this preview.
     const row=own.find(r=>r.utr&&r.utr===a.claim?.utr);
@@ -77,11 +77,15 @@ function adminStatementPreview(token,id){
   staff_(token,[]);const st=ledger_(),s=st.statements[id];must_(s,'Statement not found.');return statementPlan_(st,s);
 }
 function adminApplyStatement(token,id,version){
-  const admin=staff_(token,[]);
+  const admin=staff_(token,[]),before=ledger_(),original=before.statements[id];must_(original,'Statement not found.');
+  if(original.lastVersion===version&&original.applied)return original.lastResult;
+  const bank=bankRows_(before,id,true);
+  const source=JSON.stringify([before.statements,before.bankCorrections]);
   return locked_(()=>{
     const st=ledger_(),s=st.statements[id];must_(s,'Statement not found.');
-    if(s.lastVersion===version)return s.lastResult;
-    const plan=statementPlan_(st,s);
+    if(s.lastVersion===version&&s.applied)return s.lastResult;
+    must_(source===JSON.stringify([st.statements,st.bankCorrections]),'The preview changed. Open a fresh preview before applying.');
+    const plan=statementPlan_(st,s,bank);
     must_(plan.version===version,'The preview changed. Open a fresh preview before applying.');
     const decisions=plan.matches.filter(m=>!m.reason).map(m=>({id:m.id,row:m.row,utr:m.utr}));
     const flagged=plan.matches.filter(m=>m.reason&&st.attempts[m.id].reviewReason!==m.reason).map(m=>[m.id,m.reason]);
@@ -92,16 +96,13 @@ function adminApplyStatement(token,id,version){
       note:s.name+' · '+result.authorized+' authorized · '+result.review+' for review'
     });
     return result;
-  });
+  },false);
 }
 function adminDispatchPasses(token){
-  const admin=staff_(token,[]);
-  return locked_(()=>{
-    const st=ledger_(),items=Object.values(st.attempts).filter(a=>a.bankRow&&a.delivery==='Pending delivery'),people=items.length?roster_():{};
-    let failed=0;
-    for(const a of items.slice(0,4))if(mailCode_(st,a,people[a.roll],admin.name).delivery!=='Email sent')failed++;
-    return {remaining:Math.max(0,items.length-4),failed};
-  });
+  const admin=staff_(token,[]),items=Object.values(ledger_().attempts).filter(a=>a.bankRow&&a.delivery==='Pending delivery');
+  let failed=0;
+  for(const a of items.slice(0,4))if(deliverPass_(a.id,admin.name)==='Desk delivery needed')failed++;
+  return {remaining:Math.max(0,items.length-4),failed};
 }
 function reviewCandidates_(a,bank){
   const rank=r=>(r.key===a.linkedRow?200:0)+(r.utr&&r.utr===a.claim?.utr?100:0)+(r.utr&&a.suffix&&r.utr.endsWith(a.suffix)?18:0)+(r.account===paidReceiver_(a)?.id?10:0)+(r.minor===a.fee*100?5:0)+(r.date&&a.claim?.time.startsWith(r.date)?2:0);
@@ -118,9 +119,9 @@ function adminPaymentDetail(token,id,lookup){
 function adminReviewPayment(token,id,action,rowKey,reason,revision){
   const admin=staff_(token,[]);reason=String(reason||'').trim();
   must_(['approve','link','reject'].includes(action)&&reason.length>=3&&reason.length<=240,'Enter a reason for this decision (3–240 characters).');
-  return locked_(()=>{
+  const result=locked_(()=>{
     const st=ledger_(),a=st.attempts[id];must_(a&&a.receiver,'Payment not found.');
-    if(action==='approve'&&issued_(a)&&a.bankRow===rowKey)return {status:a.delivery};
+    if(action==='approve'&&issued_(a)&&a.bankRow===rowKey)return null;
     if(action==='reject'&&a.status==='REJECTED'&&a.reason===reason&&revision===a.proofVersion)return {status:'Rejected'};
     must_(a.status==='REVIEW'&&revision===a.proofVersion,'The payment has changed. Reopen it before deciding.');
     if(action==='reject'){commit_(st,'Proof rejected',admin.name,{attempts:[{...a,status:'REJECTED',paymentStatus:'PENDING',reason,linkedRow:'',reviewReason:reason}],note:id});return {status:'Rejected'}}
@@ -134,8 +135,9 @@ function adminReviewPayment(token,id,action,rowKey,reason,revision){
     const block=paymentBlock_(st,a,row,bank);must_(!block,block);
     must_(!Object.values(st.attempts).some(x=>x.id!==id&&x.status==='REVIEW'&&x.claim?.utr===row.utr),'Another student claims this UTR. Resolve that claim first.');
     commit_(st,'Payment manually authorized',admin.name,{bankDecisions:[{id,row:row.key,utr:row.utr,reason}],bankTime:Date.now(),bankStatement:row.statement,note:id});
-    return {status:mailCode_(st,st.attempts[id],roster_()[a.roll],admin.name).delivery};
-  });
+    return null;
+  },false);
+  return result||{status:deliverPass_(id,admin.name)};
 }
 function adminOpenDeskPayment(token,roll,kind){
   const user=staff_(token,['desk']);roll=roll_(roll);

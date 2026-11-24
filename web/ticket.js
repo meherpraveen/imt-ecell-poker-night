@@ -67,9 +67,9 @@ function scheduleTicketUpdate(){
   if(document.hidden||!navigator.onLine)return;
   const paid=currentReceipt?.entryCode||currentPass?.active;
   const waiting=['REGISTERED','REVIEW','WAITLIST'].includes(currentReceipt?.status)||currentReceipt?.status==='HOLD'&&currentReceipt.full;
-  if(paid||waiting)ticketTimer=setTimeout(updateTicket,paid?6000:18000);
+  if(paid||waiting)ticketTimer=setTimeout(updateTicket,pollDelay(paid?6800:22000,ticketFailures));
 }
-let ticketUpdating=false;
+let ticketUpdating=false,ticketFailures=0;
 async function updateTicket(){
   if(ticketUpdating||document.hidden||!navigator.onLine)return;
   if(busy||el('registrationEditor')?.open){scheduleTicketUpdate();return}
@@ -91,8 +91,8 @@ async function updateTicket(){
         el('ticketAnnouncement').textContent=next.entryCode?'Payment verified. Your ticket is ready.':'Your registration status has changed.';
       }
     }
-    el('net').textContent='';
-  }catch{el('net').textContent='Connection interrupted. Reconnecting for ticket updates.'}
+    ticketFailures=0;el('net').textContent='';
+  }catch{ticketFailures++;el('net').textContent='Connection interrupted. Reconnecting for ticket updates.'}
   finally{ticketUpdating=false;scheduleTicketUpdate()}
 }
 let checkoutTimer,checkingCheckout;

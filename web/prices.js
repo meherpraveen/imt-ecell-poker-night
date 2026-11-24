@@ -55,6 +55,8 @@ function updatePrices(){
     for(const n of homeFees)n.textContent=n.dataset.homeFee==='label'?'Entry fee at registration':'';
     for(const row of document.querySelectorAll('[data-early-only]'))row.hidden=true;
     if(offer&&expiredOffer!==offer.endsAt){expiredOffer=offer.endsAt;retryOfferAt=0}
+    // Checkout refreshes its fee and payment links together through playerStatus.
+    if(offer&&document.getElementById('checkoutPayment'))return;
     loadOffer();if(!offerRequest)schedulePrices(Math.max(1000,retryOfferAt-Date.now()));return;
   }
   const amount=formatFee_(offer.amount,offer.currency),standard=formatFee_(offer.standard,offer.currency);

@@ -9,10 +9,10 @@ function fixture(){
   vm.createContext(ctx);vm.runInContext(source,ctx);const st=ctx.fresh_(),audit=[];
   ctx.ledger_=()=>st;ctx.locked_=fn=>fn();ctx.commit_=(s,kind,actor,p)=>{audit.push([kind,actor,p]);ctx.apply_(s,JSON.parse(JSON.stringify(p)))};
   const readSettings=ctx.settings_;
-  ctx.roster_=()=>people;ctx.settings_=()=>({upi:'club@example',name:'Example Club',open:true,published:true,qrFile:''});
+  ctx.roster_=()=>people;ctx.directoryPlayer_=roll=>people[roll];ctx.settings_=()=>({upi:'club@example',name:'Example Club',open:true,published:true,qrFile:''});
   ctx.mac_=x=>crypto.createHmac('sha256','synthetic-only').update(x).digest('base64url');
   ctx.hash_=x=>crypto.createHash('sha256').update(x).digest('base64url');
-  ctx.props_=()=>({getProperty:k=>properties.get(k)||null,getProperties:()=>Object.fromEntries(properties),setProperty:(k,v)=>properties.set(k,v),deleteProperty:k=>properties.delete(k)});
+  ctx.props_=()=>({getProperty:k=>properties.get(k)||null,getProperties:()=>Object.fromEntries(properties),setProperties:values=>Object.entries(values).forEach(([k,v])=>properties.set(k,v)),setProperty:(k,v)=>properties.set(k,v),deleteProperty:k=>properties.delete(k)});
   const actualStaff=ctx.staff_;ctx.staff_=(token,roles)=>{if(token!=='admin'&&!roles.includes(token))throw Error('Role denied');return {name:'Test staff',role:token}};
   const sessions=new Map();
   const sessionFor=(roll='123456789')=>{

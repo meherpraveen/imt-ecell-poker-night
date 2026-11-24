@@ -129,6 +129,11 @@ async function submitPaymentProof(){
   if(!el('fairPlay').checked){fieldError('fairPlay','Confirm the fair-play declaration to continue.');return}
   const form={utr:val('paymentUtr'),amount:val('paymentAmount'),time:val('paymentTime'),payer:val('paymentPayer'),beneficiary:val('beneficiary'),receiver:r.receiver.id,receiverChoiceVersion:r.receiverChoiceVersion,paidReceiver:val('paidReceiver'),agreementVersion:r.fairPlayVersion,revision:r.proofVersion,fairPlay:true,ocr:proofRead.ocr};
   if(choices)choices.disabled=true;
-  try{const saved=await playerApi('playerSubmitPayment',r.ticket,proofRead.data,JSON.stringify(form));showReceipt(saved)}
+  const proof=proofRead,details=JSON.stringify(form);
+  try{
+    let saved=await playerApi('playerSubmitPayment',r.ticket,proof.ocr.uploadRef||proof.data,details);
+    if(saved.uploadRequired)saved=await playerApi('playerSubmitPayment',r.ticket,proof.data,details);
+    if(currentReceipt===r)showReceipt(saved);
+  }
   finally{if(choices?.isConnected)choices.disabled=false}
 }

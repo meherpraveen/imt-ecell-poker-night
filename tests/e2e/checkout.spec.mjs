@@ -55,6 +55,29 @@ test('both payment codes scan at their displayed size on a small phone, tablet a
   await expect(target).toBeChecked();expect(player.status().chosenReceiverId).toBe(second.id);
 });
 
+test('a busy payment desk retries on its own and a cache miss reuses the selected screenshot',async({page,site})=>{
+  const {player,second}=await openCheckout(page,site);
+  const radio=page.getByRole('radio',{name:second.name}),shot=page.getByLabel('Payment screenshot');
+  let limited=0,posted=[];
+  await page.route(site.endpoint,async route=>{
+    const {action,args}=route.request().postDataJSON();
+    if(action==='playerSelectReceiver'&&limited++===0)return route.fulfill({status:429,headers:{'Retry-After':'1'},body:'Too many requests'});
+    if(action==='playerSubmitPayment')posted.push(args[2].startsWith('proof:')?'reference':'original');
+    return route.fallback();
+  });
+  await radio.check();await expect(page.locator('#net')).toContainText('Retrying automatically');
+  await expect(page.getByRole('link',{name:'Open UPI app to pay Second receiver'})).toBeVisible();
+  expect(limited).toBe(2);await expect(radio).toBeChecked();
+  site.ocr(receiptText(utr,'149.00',second.upi));await shot.setInputFiles(image);
+  await expect(page.getByLabel('UTR / UPI Transaction ID')).toHaveValue(utr);
+  for(const key of site.cache.keys())if(key.startsWith('proof-bytes:'))site.cache.delete(key);
+  await page.getByLabel('Please confirm the recipient of your payment').selectOption(second.id);
+  await page.getByLabel(/I agree to play fair/).check();
+  await page.getByRole('button',{name:'Submit for verification'}).click();
+  await expect(page.getByRole('heading',{name:'Payment pending'})).toBeVisible();
+  expect(posted).toEqual(['reference','original']);expect(player.status().proofVersion).toBe(1);
+});
+
 test('a lost choice response, rapid switches and conflicting tabs preserve the proof draft',async({page,site})=>{
   const {api,player,first,second}=await openCheckout(page,site);
   site.ocr(receiptText());await page.getByLabel('Payment screenshot').setInputFiles(image);
@@ -153,7 +176,8 @@ test('a receiver choice in flight at the price cutoff stays selected at the new 
   const pending=await holdRequest(page,site.endpoint,'playerSelectReceiver');
   await page.getByRole('radio',{name:second.name}).check();await pending.seen;
   site.advance(16000);await page.clock.fastForward(16000);
-  await expect(page.getByText('Checking the current entry fee…')).toBeVisible();
+  await expect(page.locator('#checkoutUpdate')).toHaveText('Checking the current entry fee…');
+  await expect(page.locator('#checkoutUpdate')).toBeVisible();
   await expect(page.getByRole('link',{name:/Open UPI app/})).toHaveCount(0);
   pending.release();
   await expect(page.getByRole('link',{name:'Open UPI app to pay Second receiver'})).toHaveAttribute('href',/am=199\.00/);

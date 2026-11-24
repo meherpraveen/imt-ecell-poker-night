@@ -254,7 +254,8 @@ async function action(name){
     showReceipt(await playerApi('playerUpload',preferredReceipt,tail,data));
   }
 }
-let boardRequest,boardFingerprint='',boardTimer;
+function pollDelay(base,failures){return Math.min(90000,base*2**Math.min(failures,3))*(1+Math.random()*.3)}
+let boardRequest,boardFingerprint='',boardTimer,boardFailures=0;
 function paintBoard(data,received){
   const {now,...display}=data,fingerprint=JSON.stringify(display);
   if(fingerprint!==boardFingerprint){el('content').innerHTML=board(data);boardFingerprint=fingerprint}
@@ -262,7 +263,7 @@ function paintBoard(data,received){
 }
 function updateBoardLater(){
   clearTimeout(boardTimer);
-  if(!document.hidden&&navigator.onLine)boardTimer=setTimeout(refreshBoard,15000);
+  if(!document.hidden&&navigator.onLine)boardTimer=setTimeout(refreshBoard,pollDelay(15000,boardFailures));
 }
 function refreshBoard(){
   if(boardRequest)return boardRequest;
@@ -270,9 +271,9 @@ function refreshBoard(){
   boardRequest=(async()=>{
     try{
       const data=await api('liveFloor'),received=Date.now();
-      paintBoard(data,received);tabValue('floor-snapshot',JSON.stringify({data,received}));el('net').textContent='';
+      boardFailures=0;paintBoard(data,received);tabValue('floor-snapshot',JSON.stringify({data,received}));el('net').textContent='';
     }catch{
-      el('net').textContent=boardFingerprint?'Connection interrupted. Showing the last update.':'The floor could not load. Check your connection.';
+      boardFailures++;el('net').textContent=boardFingerprint?'Connection interrupted. Showing the last update.':'The floor could not load. Check your connection.';
       if(!boardFingerprint)el('content').innerHTML=btn('refreshBoard','Retry live floor');
     }finally{boardRequest=null;updateBoardLater()}
   })();
