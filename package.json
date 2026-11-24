@@ -4,14 +4,16 @@
   "type": "module",
   "scripts": {
     "build": "node tools/build.mjs",
-    "test": "node --test tests/event.test.cjs",
+    "test": "node --test tests/event.test.cjs tests/gate-race.test.cjs",
     "test:e2e": "node tools/build.mjs && playwright test --grep-invert @deployed",
     "test:deploy": "playwright test deployed.spec.mjs"
   },
   "dependencies": {
+    "jsqr": "1.4.0",
     "qrcode-generator": "1.4.4"
   },
   "devDependencies": {
-    "@playwright/test": "1.65.1"
+    "@playwright/test": "1.65.1",
+    "feather-icons": "4.29.2"
   }
 }

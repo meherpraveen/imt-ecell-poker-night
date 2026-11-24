@@ -4,7 +4,7 @@ import {gzipSync, gunzipSync} from 'node:zlib';
 import vm from 'node:vm';
 
 const read = name => readFileSync(new URL('../../'+name,import.meta.url),'utf8');
-const source = ['Code','Auth','Floor'].map(name=>read('gas/'+name+'.gs')).join('\n');
+const source = ['Code','Auth','Floor'].map(name=>read('.deploy/'+name+'.gs')).join('\n');
 const template = read('.deploy/App.html');
 export const player = {roll:'123456789',email:'player@example.test'};
 export const owner = 'owner@example.test';
@@ -58,10 +58,10 @@ export function createEvent(){
       base64EncodeWebSafe:b=>Buffer.from(b).toString('base64url'),base64Encode:b=>Buffer.from(b).toString('base64'),
       base64Decode:s=>[...Buffer.from(s,'base64')],gzip:b=>blob(gzipSync(Buffer.from(b.getBytes()))),
       ungzip:b=>blob(gunzipSync(Buffer.from(b.getBytes())))},
-    MailApp:{getRemainingDailyQuota:()=>100-mail.length,sendEmail(to,subject,body){
+    MailApp:{getRemainingDailyQuota:()=>100-mail.length,sendEmail(to,subject,body,options){
       if(mailDown)throw Error('Synthetic mail is offline');
       if(!to.endsWith('@example.test'))throw Error('Test mailbox required');
-      mail.push({to,subject,body});
+      mail.push({to,subject,body,options});
     }},
     DriveApp:{getFileById:id=>files.get(id),getFolderById:()=>({createFile(b){
       const id=randomUUID();const f={getId:()=>id,getName:b.getName,getBlob:()=>b,setTrashed:()=>files.delete(id),

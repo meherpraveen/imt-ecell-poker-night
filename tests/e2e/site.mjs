@@ -4,7 +4,7 @@ import {test as base,expect} from '@playwright/test';
 import {createEvent} from './event-runtime.mjs';
 
 const docs=new URL('../../docs/',import.meta.url);
-const types={html:'text/html',css:'text/css',js:'text/javascript',webp:'image/webp'};
+const types={html:'text/html',css:'text/css',js:'text/javascript',webp:'image/webp',png:'image/png'};
 const testEndpoint='https://script.google.com/macros/s/test-event/exec';
 const staffTransport=`<script>
 window.google={script:{
@@ -21,7 +21,11 @@ export const test=base.extend({
     const staffPage=url=>event.get(Object.fromEntries(url.searchParams)).replace('</head>',staffTransport+'</head>');
     function staffReply({name,args}){
       if(!staffMethods.has(name))return {ok:false,error:'Unknown test operation'};
-      try{return {ok:true,value:event.staff(name,args)}}catch(e){return {ok:false,error:e.message}}
+      try{
+        const value=event.staff(name,args);
+        if(value?.scannerUrl)value.scannerUrl=value.scannerUrl.replace('https://meherpraveen.github.io/imt-ecell-poker-night/',origin+'/');
+        return {ok:true,value};
+      }catch(e){return {ok:false,error:e.message}}
     }
     const server=createServer(async(req,res)=>{
       const u=new URL(req.url,'http://localhost');

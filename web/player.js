@@ -11,18 +11,20 @@ function unpack(value){try{return JSON.parse(value)}catch{return null}}
 let playerSession=unpack(tabValue('player-login')||durable.get('player-login'));
 let challenge=unpack(tabValue('email-step')), pendingRequest=tabValue('seat-request'), accountInfo;
 let preferredReceipt=incomingReceipt||tabValue('receipt-link')||'';
+let currentReceipt=null,currentPass=null,ticketTimer,qrLibrary;
 if(incomingReceipt)tabValue('receipt-link',incomingReceipt);
 function signInPage(keepForm=false){
-  challenge=null;tabValue('email-step','');heading('EVENT ACCESS','Sign in to Poker Night');
+  challenge=null;tabValue('email-step','');heading('','Event registration');
   if(keepForm&&el('identifier')&&document.documentElement.dataset.entry==='register')return;
   const entry=signInForm('requestCode','<p>Use your roll number or account email to receive a six-digit code.</p>'+
     input('identifier','Roll number or registered email','type="text" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="254" required placeholder="Nine-digit roll number or email"'),'Send code');
-  el('content').innerHTML='<div class="narrow login-card">'+panel('Email sign-in',entry)+'</div>';
+  el('content').innerHTML='<div class="narrow login-card">'+panel('Email sign-in','<div data-entry-price class="offer"></div>'+entry)+'</div>';
+  updatePrices();
 }
 function codePage(){
-  heading('EVENT ACCESS','Check your email');
+  heading('','Check your email');
   const mailbox=/^\d{9}$/.test(challenge.identifier)?'the email on your student record':'<strong>'+esc(challenge.identifier)+'</strong>';
-  const form=signInForm('verifyCode','<p>Check '+mailbox+' for a six-digit code from <strong>Poker Night 2026</strong>. Enter it here within 10 minutes.</p>'+
+  const form=signInForm('verifyCode','<p>Check '+mailbox+' for a six-digit code from <strong>Poké Poker Night 2026</strong>. Enter it here within 10 minutes.</p>'+
     '<p class="mail-folder"><a href="https://outlook.office.com/mail/junkemail" target="_blank" rel="noopener noreferrer">Open Outlook Junk Email</a> if the code is missing from your inbox. In Gmail, check Spam. You can use the code straight from either folder.</p>'+
     codeInput()+checkbox('remember','Remember my student sign-in for 7 days'),'Verify and continue');
   const help='<details><summary>Email hasn’t arrived?</summary><p>Check that your roll number matches the email on your student record. A resend keeps the same active code.</p>'+
@@ -32,60 +34,78 @@ function codePage(){
   startResendTimer(challenge.resendAt);el('loginCode').focus();
 }
 function clearPlayer(){
+  clearTimeout(ticketTimer);currentReceipt=null;
   playerSession=null;challenge=null;pendingRequest='';preferredReceipt='';accountInfo=null;
   for(const key of ['player-login','seat-request','email-step','receipt-link'])tabValue(key,'');
   for(const key of ['player-login','receipt','pending-seat'])durable.set(key,'');
 }
 async function playerApi(method,...args){
-  try{return await api(method,playerSession?.token||'',...args)}
+  try{const result=await api(method,playerSession?.token||'',...args);if(result?.offer)syncOffer(result.offer);return result}
   catch(e){if(String(e.message).includes('Sign in with your registered email')){clearPlayer();signInPage()}throw e}
 }
+function progress(step){
+  return '<ol class="progress" aria-label="Registration progress">'+['Details','Pay','Ticket'].map((label,i)=>
+    '<li class="'+(i<step?'done':'')+'"'+(i===step?' aria-current="step"':'')+'><span aria-hidden="true">'+(i<step?'✓':i+1)+'</span>'+label+'</li>').join('')+'</ol>';
+}
+function accountScreen(step,body){
+  el('content').innerHTML='<div class="narrow">'+progress(step)+body+'<div class="account-actions">'+btn('logout','Sign out','quiet')+'</div></div>';
+  updatePrices();
+  if(busy){const title=el('title');title.tabIndex=-1;title.focus({preventScroll:true});title.scrollIntoView({block:'nearest'})}
+}
 function registrationPage(){
-  heading('PLAYER REGISTRATION','Your registration');
-  const info=accountInfo;
-  const title=info.open?'Register for ₹'+info.fee:'Registration closed';
-  const next=info.open?(info.paymentsReady?'Request a seat to see the available wave and payment instructions.':'Save your registration now. You can return here to pay when E-Cell publishes the payment details.'):(info.message||'Contact E-Cell for help with registration.');
-  el('content').innerHTML='<div class="narrow">'+panel(title,'<p>'+esc(next)+'</p>'+(info.open?btn('start',info.paymentsReady?'Request a seat':'Save my registration','primary'):''))+btn('logout','Sign out')+'</div>';
+  currentReceipt=null;clearTimeout(ticketTimer);heading('Poké Poker Night','Your registration');
+  const info=accountInfo,person=info.player||{};
+  const details='<dl class="details-list"><div><dt>Player</dt><dd>'+esc(person.name||'Registered student')+'</dd></div><div><dt>Roll number</dt><dd>'+esc(person.roll)+'</dd></div></dl>';
+  const next=info.paymentsReady?'Continue to payment to hold your place in a qualifier wave.':'Save your details now. You can pay here when E-Cell opens checkout.';
+  accountScreen(0,panel(info.open?'Entry details':'Registration closed',details+(info.open?
+    '<div data-entry-price class="offer"></div><p class="sub">'+next+'</p>'+btn('start',info.paymentsReady?'Request a seat':'Save my registration','primary wide'):
+    '<p>'+esc(info.message)+'</p>')));
 }
 async function loadAccount(){
   renderAccount(await playerApi('playerHome',preferredReceipt||''));
 }
 function renderAccount(info){
-  accountInfo=info;
+  accountInfo=info;syncOffer(info.offer);
   tabValue('receipt-link','');
   if(accountInfo.receipt)showReceipt(accountInfo.receipt);else{preferredReceipt='';durable.set('receipt','');registrationPage()}
 }
 function showReceipt(r){
-  preferredReceipt=r.ticket;durable.set('receipt',r.ticket);heading('PLAYER REGISTRATION','Your registration');
-  let body='<p class="tag">ATTEMPT '+esc(r.id.toUpperCase())+'</p>';
+  currentReceipt=r;preferredReceipt=r.ticket;durable.set('receipt',r.ticket);
+  const ticket=!!(r.entryCode||r.checkedInAt);
+  heading('Poké Poker Night',ticket?'Your ticket':'Your registration');
+  let body='';
   if(r.status==='REGISTERED'){
-    const next=r.checkoutEnded?'Online checkout has ended. Contact E-Cell if you already paid.':r.canCheckout?'Payment is available. Continue to start a 15-minute seat hold.':'Keep this receipt. Return here for payment instructions when E-Cell publishes them.';
-    body+=panel('Registration saved','<p>Your entry fee is <b>₹'+r.fee+'</b>. E-Cell confirms your seat after verifying payment.</p><p>'+next+'</p>'+
-      (r.checkoutEnded?'':r.canCheckout?btn('checkout','Continue to payment','primary'):btn('receipt','Check payment availability'))+
-      btn('copyReceipt','Copy private receipt link')+'<div id="copyReceiptFallback"></div>');
+    const next=r.checkoutEnded?'Online checkout has ended. Contact E-Cell if you already paid.':r.canCheckout?'Payment is open. Continue to hold your place and see where to pay.':'Your details are saved. Return here when E-Cell opens payment.';
+    body=panel('Registration saved','<p>'+next+'</p>'+(r.checkoutEnded?'':'<div data-entry-price class="offer"></div>')+
+      (r.checkoutEnded?'':r.canCheckout?btn('checkout','Continue to payment','primary wide'):btn('receipt','Check payment availability','primary wide'))+
+      btn('copyReceipt','Copy private receipt link','quiet')+'<div id="copyReceiptFallback"></div>');
   }else if(r.status==='HOLD'){
-    let instructions='<p>Round 1 · Wave '+r.wave+' · Hold until <b>'+localTime(r.expires)+' IST</b></p>';
+    let instructions='<div data-entry-price class="offer"></div><p class="hold-line">Wave '+r.wave+' · Pay and submit before <strong>'+localTime(r.expires)+' IST</strong></p>';
     if(r.upi||r.paymentQr){
-      instructions+='<p>Confirm the recipient <b>'+esc(r.name)+'</b> in your UPI app and pay exactly ₹'+r.fee+'.</p>';
+      instructions+='<p>Pay <strong>'+esc(r.name)+'</strong> using UPI.</p>';
       if(r.upi){
-        const params=new URLSearchParams({pa:r.upi,pn:r.name,am:r.fee+'.00',cu:'INR',tn:'Poker Night '+r.id});
-        instructions+='<p><code>'+esc(r.upi)+'</code></p><a class="button primary" target="_blank" rel="noopener" href="upi://pay?'+esc(params.toString().replace(/\+/g,'%20'))+'">Open UPI app</a>';
+        const params=new URLSearchParams({pa:r.upi,pn:r.name,am:Number(r.fee).toFixed(2),cu:r.offer?.currency||ENTRY_PRICING.currency,tn:'Poké Poker Night '+r.id});
+        instructions+='<p><code>'+esc(r.upi)+'</code></p><a class="button" data-payment-link target="_blank" rel="noopener" href="upi://pay?'+esc(params.toString().replace(/\+/g,'%20'))+'">Open UPI app</a>';
       }
       if(r.paymentQr){
         const fileName=r.paymentQr.startsWith('data:image/png;')?'payment-qr.png':'payment-qr.jpg';
         instructions+='<figure class="payment-qr"><img alt="Coordinator’s UPI payment QR" src="'+esc(r.paymentQr)+'"><figcaption>Scan in your UPI app or <a download="'+fileName+'" href="'+esc(r.paymentQr)+'">save the QR image</a>.</figcaption></figure>';
       }
-      body+=panel('Pay ₹'+r.fee,instructions);
+      body+=panel('Pay '+formatFee_(r.fee),instructions);
     }else body+=panel('Payments paused',instructions+'<p>If you already paid, upload your proof below.</p>'+btn('receipt','Refresh payment details'));
-    body+=panel('Upload payment proof','<label for="shot">Payment screenshot</label><input id="shot" type="file" accept="image/jpeg,image/png,image/webp">'+input('tail','Visible final digits of the UPI reference (optional)','inputmode="numeric" maxlength="12" placeholder="Last 4–12 visible digits"')+'<p class="sub">Keep the amount, recipient and reference visible. You may crop your balance and unrelated transactions.</p>'+checkbox('consent','I agree to share this proof with the E-Cell payment desk for verification.')+btn('upload','Submit for review','primary'));
+    body+=panel('Upload payment proof','<form data-action="upload" novalidate><label for="shot">Payment screenshot</label><input id="shot" type="file" accept="image/jpeg,image/png,image/webp">'+input('tail','Visible final digits of the UPI reference (optional)','inputmode="numeric" maxlength="12" placeholder="Last 4–12 digits"')+'<p class="sub">Keep the amount, recipient and reference visible.</p>'+checkbox('consent','I agree to share this proof with the E-Cell payment desk for verification.')+'<button class="primary wide" type="submit">Submit for review</button></form>');
+  }else if(ticket){
+    body=walletCard(r,accountInfo?.player?.name,false);
   }else{
     const labels={REVIEW:['Payment under review','The desk will check the coordinator’s incoming payment. Keep this page. Please pay only once.'],WAITLIST:['On the waitlist','All available seats are held. Wait for a seat offer here before paying.'],EXPIRED:['Hold expired','If you paid, bring your bank reference to the desk before making another payment.'],REJECTED:['Proof needs attention',r.reason||'Contact the desk with your receipt.'],NO_SHOW:['No-show recorded','Speak to the desk if you are at the venue.'],RELEASED:['Offer released','Speak to the desk for your current attempt.']};
-    const [title,bodyText]=labels[r.status]||['Payment verified',r.delivery==='Email sent'?'Your entry code was emailed to your registered address. Bring your college ID.':'The desk can deliver your code using your registered contact or college ID.'];
-    body+=panel(title,'<p>'+esc(bodyText)+'</p>'+(r.wave?'<p>Round 1 · Wave '+r.wave+'</p>':'')+
-      (r.entryCode?'<p>Your pass is ready here. Show this code or the QR with your college ID at the gate.</p><p><code>'+esc(r.entryCode)+'</code></p><a class="button primary" href="https://meherpraveen.github.io/imt-ecell-poker-night/event.html?view=pass#code='+encodeURIComponent(r.entryCode)+'">Open entry QR</a>':'')+btn('receipt','Refresh status'));
-    if(['EXPIRED','RELEASED','REJECTED'].includes(r.status)&&accountInfo?.open)body+=btn('renew','Request another seat');
+    const [title,bodyText]=labels[r.status]||['Entry closed','This qualifier is closed. Speak to the event desk about your ticket.'];
+    const renew=['EXPIRED','RELEASED','REJECTED'].includes(r.status)&&accountInfo?.open;
+    body+=panel(title,'<p>'+esc(bodyText)+'</p>'+(r.wave?'<p class="sub">Round 1 · Wave '+r.wave+'</p>':'')+
+      (renew?btn('renew','Request another seat','primary wide'):btn('receipt','Refresh status','primary wide')));
   }
-  el('content').innerHTML='<div class="narrow">'+body+btn('logout','Sign out')+'</div>';
+  accountScreen(ticket||['PAID','NO_SHOW','QUALIFIED','ELIMINATED','WINNER'].includes(r.status)?2:1,body);
+  if(r.entryCode)fillTicketQr(r.entryCode,r.wave);
+  scheduleTicketUpdate();
   if(document.body.dataset.host!=='pages'){
     const link=document.createElement('a');
     link.href='https://meherpraveen.github.io/imt-ecell-poker-night/event.html?view=register#receipt='+encodeURIComponent(r.ticket);
@@ -95,10 +115,15 @@ function showReceipt(r){
   }
 }
 async function action(name){
+  if(mode==='scan')return name==='reloadScanner'?launch():scannerAction(name);
+  if(name==='reloadPass'){await renderPass();return}
   if(name==='changeLogin'){signInPage();el('identifier').focus();return}
   if(name==='requestCode'||name==='resendCode'||name==='matchMail'){
     const identifier=name==='resendCode'?challenge.identifier:name==='matchMail'?val('matchRoll'):val('identifier');
-    if(!/^\d{9}$/.test(identifier)&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(identifier))throw Error('Enter your nine-digit roll number or your registered email address.');
+    if(!/^\d{9}$/.test(identifier)&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(identifier)){
+      const message='Enter your nine-digit roll number or your registered email address.';
+      fieldError(name==='matchMail'?'matchRoll':'identifier',message);return;
+    }
     const reply=name==='matchMail'?await api('requestMatchedPlayerCode',identifier,val('matchEmail')):await api('requestEventCode',identifier);
     challenge={identifier,resendAt:Date.now()+reply.resendAfter*1000,expires:Date.now()+(reply.expiresIn??600)*1000};
     tabValue('email-step',JSON.stringify(challenge));codePage();
@@ -107,7 +132,9 @@ async function action(name){
   }
   if(name==='verifyCode'){
     const remember=el('remember').checked;
-    const signed=await api('signInEvent',challenge.identifier,val('loginCode'),preferredReceipt||'');
+    let signed;
+    try{signed=await api('signInEvent',challenge.identifier,val('loginCode'),preferredReceipt||'')}
+    catch(e){if(/incorrect or has expired/.test(e.message)){fieldError('loginCode',e.message);return}throw e}
     if(signed.continueUrl){
       const next=new URL(signed.continueUrl);
       if(next.origin!=='https://script.google.com' || !next.pathname.endsWith('/exec') ||
@@ -129,7 +156,7 @@ async function action(name){
   if(name==='account'){await loadAccount();return}
   if(name==='refreshBoard'){await refreshBoard();return}
   if(name==='logout'){const token=playerSession?.token;clearPlayer();signInPage();if(token)await api('playerLogout',token);return}
-  if(name==='renew'){preferredReceipt='';durable.set('receipt','');registrationPage();return}
+  if(name==='renew'){preferredReceipt='';pendingRequest='';tabValue('seat-request','');durable.set('receipt','');registrationPage();return}
   if(name==='start'){
     if(!pendingRequest){pendingRequest=globalThis.crypto?.randomUUID?.()||'';tabValue('seat-request',pendingRequest)}
     showReceipt(await playerApi('playerStart',preferredReceipt||'',pendingRequest));
@@ -145,7 +172,15 @@ async function action(name){
     catch{el('copyReceiptFallback').innerHTML=input('receiptUrl','Copy your private receipt link','readonly value="'+esc(url)+'"');el('receiptUrl').select()}
     return;
   }
-  if(name==='upload'){if(!el('consent').checked)throw Error('Please confirm proof sharing before continuing.');const data=await picture(el('shot').files[0]);showReceipt(await playerApi('playerUpload',preferredReceipt,val('tail'),data));return}
+  if(name==='upload'){
+    if(expireCheckout())return;
+    const file=el('shot').files[0],tail=val('tail');
+    if(!file){fieldError('shot','Choose a screenshot of your payment.');return}
+    if(tail&&!/^\d{4,12}$/.test(tail)){fieldError('tail','Enter the last 4–12 digits, or leave this blank.');return}
+    if(!el('consent').checked){fieldError('consent','Confirm that the desk may review your screenshot.');return}
+    let data;try{data=await picture(file)}catch(e){fieldError('shot',e.message);return}
+    if(!expireCheckout())showReceipt(await playerApi('playerUpload',preferredReceipt,tail,data));
+  }
 }
 let boardRequest,boardFingerprint='',boardTimer;
 function paintBoard(data,received){
@@ -172,21 +207,27 @@ function refreshBoard(){
   return boardRequest;
 }
 async function renderPass(){
-  heading('TRAINER PASS','Your entry pass');
+  heading('Poké Poker Night','Your entry pass');
   const code=document.body.dataset.pass;
-  if(!/^PN-[A-Z0-9]{16}$/.test(code||''))throw Error('Open the complete pass link from your email or registration.');
-  const pass=await api('passInfo',code),usable=pass.active&&!pass.used;
-  el('content').innerHTML='<div class="narrow trainer-card">'+panel(pass.used?'Pass already scanned':usable?'Show at the gate':'Attempt closed',
-    (usable?'<div id="passImage" class="pass-image"></div><p><code>'+esc(pass.code)+'</code></p>':'')+
-    '<p>Round 1 · Wave '+pass.wave+'. Bring your college ID. Use your wristband for a venue return.</p>')+'</div>';
-  if(!usable)return;
-  try{
-    if(typeof qrcode!=='function')await new Promise((resolve,reject)=>{const script=document.createElement('script');script.onload=resolve;script.onerror=reject;script.src='assets/qrcode-1.4.4.js';document.head.append(script)});
-    el('passImage').innerHTML=qr(pass.code);
-  }catch{el('passImage').textContent='Show the entry code below at the gate.'}
+  if(!/^PN-[A-Z0-9]{16}$/.test(code||'')){el('content').replaceChildren();throw Error('Open the complete pass link from your email or registration.')}
+  el('content').innerHTML=skeleton('Opening your ticket');
+  try{drawPass(await api('passInfo',code))}
+  catch(e){el('content').innerHTML=btn('reloadPass','Retry opening pass');throw e}
 }
 async function launch(){try{
-  if(mode==='unavailable'){heading('POKER NIGHT','Page unavailable');el('content').replaceChildren();return}
+  if(mode==='unavailable'){
+    heading('Poké Poker Night','Page unavailable');
+    const home=document.querySelector('.appbar .brand').href;
+    el('content').innerHTML='<a class="button primary" href="'+esc(home)+'">Return to event home</a>';return;
+  }
+  if(mode==='scan'){
+    heading('Poké Poker Night','Gate scanner');
+    if(!/^[\w-]{43}\.[\w-]{43}$/.test(scannerAccess)){el('content').innerHTML=panel('Staff sign-in required','<p>Open the camera from your signed-in gate desk.</p>');return}
+    el('content').innerHTML=skeleton('Opening the gate scanner');
+    try{await scriptAsset('assets/gate-camera.js?v=__SCANNER_VERSION__');launchScanner()}
+    catch(e){el('content').innerHTML=panel('Scanner unavailable',btn('reloadScanner','Retry opening scanner','primary'));throw e}
+    return;
+  }
   if(mode==='board'){
     heading('LIVE FLOOR','Tournament floor');
     const cached=unpack(tabValue('floor-snapshot'));
@@ -196,8 +237,8 @@ async function launch(){try{
   if(mode==='pass'){await renderPass();return}
   if(playerSession?.expires>Date.now()){
     heading('PLAYER REGISTRATION','Your registration');
-    el('content').innerHTML='<div class="narrow">'+panel('Your account',btn('account','Open registration','primary')+btn('logout','Sign out'))+'</div>';
-    await loadAccount();return;
+    el('content').innerHTML=skeleton('Opening your registration');
+    try{await loadAccount()}catch(e){if(playerSession)el('content').innerHTML='<div class="narrow">'+panel('Your account',btn('account','Open registration','primary')+btn('logout','Sign out'))+'</div>';throw e}return;
   }
   if(challenge?.expires>Date.now()){codePage();return}
   signInPage(true);
@@ -206,5 +247,12 @@ async function launch(){try{
 addEventListener('online',()=>{el('net').textContent='';if(mode==='board')refreshBoard()});
 addEventListener('offline',()=>{el('net').textContent='Offline. Reconnect for updates.'});
 if(mode==='board')document.addEventListener('visibilitychange',()=>{if(document.hidden)clearTimeout(boardTimer);else if(navigator.onLine)refreshBoard()});
+if(mode==='register'||mode==='pass'){
+  setInterval(expireCheckout,1000);
+  document.addEventListener('click',e=>{if(e.target.closest('[data-payment-link]')&&expireCheckout())e.preventDefault()},true);
+  document.addEventListener('visibilitychange',()=>{if(document.hidden)clearTimeout(ticketTimer);else{expireCheckout();updateTicket()}});
+  addEventListener('online',updateTicket);
+  addEventListener('pageshow',()=>{expireCheckout();if(currentPass||currentReceipt)updateTicket()});
+}
 window.pokerReady=true;
 launch();

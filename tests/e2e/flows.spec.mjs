@@ -27,6 +27,8 @@ async function staffLogin(page,site,role){
   await expect(button(page,'Sign out')).toBeVisible();
 }
 async function gateAction(page,mode,value){
+  const manual=page.getByText('Enter a code or record a venue return',{exact:true});
+  if(!await page.getByLabel('Action',{exact:true}).isVisible())await manual.click();
   await page.getByLabel('Action',{exact:true}).selectOption(mode);
   await page.getByLabel('Entry code or roll number').fill(value);
   await page.getByLabel('I checked the college ID or assigned wristband.').check();
@@ -60,7 +62,7 @@ test('club email at the public sign-in opens the private admin desk with one cod
   await button(page,'Send code').click();
   await expect(page.getByLabel('Six-digit code')).toBeVisible();
   await expect(page.locator('#content')).toContainText(owner.toUpperCase());
-  expect(site.mail.map(({to,subject})=>[to,subject])).toEqual([[owner,'Poker Night 2026 admin sign-in code']]);
+  expect(site.mail.map(({to,subject})=>[to,subject])).toEqual([[owner,'Poké Poker Night 2026 admin sign-in code']]);
   await page.getByLabel('Remember my student sign-in for 7 days').check();
   await enterCode(page,site.code(owner),'Verify and continue');
   await expect(button(page,'Settings')).toBeVisible();
@@ -118,7 +120,7 @@ test('owner publishes a payment QR, checks proof and issues a single-use pass; g
   await page.getByLabel('Payment screenshot').setInputFiles(png);await page.getByLabel('Visible final digits',{exact:false}).fill('6789');
   await page.getByLabel('I agree to share',{exact:false}).check();await button(page,'Submit for review').click();
   await expect(heading(page,'Payment under review')).toBeVisible();
-  await button(admin,'Review').click();await button(admin,'Refresh').click();await button(admin,'Open attempt').click();
+  await button(admin,'Payments').click();await button(admin,'Refresh').click();await admin.getByRole('button',{name:/^Open payment for /}).click();
   await button(admin,'View private screenshot').click();await expect(admin.getByAltText('Private payment screenshot')).toBeVisible();
   await admin.getByLabel('Full UPI bank reference').fill('123456786789');await admin.getByLabel('I checked the incoming credit',{exact:false}).check();
   await button(admin,'Approve and send code').click();await expect(admin.locator('dialog')).not.toBeVisible();
@@ -132,14 +134,16 @@ test('owner publishes a payment QR, checks proof and issues a single-use pass; g
   site.at('2026-11-27T19:15:00+05:30');
   const gate=await context.newPage();await staffLogin(gate,site,'gate');
   await expect(button(gate,'Settings')).toHaveCount(0);await gateAction(gate,'admit',code);
-  await expect(gate.locator('#msg')).toContainText('Recorded inside');
-  await gateAction(gate,'admit',code);await expect(gate.locator('#msg')).toContainText('spent');
+  await expect(gate.getByRole('dialog',{name:'Checked in'}).getByText('Seat 01',{exact:true})).toBeVisible();
+  await button(gate,'Done').click();
+  await expect(gate.getByRole('list',{name:'Player lookup'}).getByText('Seat 01',{exact:true})).toBeVisible();
+  await gateAction(gate,'admit',code);await expect(heading(gate,'Already used')).toBeVisible();await expect(gate.getByText(/First scan/)).toBeVisible();await button(gate,'Done').click();
   await gateAction(gate,'exit',player.roll);await expect(gate.locator('#msg')).toContainText('Recorded outside');
   await gateAction(gate,'return',player.roll);await expect(gate.locator('#msg')).toContainText('Recorded inside');
   await pass.reload();await expect(heading(pass,'Pass already scanned')).toBeVisible();
   const floor=await context.newPage();await staffLogin(floor,site,'floor');floor.on('dialog',d=>d.accept());
   await button(floor,'Review next draw').click();await button(floor,'Start all tables').click();
-  await floor.getByRole('button',{name:/Enter 1/}).click();await floor.getByLabel('Sample Student').fill('10000');
+  await floor.getByRole('button',{name:/^Enter result for Table 1/}).click();await floor.getByLabel('Sample Student').fill('10000');
   await button(floor,'Save table result').click();await expect(floor.locator('dialog')).not.toBeVisible();
   const board=await context.newPage();await board.goto(site.floor);await expect(heading(board,'Chip leaderboard')).toBeVisible();
   await expect(board.locator('#content')).not.toContainText(player.roll);await expect(board.locator('#content')).not.toContainText('Sample Student');
@@ -161,10 +165,11 @@ test('walk-in, a paid retry and offline gate sync honor the verified fee and hea
   await gateAction(page,'admit',pass.body.match(/PN-[A-Z0-9]{16}/)[0]);await expect(page.locator('#pending')).toContainText('1 unsynced');
   expect(site.calls).not.toContain('gateAction');await context.setOffline(false);
   await expect(page.locator('#pending')).toBeEmpty();await expect.poll(()=>site.calls.filter(v=>v==='gateAction').length).toBe(1);
+  await expect(heading(page,'Checked in')).toBeVisible();await button(page,'Done').click();
   // The completed first qualifier supplies the state for the retry purchase.
   const paid=site.rows.Journal.map(r=>{try{return JSON.parse(r[3]).attempts?.[0]}catch{return null}}).filter(Boolean).at(-1);
   site.rows.Journal.push([site.now(),'Stage closed','Fixture floor',JSON.stringify({attempts:[{...paid,status:'ELIMINATED'}],game:{next:1,active:null,history:[]}})]);
-  await button(page,'Review').click();await button(page,'Refresh').click();await deskPay('retry','222222226789');
+  await button(page,'Payments').click();await button(page,'Refresh').click();await deskPay('retry','222222226789');
   await expect(page.locator('dialog')).not.toBeVisible();expect(site.mail.find(m=>m.subject.includes('retry')).body).toContain('₹149');
 });
 
@@ -203,9 +208,9 @@ test('a no-show frees a seat and the payment desk can offer it to a waitlisted p
   await studentLogin(page,site);await button(page,'Request a seat').click();await expect(heading(page,'On the waitlist')).toBeVisible();
   await expect(page.getByRole('link',{name:'Open UPI app'})).toHaveCount(0);
   const desk=await context.newPage();await staffLogin(desk,site,'desk');desk.on('dialog',d=>d.accept());
-  await desk.getByLabel('Show',{exact:true}).selectOption('PAID');await button(desk,'Open attempt').first().click();
+  await desk.getByLabel('Payment status',{exact:true}).selectOption('PAID');await desk.getByRole('button',{name:/^Open payment for /}).first().click();
   await button(desk,'Mark no-show').click();await expect(desk.locator('dialog')).not.toBeVisible();
-  await desk.getByLabel('Show',{exact:true}).selectOption('WAITLIST');await button(desk,'Open attempt').click();
+  await desk.getByLabel('Payment status',{exact:true}).selectOption('WAITLIST');await desk.getByRole('button',{name:/^Open payment for /}).click();
   await button(desk,'Offer next available seat').click();await expect(desk.locator('dialog')).not.toBeVisible();
   await button(page,'Refresh status').click();await expect(heading(page,'Pay ₹149')).toBeVisible();
 });
@@ -215,9 +220,11 @@ test('phone, tablet and desktop layouts fit, and a desk poll preserves an unsave
     const scheme=width===768?'dark':'light';
     await page.emulateMedia({colorScheme:scheme,reducedMotion:'reduce'});
     await page.setViewportSize({width,height:844});await page.goto(site.origin);
-    const hero=page.getByRole('region',{name:'Poker Night',exact:true});
-    await expect(hero.getByRole('heading',{name:'Poker Night'})).toBeVisible();
-    await expect(hero.locator('img,picture')).toHaveCount(0);
+    const hero=page.getByRole('region',{name:'Poké Poker Night',exact:true});
+    await expect(hero.getByRole('heading',{name:'Poké Poker Night'})).toBeVisible();
+    const wordmark=hero.getByRole('img',{name:'Poké Poker Night',exact:true});
+    await expect(wordmark).toBeVisible();
+    await expect.poll(()=>wordmark.evaluate(img=>img.complete&&img.naturalWidth>0)).toBe(true);
     await expect(hero.getByRole('link',{name:'Sign in to register'})).toBeInViewport({ratio:1});
     const mark=page.getByAltText('Entrepreneurship Cell, IMT Ghaziabad');
     await expect(mark).toBeVisible();await expect.poll(()=>mark.evaluate(img=>img.naturalWidth)).toBeGreaterThan(100);
@@ -245,4 +252,117 @@ test('phone, tablet and desktop layouts fit, and a desk poll preserves an unsave
   await page.clock.fastForward(16000);
   await expect.poll(()=>site.calls.filter(n=>n==='staffSnapshot').length).toBeGreaterThan(reads);
   await expect(field).toHaveValue('Unsaved example');await expect(field).toBeFocused();
+});
+
+test('the desk keeps payment review keyboard accessible and phone shortcuts within reach',async({page,site})=>{
+  const add=(id,roll)=>site.rows.Journal.push([site.now(),'Proof submitted','Player',JSON.stringify({
+    attempts:[{id,roll,kind:'pre',status:'REVIEW',wave:0,fee:site.staff('publicInfo',[]).offer.amount,suffix:id.slice(-4)}],note:id
+  })]);
+  add('1000000000000001',player.roll);
+  await page.clock.install({time:new Date(site.now())});
+  await page.setViewportSize({width:320,height:730});
+  await staffLogin(page,site,'admin');
+  const queue=page.getByRole('list',{name:'Payment queue'});
+  const row=queue.getByRole('button',{name:'Open payment for Sample Student'});
+  await expect(page.getByRole('navigation',{name:'Staff workspace'}).getByRole('button')).toHaveCount(5);
+  await expect(button(page,'Walk-in or paid retry')).toBeInViewport({ratio:1});
+  await expect(row).toBeInViewport({ratio:1});
+  await button(page,'Review next payment').press('Enter');
+  const dialog=page.getByRole('dialog',{name:'Sample Student'});
+  await expect(dialog).toBeVisible();
+  await button(page,'Approve and send code').click();
+  await expect(page.getByLabel('Full UPI bank reference')).toBeFocused();
+  await expect(dialog.getByRole('alert').filter({hasText:'12 digits'})).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(button(page,'Review next payment')).toBeFocused();
+
+  await row.focus();
+  site.rows.Students.push(['234000222','Asha Das','asha@example.test','']);
+  add('1000000000000002','234000222');
+  await page.clock.fastForward(16000);
+  await expect(queue.getByRole('button')).toHaveCount(2);
+  await expect(row).toBeFocused();
+  await button(page,'Review next payment').click();
+  await expect(dialog).toBeVisible();
+  await button(page,'Close').click();
+  await page.getByRole('searchbox',{name:'Search payments'}).fill('Asha');
+  await button(page,'Gate').click();
+  await expect(page.getByRole('searchbox',{name:'Find a player'})).toHaveValue('');
+  await button(page,'Payments').click();
+  await expect(page.getByRole('searchbox',{name:'Search payments'})).toHaveValue('Asha');
+  await expect(queue.getByRole('button')).toHaveCount(1);
+  await expect(queue.getByRole('button',{name:'Open payment for Asha Das'})).toBeVisible();
+  for(const [width,scheme] of [[320,'light'],[768,'dark'],[1366,'light']]){
+    await page.setViewportSize({width,height:820});await page.emulateMedia({colorScheme:scheme,reducedMotion:'reduce'});
+    await expect(button(page,'Payments')).toHaveAttribute('aria-current','page');
+    const sizes=await page.getByRole('navigation',{name:'Staff workspace'}).getByRole('button').evaluateAll(buttons=>buttons.map(b=>[b.offsetWidth,b.offsetHeight]));
+    expect(sizes.every(([w,h])=>w>=44&&h>=44)).toBe(true);
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+  }
+  await button(page,'Activity').click();
+  await expect(page.getByRole('heading',{name:'Recent activity'})).toBeVisible();
+  await expect(page.getByRole('main')).toContainText('Asha Das');
+  await button(page,'Sign out').click();
+  await expect(button(page,'Send code to club email')).toBeVisible();
+  await expect(page.getByRole('navigation',{name:'Staff workspace'})).toHaveCount(0);
+});
+
+test('gate and floor volunteers land directly on their phone task and floor ties are resolved inline',async({context,page,site})=>{
+  await page.setViewportSize({width:320,height:740});
+  await staffLogin(page,site,'gate');
+  await expect(heading(page,'Gate check-in')).toBeVisible();
+  await expect(page.getByRole('navigation',{name:'Staff workspace'})).toHaveCount(0);
+  await expect(page.getByRole('link',{name:/Scan entry QR/})).toBeInViewport({ratio:1});
+  await expect(button(page,'Settings')).toHaveCount(0);
+
+  site.at('2026-11-27T19:35:00+05:30');
+  const ids=['0000000000000100','0000000000000200'],rolls=[player.roll,'234000223'];
+  site.rows.Students.push([rolls[1],'Asha Nair','asha@example.test','']);
+  const fee=site.staff('publicInfo',[]).offer.amount;
+  const attempts=ids.map((id,i)=>({id,roll:rolls[i],kind:'pre',status:'PAID',fee,wave:0,used:true,seat:i+1,checkedInAt:site.now()}));
+  site.rows.Journal.push([site.now(),'Stage started','Fixture floor',JSON.stringify({attempts,
+    game:{next:0,history:[],active:{n:0,tables:[ids],tableNumbers:[1],started:site.now(),deadline:site.now()+1800000,winners:[],chips:{}}}
+  })]);
+  const floor=await context.newPage();await staffLogin(floor,site,'floor');
+  await expect(heading(floor,'Tournament floor')).toBeVisible();
+  await expect(floor.getByRole('navigation',{name:'Staff workspace'})).toHaveCount(0);
+  await expect(floor.getByRole('timer')).toHaveText(/^(30:00|29:\d\d)$/);
+  await button(floor,'Enter next result').click();
+  const tie=floor.getByLabel('Witnessed tiebreak winner');
+  await expect(tie).toBeHidden();
+  await floor.getByLabel('Sample Student').fill('10000');await floor.getByLabel('Asha Nair').fill('10000');
+  await expect(tie).toBeVisible();
+  await button(floor,'Save table result').click();await expect(tie).toBeFocused();
+  await tie.selectOption(ids[1]);await button(floor,'Save table result').click();
+  await expect(floor.getByRole('dialog')).toHaveCount(0);
+  await expect(button(floor,'Close stage')).toBeVisible();
+  await floor.getByRole('button',{name:/^Edit result for Table 1/}).click();
+  await expect(tie).toHaveValue(ids[1]);
+});
+
+test('the same edition reaches the public site and private gate in light and dark mode',async({page,site})=>{
+  async function checkTheme(mastSelector,artSelector,action){
+    const mast=page.locator(mastSelector),art=page.locator(artSelector);
+    await expect(art).toHaveAccessibleName('Poké Poker Night');
+    await expect.poll(()=>art.evaluate(img=>img.complete&&img.naturalWidth>0)).toBe(true);
+    const stripe=await mast.evaluate(el=>getComputedStyle(el,'::after').backgroundImage);
+    for(const color of ['rgb(197, 40, 61)','rgb(22, 70, 134)','rgb(255, 203, 5)'])expect(stripe).toContain(color);
+    if(action){
+      await expect(action).toHaveCSS('background-color','rgb(255, 203, 5)');
+      await expect(action).toHaveCSS('color','rgb(16, 41, 78)');
+      expect((await action.boundingBox()).height).toBeGreaterThanOrEqual(44);
+    }
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+  }
+  for(const [scheme,width] of [['light',1280],['dark',320]]){
+    await page.setViewportSize({width,height:800});await page.emulateMedia({colorScheme:scheme});
+    await page.goto(site.origin);await checkTheme('.home-mast','.hero-wordmark',page.getByRole('link',{name:'Sign in to register'}));
+    await page.goto(site.register);await checkTheme('.top','.appbar .event-wordmark',button(page,'Send code'));
+    await page.goto(site.floor);await expect(page.locator('#clock')).toBeVisible();await checkTheme('.top','.event-wordmark');
+    await staffLogin(page,site,'gate');await checkTheme('.top','.appbar .event-wordmark',page.getByRole('link',{name:/Scan entry QR/}));
+    await button(page,'Sign out').click();
+    await page.goto(site.origin+'/club?view=staff');await expect(heading(page,'Page unavailable')).toBeVisible();
+    await checkTheme('.top','.event-wordmark',page.getByRole('link',{name:'Return to event home'}));
+    await expect(page.locator('#deskNav')).toHaveCount(0);
+  }
 });

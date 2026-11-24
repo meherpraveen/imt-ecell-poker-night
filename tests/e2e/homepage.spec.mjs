@@ -9,7 +9,7 @@ const format=amount=>new Intl.NumberFormat('en-IN',{style:'currency',currency:pr
 test('the homepage updates both entry quotes at the cutoff and keeps its event links usable',async({page,site})=>{
   await page.clock.install({time:new Date(Date.parse(pricing.earlyBirdEndsAt)-3000)});
   await page.goto(site.origin);
-  const hero=page.getByRole('region',{name:'Poker Night',exact:true});
+  const hero=page.getByRole('region',{name:'Poké Poker Night',exact:true});
   const details=page.getByRole('region',{name:'Entry details'});
   await expect(hero.locator('[data-home-fee=entry]')).toHaveText(format(pricing.earlyBird));
   await expect(hero.locator('s')).toHaveText('Standard price '+format(pricing.standard));

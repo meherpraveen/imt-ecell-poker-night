@@ -1,10 +1,10 @@
 const {test}=require('node:test'),assert=require('node:assert/strict'),vm=require('node:vm'),fs=require('node:fs'),path=require('node:path'),crypto=require('node:crypto');
 function fixture(){
   let time=Date.parse('2026-11-25T12:00:00+05:30');class Clock extends Date{static now(){return time}}
-  const source=['Code','Floor','Auth'].map(n=>fs.readFileSync(path.join(__dirname,'../gas',n+'.gs'),'utf8')).join('\n');
+  const source=['Pricing','Code','Floor','Auth'].map(n=>fs.readFileSync(path.join(__dirname,'../gas',n+'.gs'),'utf8')).join('\n');
   const sent=[],loginMail=[],people={'123456789':{name:'Sample Player',email:'sample@example.test',phone:'9999999999'},'987654321':{name:'Second Player',email:'second@example.test',phone:''}};
   const properties=new Map([['KEY','fixture-only'],['FOLDER','folder']]);
-  const ctx={Date:Clock,console,CLUB_RESOURCES:{owner:'owner@example.test'},Utilities:{getUuid:crypto.randomUUID,computeHmacSha256Signature:(message,key)=>[...crypto.createHmac('sha256',key).update(message).digest()]},
+  const ctx={Date:Clock,console,ticketQrEncoder_:require('qrcode-generator'),CLUB_RESOURCES:{owner:'owner@example.test'},Utilities:{getUuid:crypto.randomUUID,base64Decode:s=>Array.from(Buffer.from(s,'base64')),newBlob:(bytes,type,name)=>({bytes,type,name}),computeHmacSha256Signature:(message,key)=>[...crypto.createHmac('sha256',key).update(message).digest()]},
     MailApp:{getRemainingDailyQuota:()=>100,sendEmail:(...m)=>(m[1].includes('sign-in')?loginMail:sent).push(m)},ScriptApp:{getService:()=>({getUrl:()=>''})}};
   vm.createContext(ctx);vm.runInContext(source,ctx);const st=ctx.fresh_(),audit=[];
   ctx.ledger_=()=>st;ctx.locked_=fn=>fn();ctx.commit_=(s,kind,actor,p)=>{audit.push([kind,actor,p]);ctx.apply_(s,JSON.parse(JSON.stringify(p)))};
@@ -55,7 +55,7 @@ test('registration opens on 23 November even before payments and on-site pricing
   const walk=hold(f,'987654321');assert.equal(walk.fee,199);
   Object.assign(settings,{name:'Example Club',upi:'club@example',published:true});
   assert.equal(status(f,pre.ticket).canCheckout,true);
-  const seat=checkout(f,pre.ticket);assert.equal(seat.status,'HOLD');assert.equal(seat.fee,149);assert.equal(seat.wave,1);
+  const seat=checkout(f,pre.ticket);assert.equal(seat.status,'HOLD');assert.equal(seat.fee,199);assert.equal(seat.wave,1);
   assert.equal(checkout(f,pre.ticket).expires,seat.expires);
   settings.open=false;assert.equal(f.ctx.publicInfo().open,false);
   f.at('2026-11-27T23:00:00+05:30');settings.open=true;
@@ -73,10 +73,10 @@ test('an unpaid registration goes to the waitlist when all 216 playing attempts 
 test('an on-site verification reuses a saved pre-registration and checks the quoted fee',()=>{
   const f=fixture();f.ctx.settings_=()=>({open:true,published:false,upi:'',name:'',qrFile:''});const saved=hold(f);
   f.at('2026-11-27T19:05:00+05:30');
-  assert.throws(()=>f.ctx.deskPayment('desk','123456789','walk','012345678901',true,199));
-  const pay=()=>f.ctx.deskPayment('desk','123456789','walk','012345678901',true,149);
+  assert.throws(()=>f.ctx.deskPayment('desk','123456789','walk','012345678901',true,149));
+  const pay=()=>f.ctx.deskPayment('desk','123456789','walk','012345678901',true,199);
   assert.equal(pay().id,saved.id);assert.equal(pay().id,saved.id);assert.equal(f.sent.length,1);
-  assert.equal(status(f,saved.ticket).status,'PAID');assert.equal(f.st.attempts[saved.id].fee,149);
+  assert.equal(status(f,saved.ticket).status,'PAID');assert.equal(f.st.attempts[saved.id].fee,199);
 });
 test('only admins can upload, publish, replace or remove the private payment QR',()=>{
   const f=fixture(),c=f.ctx,files=new Map();
@@ -247,7 +247,7 @@ test('event sign-in issues one private desk transfer only after the configured o
   const reply=ctx.requestEventCode('  '+owner.toUpperCase()+' ');
   assert.deepEqual(reply,unknown);
   const [recipient,subject,body,options]=loginMail.at(-1);
-  assert.equal(recipient,owner);assert.equal(subject,'Poker Night 2026 admin sign-in code');
+  assert.equal(recipient,owner);assert.equal(subject,'Poké Poker Night 2026 admin sign-in code');
   assert.match(body,/event sign-in page/);assert.doesNotMatch(body+options.htmlBody,/https?:\/\/|href=/);
   const code=mailDigits(loginMail);
   assert.throws(()=>ctx.verifyOwnerCode(invite,code),/incorrect/);
@@ -305,25 +305,87 @@ test('sign-in and pass emails carry the same club identity and readable Outlook 
   assert.equal(sent.length,2);
   for(const [to,subject,plain,options] of [...signIns,...sent]) {
     assert.ok(['sample@example.test','owner@example.test'].includes(to));
-    assert.equal(options.name,'Poker Night 2026');assert.equal(options.replyTo,'owner@example.test');
+    assert.equal(options.name,'Poké Poker Night 2026');assert.equal(options.replyTo,'owner@example.test');
     assert.match(plain,/Entrepreneurship Cell, IMT Ghaziabad/);assert.match(options.htmlBody,/Entrepreneurship Cell, IMT Ghaziabad/);
-    assert.doesNotMatch(options.htmlBody,/<img|<script|<form|<iframe|url\(/i);
+    assert.doesNotMatch(options.htmlBody,/<script|<form|<iframe|url\(/i);
     const code=plain.match(/\b\d{6}\b|PN-[A-Z0-9]{16}/)[0];
     assert.ok(options.htmlBody.includes(code));assert.ok(!subject.includes(code));
   }
   for(const [to,subject,plain,options] of signIns) {
-    assert.equal(subject,to===admin.ctx.CLUB_RESOURCES.owner?'Poker Night 2026 private desk sign-in code':'Poker Night 2026 sign-in code');
+    assert.equal(subject,to===admin.ctx.CLUB_RESOURCES.owner?'Poké Poker Night 2026 private desk sign-in code':'Poké Poker Night 2026 sign-in code');
     assert.match(plain,/10 minutes/);assert.match(options.htmlBody,/10 minutes/);
+    assert.doesNotMatch(options.htmlBody,/<img/i);assert.equal(options.inlineImages,undefined);
     assert.doesNotMatch([plain,options.htmlBody].join('\n'),/https?:\/\/|href=/i);
   }
   assert.match(signIns[1][2],/private E-Cell desk/);
   for(const [index,[,subject,plain,options]] of sent.entries()) {
-    assert.equal(subject,'Poker Night 2026 '+(index?'retry':'entry')+' pass');
+    assert.equal(subject,'Poké Poker Night 2026 '+(index?'retry':'entry')+' pass');
     const code=plain.match(/PN-[A-Z0-9]{16}/)[0];
     const url='https://meherpraveen.github.io/imt-ecell-poker-night/event.html?view=pass#code='+code;
     assert.ok(plain.includes(url));assert.ok(options.htmlBody.includes('href="'+url+'"'));
+    assert.match(options.htmlBody,/<img src="cid:entryQr"/);
+    const qr=require('qrcode-generator')(0,'M');qr.addData(code);qr.make();
+    assert.equal(Buffer.from(options.inlineImages.entryQr.bytes).toString('base64'),qr.createDataURL(8,32).split(',')[1]);
     assert.equal((options.htmlBody.match(/href=/g)||[]).length,1);
   }
+});
+test('at the Early Bird boundary unpaid holds expire, waitlist offers reprice and submitted proofs keep their amount',()=>{
+  const f=fixture(),c=f.ctx;
+  f.at('2026-11-27T18:59:59+05:30');
+  const early=hold(f),other=pending(f,'987654321','4444');
+  assert.equal(early.expires,early.offer.endsAt);assert.equal(early.offer.early,true);
+  // Previous releases could have given this hold another fifteen minutes.
+  f.st.attempts[early.id].expires+=900000;
+  f.at('2026-11-27T19:00:00+05:30');
+  const expired=status(f,early.ticket);
+  assert.equal(expired.status,'EXPIRED');assert.equal(expired.upi,'');assert.equal(expired.offer.early,false);
+  assert.throws(()=>c.playerUpload(f.sessionFor(),early.ticket,'',''),/hold ended/);
+  const fresh=hold(f);assert.equal(fresh.fee,199);
+  const waiting=f.st.attempts[fresh.id];Object.assign(waiting,{status:'WAITLIST',wave:-1,fee:149});
+  c.releaseSeat('desk',waiting.id,'move');assert.equal(status(f,fresh.ticket).fee,199);
+  c.staffApprove('admin',other.id,'000000004444',true);assert.equal(status(f,other.ticket).fee,149);
+});
+test('unpaid, malformed and closed tickets produce the same gate result without consuming a seat',()=>{
+  const f=fixture(),c=f.ctx,r=pending(f),op=crypto.randomUUID();
+  for(const code of ['', 'unrelated', 'PN-ZZZZZZZZZZZZZZZZ', c.pass_(r.id)]){
+    assert.equal(JSON.stringify(c.gateAction('gate','admit',code,op)),'{"status":"invalid"}');
+  }
+  c.staffApprove('admin',r.id,'123456786789',true);c.releaseSeat('desk',r.id,'no-show');
+  assert.equal(c.gateAction('gate','admit',c.pass_(r.id),op).status,'invalid');
+  assert.equal(f.audit.filter(([kind])=>kind==='Gate admit').length,0);
+  assert.equal(Object.keys(f.st.venue).length,0);
+});
+test('legacy journal admissions retain the first time and seat across later snapshots and exits',()=>{
+  const {ctx}=fixture(),st=ctx.fresh_(),time=12345678;
+  const a={id:'a',roll:'123456789',wave:0,status:'PAID',used:true};
+  ctx.apply_(st,{attempts:[{...a}]},'Gate admit',time);
+  ctx.apply_(st,{attempts:[{...a,status:'QUALIFIED'}]},'Stage closed',time+1000);
+  ctx.apply_(st,{attempts:[{...a,id:'b',roll:'987654321'}]},'Gate admit',time+2000);
+  assert.equal(st.attempts.a.checkedInAt,time);assert.equal(st.attempts.a.seat,1);assert.equal(st.attempts.b.seat,2);
+});
+test('gate seating survives gaps and the qualifier draw cannot swap assigned seats',()=>{
+  const f=fixture(),c=f.ctx;
+  for(let i=1;i<=8;i++){
+    const id='player'+i,roll=String(100000000+i);
+    f.st.attempts[id]={id,roll,wave:0,used:true,seat:i,status:'PAID'};
+    f.st.venue[roll]={where:i>=7?'IN':'OUT'};
+  }
+  const draft=c.gamePreview('floor');
+  assert.equal(draft.tableNumbers[0],2);assert.equal(draft.seats.player7,7);
+  assert.throws(()=>c.startStage('floor',0,[['player8','player7']]),/Gate seats/);
+  c.startStage('floor',0,draft.tables);
+  const board=c.publicFloor_(f.st);assert.equal(board.tables[0].name,'Tide');assert.deepEqual(Array.from(board.tables[0].seats),[7,8]);
+  f.st.attempts.late={id:'late',roll:'999999999',wave:0,status:'PAID',used:false};
+  assert.equal(c.gateAction('gate','admit',c.pass_('late'),'late-ticket').status,'invalid');
+});
+test('a phone camera capability allows admission only while its issuing gate session is active',()=>{
+  const {ctx,rows}=staffFixture(),key=rows[0][2];
+  const session=ctx.staffLogin(key,ctx.staffInvite_(key));
+  const access=new URLSearchParams(new URL(ctx.scannerLink_(session.token)).hash.slice(1)).get('access');
+  const scan=()=>ctx.scanEntryTicket(access,'unknown','camera-test');
+  assert.equal(scan().status,'invalid');assert.throws(()=>ctx.staff_(access,['gate']));assert.throws(()=>ctx.playerHome(access,''));
+  assert.throws(()=>ctx.scanEntryTicket('bad','unknown','camera-test'),/sign in/i);
+  rows[0][3]='no';assert.throws(scan);rows[0][3]='yes';ctx.staffLogout(session.token);assert.throws(scan,/sign in/i);
 });
 function staffFixture(){
   const f=fixture(),{ctx,actualStaff}=f;
@@ -366,7 +428,10 @@ test('the one-time staff link migration can be retried and returns only public r
   ctx.book_=()=>({getSheetByName:name=>name==='Staff'?staff:null});
   let runs=0;
   ctx.syncStaffLinks_=sheet=>{assert.equal(sheet,staff);return ++runs>1};
-  for(let n=0;n<3;n++)assert.equal(JSON.stringify(ctx.publicInfo()),'{"open":true,"paymentsReady":true}');
+  for(let n=0;n<3;n++){
+    const info=ctx.publicInfo(),offer=ctx.entryOffer_(ctx.Date.now());
+    assert.equal(JSON.stringify(info),JSON.stringify({open:true,paymentsReady:true,offer,fee:offer.amount}));
+  }
   assert.equal(runs,2);
 });
 test('existing staff receive private links alongside their keys without replacing other columns',()=>{
@@ -394,7 +459,19 @@ test('a verified student creates one private hold without revealing contact or p
 test('partial references never approve and a wrong visible suffix blocks approval',()=>{const f=fixture(),r=pending(f);for(const ref of ['6789','000000001234'])assert.throws(()=>f.ctx.staffApprove('admin',r.id,ref,true));assert.throws(()=>f.ctx.staffApprove('admin',r.id,'000000006789',false));assert.equal(f.sent.length,0)});
 test('approval is idempotent, mails only registered contact and rejects a reused bank reference',()=>{const f=fixture(),a=pay(f);assert.equal(f.sent.length,1);assert.equal(f.sent[0][0],'sample@example.test');f.ctx.staffApprove('admin',a.id,a.utr,true);assert.equal(f.sent.length,1);const r=pending(f,'987654321');assert.throws(()=>f.ctx.staffApprove('admin',r.id,a.utr,true));assert.throws(()=>f.ctx.staffApprove('gate',r.id,a.utr,true))});
 test('missing email preserves paid code for ID-checked desk delivery',()=>{const f=fixture(),r=pending(f,'987654321');f.people['987654321'].email='';f.ctx.staffApprove('admin',r.id,'123456786789',true);const a=f.st.attempts[r.id];assert.equal(a.delivery,'Desk delivery needed');assert.equal(f.sent.length,0);assert.equal(f.ctx.staffPass('desk',a.id,false).code,f.ctx.pass_(a.id))});
-test('single use gate, exit and wristband return count one person',()=>{const f=fixture(),a=pay(f),code=f.ctx.pass_(a.id);assert.equal(f.ctx.gateAction('gate','admit',code,'fixture-01'),'Recorded inside');assert.equal(f.ctx.gateAction('gate','admit',code,'fixture-01'),'Already recorded');assert.throws(()=>f.ctx.gateAction('gate','admit',code,'fixture-02'));f.ctx.gateAction('gate','exit',a.roll,'fixture-03');f.ctx.gateAction('gate','return',a.roll,'fixture-04');assert.equal(Object.keys(f.st.venue).length,1);assert.equal(f.st.venue[a.roll].where,'IN');assert.equal(f.ctx.passInfo(code).used,true)});
+test('single use gate, exit and wristband return count one person and keep the original scan',()=>{
+  const f=fixture(),a=pay(f),code=f.ctx.pass_(a.id);
+  const admit=op=>f.ctx.gateAction('gate','admit',code,op);
+  const first=admit('fixture-01');assert.equal(first.status,'admitted');assert.equal(first.seat,1);assert.equal(first.player,'Sample Player');
+  f.at('2026-11-25T13:00:00+05:30');
+  for(const op of ['fixture-01','fixture-02']){
+    const repeat=admit(op);assert.equal(repeat.status,'used');assert.equal(repeat.checkedInAt,first.checkedInAt);assert.equal(repeat.seat,first.seat);
+  }
+  f.ctx.gateAction('gate','exit',a.roll,'fixture-03');f.ctx.gateAction('gate','return',a.roll,'fixture-04');
+  assert.equal(Object.keys(f.st.venue).length,1);assert.equal(f.st.venue[a.roll].where,'IN');
+  assert.equal(f.ctx.passInfo(code).code,'');assert.equal(f.ctx.passInfo(code).seat,1);
+  assert.equal(f.audit.filter(([kind])=>kind==='Gate admit').length,1);
+});
 test('216 held attempts fill six waves, next student waitlists with no payment address',()=>{const f=fixture();for(let i=0;i<216;i++){const roll=String(200000000+i);f.people[roll]={email:roll+'@example.test'};const r=hold(f,roll);assert.equal(r.wave,Math.floor(i/36)+1)}const r=hold(f);assert.equal(r.status,'WAITLIST');assert.equal(r.upi,'');});
 test('expired holds release capacity, wrong roles cannot see screenshots or issue pass',()=>{const f=fixture(),r=hold(f);f.at('2026-11-25T12:16:00+05:30');assert.equal(status(f,r.ticket).status,'EXPIRED');assert.equal(hold(f).wave,1);assert.throws(()=>f.ctx.proofImage('floor',r.id));assert.throws(()=>f.ctx.staffPass('gate',r.id,false));});
 test('walk-ins stop at 11, eliminated players can buy one later retry, reentry leaves inside count alone',()=>{const f=fixture(),a=pay(f);f.at('2026-11-27T23:12:00+05:30');assert.throws(()=>f.ctx.deskPayment('desk',a.roll,'retry','000000001222',true));f.ctx.gateAction('gate','admit',f.ctx.pass_(a.id),'fixture-in1');f.st.attempts[a.id].status='ELIMINATED';f.st.game.next=1;assert.throws(()=>f.ctx.deskPayment('desk','987654321','walk','000000001111',true));const k=f.ctx.deskPayment('desk',a.roll,'retry','000000001222',true);assert.equal(f.st.attempts[k.id].wave,1);assert.equal(f.st.attempts[k.id].fee,149);assert.notEqual(f.ctx.pass_(k.id),f.ctx.pass_(a.id));f.ctx.gateAction('gate','admit',f.ctx.pass_(k.id),'fixture-in2');assert.equal(Object.keys(f.st.venue).length,1)});

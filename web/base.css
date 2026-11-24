@@ -1,18 +1,48 @@
 :root {
-  color-scheme: dark;
-  --bg: #0c1011;
-  --panel: #171d20;
-  --edge: #465153;
-  --ink: #f5f1e9;
-  --muted: #b7c2bf;
-  --signal: #f5c77e;
-  --cyan: #a4dcd0;
-  --red: #ff9aa3;
-  --display: "Archivo Black", "Arial Black", "Segoe UI", sans-serif;
-  --serif: "Baskervville", Georgia, "Times New Roman", serif;
-  --sans: "DM Sans", "Segoe UI", Arial, sans-serif;
-  --mono: "IBM Plex Mono", Consolas, "Courier New", monospace;
+  color-scheme: light dark;
+  --poke-yellow: #ffcb05;
+  --poke-blue: #164686;
+  --poke-red: #c5283d;
+  --navy: #10294e;
+  --mast: #142e54;
+  --mast-type: #fff;
+  --mast-muted: #d2e0f4;
+  --mast-rule: #4b6489;
+  --edition-stripe: linear-gradient(90deg,var(--poke-red) 0 18%,var(--poke-blue) 18% 71%,var(--poke-yellow) 71% 100%);
+  --bg: #f5f7fb;
+  --panel: #fff;
+  --soft: #edf2fa;
+  --edge: #cfd9e7;
+  --field-edge: #788aa4;
+  --ink: #162b48;
+  --muted: #4e5f77;
+  --accent: var(--poke-blue);
+  --accent-ink: #fff;
+  --accent-soft: #e4edfc;
+  --primary: var(--poke-yellow);
+  --primary-ink: var(--navy);
+  --primary-edge: #af8500;
+  --primary-hover: #ffda49;
+  --offer-bg: #fffae9;
+  --offer-edge: #e8d89a;
+  --red: #a72035;
+  --red-soft: #fff0f2;
+  --shadow: 0 7px 27px -17px #19355440;
+  --cyan: var(--accent);
+  --signal: var(--primary);
+  --sans: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, "SFMono-Regular", Consolas, monospace;
   font-family: var(--sans);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --mast: #101f39;
+    --bg: #101a2c; --panel: #19273d; --soft: #21324b; --edge: #374b68;
+    --field-edge: #8497b3; --ink: #f2f5ff; --muted: #b7c5da;
+    --accent: #a8caff; --accent-ink: #10294e; --accent-soft: #243e61;
+    --offer-bg: #302c20; --offer-edge: #655733; --red: #ffacb5; --red-soft: #432938;
+    --shadow: 0 9px 27px -18px #020812bd;
+  }
 }
 * {box-sizing: border-box}
 html {scroll-behavior: smooth; scroll-padding-top: 16px}
@@ -24,36 +54,39 @@ h1, h2, h3, figure {margin: 0}
 [hidden] {display: none !important}
 :focus-visible {outline: 3px solid var(--cyan); outline-offset: 4px}
 .wrap {width: min(1180px, 90%); margin-inline: auto}
-.top {color: var(--ink); background: #0c1011; border-bottom: 1px solid #ffffff1f}
+.top,.home-mast {position: relative; background: var(--mast); color: var(--mast-type)}
+.top::after,.home-mast::after {content: ""; pointer-events: none; position: absolute; inset: auto 0 0; height: 3px; background: var(--edition-stripe)}
+.top :focus-visible,.home .home-mast a:focus-visible {outline-color: var(--poke-yellow)}
+.event-lockup {display: flex; align-items: center; padding-left: 12px; border-left: 1px solid var(--mast-rule)}
+.event-wordmark {display: block; width: 111px; height: auto}
+@media (max-width: 480px) {.event-wordmark {width: 92px}.event-lockup {padding-left: 8px}}
 .nav, .appbar, footer .wrap {display: flex; align-items: center; justify-content: space-between; gap: 1rem}
 .nav, .appbar {min-height: 76px}
 .brand {display: inline-flex; align-items: center; gap: 1.1rem; text-decoration: none}
 .club-logo {flex: none; display: block; width: 61px; height: auto}
-.brand-event {display: block; color: var(--ink); padding-left: 1.05rem; border-left: 1px solid #41484a; font: 700 1.05rem/1.1 var(--sans); white-space: nowrap}
-.brand-event small {display: block; margin-top: .26rem; font: 600 .64rem/1 var(--mono); color: var(--muted); letter-spacing: .065em; text-transform: uppercase}
 .nav nav {display: flex; gap: clamp(.8rem, 2.2vw, 2rem); align-items: center}
 .nav nav a, footer a {text-decoration: none; font-size: .92rem; font-weight: 600}
 .nav nav a:hover, footer a:hover {text-decoration: underline; text-underline-offset: 4px}
-.nav-floor {padding: .45rem .9rem; border: 1px solid #55605e; border-radius: 4px; white-space: nowrap}
+.nav-floor {padding: .45rem .9rem; border: 1px solid var(--mast-rule); border-radius: 4px; white-space: nowrap}
 .nav-floor span {margin-left: .25rem; color: var(--signal)}
 .eyebrow, .app-label {font: 700 .76rem/1.4 var(--mono); letter-spacing: .105em; text-transform: uppercase}
 .eyebrow {color: var(--cyan); margin: 0 0 .8rem}
 .app-label {color: var(--muted); text-align: right; letter-spacing: .045em}
 .app-label span {margin: 0 .25rem; color: var(--signal)}
 .button, button {display: inline-flex; align-items: center; justify-content: center; gap: .65rem; cursor: pointer; min-height: 44px; padding: .72rem 1.08rem; border: 1px solid var(--edge); border-radius: 5px; font: 700 1rem/1.2 var(--sans); text-decoration: none; color: var(--ink); background: var(--panel)}
-.primary, button.primary {color: #20190e; background: var(--signal); border-color: var(--signal)}
-.secondary {border-color: #69736e; background: #151b19; color: var(--ink)}
+.primary, button.primary {color: var(--primary-ink); background: var(--primary); border-color: var(--primary-edge)}
+.secondary {border-color: var(--field-edge); background: var(--panel); color: var(--ink)}
 .button:hover, button:enabled:hover {filter: brightness(1.08)}
-.sponsors {color: var(--ink); background: #131819; border-block: 1px solid #2e3536}
+.sponsors {color: var(--ink); background: var(--soft); border-block: 1px solid var(--edge)}
 .sponsor-inner {display: flex; gap: clamp(1.6rem, 3.4vw, 3.4rem); align-items: center; padding-block: 1.45rem}
 .sponsors h2 {flex: none; color: var(--muted); font: 700 .73rem/1.4 var(--mono); text-transform: uppercase; letter-spacing: .12em}
 .partner-list {list-style: none; flex: 1; min-width: 0; display: grid; grid-template-columns: repeat(5,minmax(0,1fr)); gap: clamp(.55rem, 2vw, 2rem); padding: 0; margin: 0}
 .partner-list li {min-width: 0; display: grid; place-items: center}
-.partner-art {width: min(100%, 132px); height: 48px; display: flex; align-items: center; justify-content: center; flex-direction: column; border-radius: 4px; padding: 5px 10px; background: #eeede5; isolation: isolate}
+.partner-art {width: min(100%, 132px); height: 48px; display: flex; align-items: center; justify-content: center; flex-direction: column; border-radius: 4px; padding: 5px 10px; background: #f5f6fa; isolation: isolate}
 .partner-art img {display: block; width: 100%; height: 100%; object-fit: contain; mix-blend-mode: multiply}
 .partner-art .disha-logo {height: 22px}
 .disha-name {color: #3f3033; text-align: center; font-size: .68rem; line-height: 1.3; font-weight: 700}
-footer {padding: 1.25rem 0; background: #0c1011; color: var(--muted); border-top: 1px solid #303737}
+footer {padding: 1.25rem 0; background: var(--bg); color: var(--muted); border-top: 1px solid var(--edge)}
 footer .wrap {flex-wrap: wrap; font-size: .9rem}
 @media (max-width: 840px) {
   .sponsor-inner {display: block}
@@ -72,11 +105,10 @@ footer .wrap {flex-wrap: wrap; font-size: .9rem}
   .partner-art .disha-logo {height: 18px}
   .disha-name {font-size: .63rem}
 }
-@media (max-width: 560px) {.brand {gap: .65rem}.brand-event {padding-left: .65rem}}
+@media (max-width: 560px) {.brand {gap: .65rem}}
 @media (max-width: 390px) {
   .wrap {width: calc(100% - 28px)}
   .nav {gap: .4rem}
-  .brand-event small {display: none}
   .nav-floor {padding-inline: .55rem}
   .nav nav {gap: .6rem}
   .nav nav a:first-child {display: none}

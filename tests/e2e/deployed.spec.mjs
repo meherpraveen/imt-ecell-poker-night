@@ -9,11 +9,12 @@ test('published navigation, mobile startup, live floor and backend validation @d
   await page.goto(site);await expect(page.getByRole('link',{name:'Sign in to register'})).toBeVisible();
   const clubLogo=page.getByAltText('Entrepreneurship Cell, IMT Ghaziabad');
   await expect(clubLogo).toBeVisible();await expect.poll(()=>clubLogo.evaluate(img=>img.naturalWidth)).toBeGreaterThan(100);
-  const hero=page.getByRole('region',{name:'Poker Night',exact:true});
-  await expect(hero.getByRole('heading',{name:'Poker Night'})).toBeVisible();
-  await expect(hero.locator('img,picture')).toHaveCount(0);
+  const hero=page.getByRole('region',{name:'Poké Poker Night',exact:true});
+  await expect(hero.getByRole('heading',{name:'Poké Poker Night'})).toBeVisible();
+  const wordmark=hero.getByRole('img',{name:'Poké Poker Night',exact:true});
+  await expect(wordmark).toBeVisible();
+  await expect.poll(()=>wordmark.evaluate(img=>img.complete&&img.naturalWidth>0)).toBe(true);
   await expect(hero.getByRole('link',{name:'Sign in to register'})).toBeInViewport({ratio:1});
-  await expect(page.getByText('Pokédex',{exact:true})).toBeVisible();
   const sponsors=page.getByRole('region',{name:'Sponsored by'});await sponsors.scrollIntoViewIfNeeded();
   await expect(sponsors.locator('img')).toHaveCount(5);
   await expect.poll(()=>sponsors.locator('img').evaluateAll(imgs=>imgs.every(img=>img.complete&&img.naturalWidth>0))).toBe(true);
@@ -33,7 +34,7 @@ test('published navigation, mobile startup, live floor and backend validation @d
   ]));
   for(const message of validation)expect(message).toContain('nine-digit roll number');
   await page.getByLabel('Roll number or registered email').fill('invalid');
-  await page.getByRole('button',{name:'Send code',exact:true}).click();await expect(page.locator('#msg')).toContainText('nine-digit');
+  await page.getByRole('button',{name:'Send code',exact:true}).click();await expect(page.locator('#identifierError')).toContainText('nine-digit');
   // Resume the public code-entry screen with local test state. This checks the live UI without sending mail.
   await page.evaluate(()=>sessionStorage.setItem('pn26:email-step',JSON.stringify({identifier:'preview@example.invalid',resendAt:Date.now()+60000,expires:Date.now()+600000})));
   await page.reload();const junk=page.getByRole('link',{name:'Open Outlook Junk Email'});

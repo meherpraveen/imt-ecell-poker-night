@@ -7,6 +7,13 @@ function seated_(st,n){
   return prior.flatMap(h=>h.winners).filter(id=>{const a=st.attempts[id];return a&&a.status==='QUALIFIED'&&inside(a)});
 }
 function layout_(st,n,ids){
+  if(n<WAVES&&ids.every(id=>st.attempts[id].seat)){
+    const assigned=Array.from({length:TABLES.length},()=>[]);
+    for(const id of ids.slice().sort((a,b)=>st.attempts[a].seat-st.attempts[b].seat)){
+      assigned[Math.floor((st.attempts[id].seat-1)/6)].push(id);
+    }
+    return assigned.filter(table=>table.length);
+  }
   const count=n===7?1:Math.min(6,Math.max(1,Math.ceil(ids.length/6))),tables=Array.from({length:count},()=>[]);
   const previous=new Map();
   for(const h of st.game.history)for(const t of h.tables)for(const id of t)previous.set(id,new Set([...(previous.get(id)||[]),...t]));
@@ -18,11 +25,14 @@ function layout_(st,n,ids){
   }
   return tables;
 }
+function tableNumbers_(st,n,tables){
+  return tables.map((t,i)=>n<WAVES&&st.attempts[t[0]]?.seat?Math.ceil(st.attempts[t[0]].seat/6):i+1);
+}
 function publicFloor_(st){
   const g=st.game,h=g.active||g.history[g.history.length-1];
   const ranks=(h?Object.entries(h.chips||{}):[]).sort((a,b)=>b[1]-a[1]).map(([id,chips])=>({alias:alias_(id),chips}));
   return {now:Date.now(),title:h?stageName_(h.n):'Round 1 · Qualifiers',state:g.active?'Running':g.next===8?'Finished':g.history.length?'Between rounds':'Awaiting first seating',
-    deadline:g.active?g.active.deadline:0,next:g.next<8?stageName_(g.next):'',tables:h?h.tables.map((t,i)=>({name:TABLES[i],players:t.map(alias_),winner:(h.winners||[]).some(id=>t.includes(id))})):[],
+    deadline:g.active?g.active.deadline:0,next:g.next<8?stageName_(g.next):'',tables:h?h.tables.map((t,i)=>({name:TABLES[(h.tableNumbers?.[i]||i+1)-1],players:t.map(alias_),seats:h.n<WAVES?t.map(id=>st.attempts[id].seat||null):[],winner:(h.winners||[]).some(id=>t.includes(id))})):[],
     leaderboard:ranks.slice(0,12),champion:g.next===8&&h.winners.length?alias_(h.winners[0]):''};
 }
 function cacheFloorChange_(st){
@@ -43,13 +53,14 @@ function liveFloor(){
   try{if(cache)cache.put(key,JSON.stringify(current),30)}catch{}
   return current;
 }
-function gamePreview(token){staff_(token,['floor']);const st=ledger_(),n=st.game.next;must_(n<8&&!st.game.active,'Finish the current stage first.');const ids=seated_(st,n),people=roster_();return {n,title:stageName_(n),tables:layout_(st,n,ids),names:Object.fromEntries(ids.map(id=>[id,people[st.attempts[id].roll]?.name||alias_(id)]))}}
+function gamePreview(token){staff_(token,['floor']);const st=ledger_(),n=st.game.next;must_(n<8&&!st.game.active,'Finish the current stage first.');const ids=seated_(st,n),people=roster_(),tables=layout_(st,n,ids);return {n,title:stageName_(n),tables,tableNumbers:tableNumbers_(st,n,tables),seats:Object.fromEntries(ids.map(id=>[id,st.attempts[id].seat||null])),names:Object.fromEntries(ids.map(id=>[id,people[st.attempts[id].roll]?.name||alias_(id)]))}}
 function startStage(token,n,tables){
   const staff=staff_(token,['floor']);return locked_(()=>{const st=ledger_(),g=st.game;must_(n===g.next&&n<8&&!g.active,'The floor has changed. Refresh the draw.');
     const ids=seated_(st,n),all=tables.flat();
     must_(Array.isArray(tables)&&tables.length>=1&&tables.length<=(n===7?1:6)&&tables.every(t=>Array.isArray(t)&&t.length>=1&&t.length<=6),'Use 1–6 seats at each active table.');
     must_(all.length===ids.length&&new Set(all).size===all.length&&ids.every(id=>all.includes(id)),'Use each eligible, checked-in player exactly once. Refresh the draw after a gate change.');
-    const now=Date.now(),active={n,tables,started:now,deadline:now+(n===7?60:30)*60000,chips:{},winners:[]};
+    if(n<WAVES)must_(JSON.stringify(tables)===JSON.stringify(layout_(st,n,ids)),'Gate seats have changed. Refresh the draw.');
+    const now=Date.now(),active={n,tables,tableNumbers:tableNumbers_(st,n,tables),started:now,deadline:now+(n===7?60:30)*60000,chips:{},winners:[]};
     commit_(st,'Stage started',staff.name,{game:{...g,active},note:stageName_(n)});return true;
   });
 }
@@ -66,7 +77,7 @@ function tableResult(token,n,index,counts,tieWinner){
     must_(leaders.length===1||leaders.includes(tieWinner),'Confirm the witnessed tiebreak winner from the tied chip leaders.');
     const winner=leaders.length===1?leaders[0]:tieWinner;
     const active={...h,chips:{...h.chips,...counts},winners:[...h.winners.filter(id=>!ids.includes(id)),winner]};
-    commit_(st,'Table result',s.name,{game:{...g,active},note:stageName_(n)+' · '+TABLES[index]});return true;
+    commit_(st,'Table result',s.name,{game:{...g,active},note:stageName_(n)+' · '+TABLES[(h.tableNumbers?.[index]||index+1)-1]});return true;
   });
 }
 function finishStage(token,n){
@@ -85,13 +96,14 @@ function staffSnapshot(token){
   for(const a of as){if(a.digest)digestHits[a.digest]=(digestHits[a.digest]||0)+1}
   for(const a of as){if(!a.suffix)continue;const end=a.suffix.slice(-4);suffixHits[end]=(suffixHits[end]||0)+1}
   const records=as.slice().reverse().filter(a=>finance||issued_(a)).map(a=>{
-    const r={id:a.id,roll:a.roll,name:students[a.roll]?.name||'',kind:a.kind,status:a.status==='HOLD'&&a.expires<=Date.now()?'EXPIRED':a.status,wave:a.wave+1,used:a.used,where:st.venue[a.roll]?.where||'NEVER'};
+    const r={id:a.id,roll:a.roll,name:students[a.roll]?.name||'',kind:a.kind,status:a.status==='HOLD'&&holdEnd_(a)<=Date.now()?'EXPIRED':a.status,wave:a.wave+1,used:a.used,seat:a.seat||null,where:st.venue[a.roll]?.where||'NEVER'};
     if(finance||staff.role==='gate')r.phone=students[a.roll]?.phone||'';
-    if(finance)Object.assign(r,{fee:a.fee,suffix:a.suffix||'',utr:a.utr||'',image:!!a.file,sameImage:!!(a.digest&&digestHits[a.digest]>1),sameTail:!!(a.suffix&&suffixHits[a.suffix.slice(-4)]>1),delivery:a.delivery||''});
+    if(finance)Object.assign(r,{fee:quotedFee_(a,Date.now()),suffix:a.suffix||'',utr:a.utr||'',image:!!a.file,sameImage:!!(a.digest&&digestHits[a.digest]>1),sameTail:!!(a.suffix&&suffixHits[a.suffix.slice(-4)]>1),delivery:a.delivery||''});
     return r;
   });
   return {role:staff.role,label:staff.name,records,stats:{checked:places.length,inside:places.filter(v=>v.where==='IN').length,out:places.filter(v=>v.where==='OUT').length,
     noShow:new Set(as.filter(a=>a.status==='NO_SHOW').map(a=>a.roll)).size,pending:as.filter(a=>a.status==='REVIEW').length},
+    scannerUrl:finance||staff.role==='gate'?scannerLink_(token):'',offer:entryOffer_(Date.now()),retryFee:ENTRY_PRICING.retry,
     board:publicFloor_(st),game:floor?{next:st.game.next,active:st.game.active}:null,
     settings:staff.role==='admin'?adminSettingsView_(settings_()):null,audit:staff.role==='admin'?st.audit.slice().reverse():[]};
 }
