@@ -270,7 +270,7 @@ test('event sign-in issues one private desk transfer only after the configured o
   assert.deepEqual(reply,unknown);
   const [recipient,subject,body,options]=loginMail.at(-1);
   assert.equal(recipient,owner);assert.equal(subject,'Poké Poker Night 2026 admin sign-in code');
-  assert.match(body,/event sign-in page/);assert.doesNotMatch(body+options.htmlBody,/https?:\/\/|href=/);
+  assert.match(body,/event sign-in page/);assert.doesNotMatch(body,/https?:\/\//);assert.equal(options.htmlBody,undefined);
   const code=mailDigits(loginMail);
   assert.throws(()=>ctx.verifyOwnerCode(invite,code),/incorrect/);
   assert.throws(()=>ctx.signInPlayer(owner,code,''),/incorrect/);
@@ -315,7 +315,7 @@ test('desk transfers expire or revoke with the staff row and public sends preser
 });
 
 function pay(f,roll='123456789',ref='123456786789'){const r=pending(f,roll,ref.slice(-4));f.ctx.staffApprove('admin',r.id,ref,true);return f.st.attempts[r.id]}
-test('sign-in and pass emails carry the same club identity and readable Outlook and text versions',()=>{
+test('all sign-in and pass emails use plain text, with one private link and a gate code on each pass',()=>{
   const f=fixture(), {ctx,loginMail,sent}=f;
   const paid=pay(f);
   f.st.attempts[paid.id].status='ELIMINATED';f.st.game.next=1;
@@ -323,32 +323,27 @@ test('sign-in and pass emails carry the same club identity and readable Outlook 
   ctx.deskPayment('desk',paid.roll,'retry','000000001222',true);
   const admin=staffFixture(), row=['owner@example.test','admin','d'.repeat(40),'yes'];
   admin.rows.push(row);admin.ctx.requestOwnerCode(admin.ctx.staffInvite_(row[2]));
-  const signIns=[loginMail[0],admin.loginMail[0]];
+  admin.ctx.requestEventCode(row[0]);
+  const signIns=[loginMail[0],...admin.loginMail];
+  assert.deepEqual(signIns.map(m=>m[1]),['Poké Poker Night 2026 sign-in code','Poké Poker Night 2026 private desk sign-in code','Poké Poker Night 2026 admin sign-in code']);
   assert.equal(sent.length,2);
   for(const [to,subject,plain,options] of [...signIns,...sent]) {
     assert.ok(['sample@example.test','owner@example.test'].includes(to));
     assert.equal(options.name,'Poké Poker Night 2026');assert.equal(options.replyTo,'owner@example.test');
-    assert.match(plain,/Entrepreneurship Cell, IMT Ghaziabad/);assert.match(options.htmlBody,/Entrepreneurship Cell, IMT Ghaziabad/);
-    assert.doesNotMatch(options.htmlBody,/<script|<form|<iframe|url\(/i);
-    const code=plain.match(/\b\d{6}\b|PN-[A-Z0-9]{16}/)[0];
-    assert.ok(options.htmlBody.includes(code));assert.ok(!subject.includes(code));
+    assert.match(plain,/Entrepreneurship Cell, IMT Ghaziabad/);
+    assert.equal(options.htmlBody,undefined);assert.equal(options.inlineImages,undefined);assert.equal(options.attachments,undefined);
+    assert.doesNotMatch(plain,/<[a-z][^>]*>|cid:|data:image\//i);
+    assert.doesNotMatch(subject,/\b\d{6}\b|PN-[A-Z0-9]{16}/);
   }
-  for(const [to,subject,plain,options] of signIns) {
-    assert.equal(subject,to===admin.ctx.CLUB_RESOURCES.owner?'Poké Poker Night 2026 private desk sign-in code':'Poké Poker Night 2026 sign-in code');
-    assert.match(plain,/10 minutes/);assert.match(options.htmlBody,/10 minutes/);
-    assert.doesNotMatch(options.htmlBody,/<img/i);assert.equal(options.inlineImages,undefined);
-    assert.doesNotMatch([plain,options.htmlBody].join('\n'),/https?:\/\/|href=/i);
+  for(const [,,plain] of signIns) {
+    assert.match(plain,/^\d{6}$/m);assert.match(plain,/10 minutes/);assert.doesNotMatch(plain,/https?:\/\//i);
   }
   assert.match(signIns[1][2],/private E-Cell desk/);
-  for(const [index,[,subject,plain,options]] of sent.entries()) {
+  for(const [index,[,subject,plain]] of sent.entries()) {
     assert.equal(subject,'Poké Poker Night 2026 '+(index?'retry':'entry')+' pass');
-    const code=plain.match(/PN-[A-Z0-9]{16}/)[0];
+    const code=plain.match(/^PN-[A-Z0-9]{16}$/m)[0];
     const url='https://meherpraveen.github.io/imt-ecell-poker-night/event.html?view=pass#code='+code;
-    assert.ok(plain.includes(url));assert.ok(options.htmlBody.includes('href="'+url+'"'));
-    assert.match(options.htmlBody,/<img src="cid:entryQr"/);
-    const qr=require('qrcode-generator')(0,'M');qr.addData(code);qr.make();
-    assert.equal(Buffer.from(options.inlineImages.entryQr.bytes).toString('base64'),qr.createDataURL(8,32).split(',')[1]);
-    assert.equal((options.htmlBody.match(/href=/g)||[]).length,1);
+    assert.deepEqual(plain.match(/https?:\/\/\S+/g),[url]);
   }
 });
 test('the Early Bird cutoff reprices an open registration in place and preserves submitted fees',()=>{

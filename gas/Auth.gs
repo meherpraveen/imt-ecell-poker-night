@@ -145,10 +145,11 @@ function sendLoginCode_(identity, owner, confirmed=false) {
       const message = owner ? 'Enter this code on the private E-Cell desk page where you requested it.'
         : eventAdmin ? 'Enter this code on the event sign-in page where you entered the club email. It will open your admin desk.'
         : 'Enter this code on the Poké Poker Night registration page you opened.';
-      sendEventMail_(identity.email, {
-        subject:EVENT_MAIL_NAME+' '+kind+'sign-in code', heading:'Your '+kind+'sign-in code', message,
-        code:plan.code, instructions:'This code works once and expires in 10 minutes. If you did not request it, you can ignore this email.'
-      });
+      sendEventMail_(identity.email, EVENT_MAIL_NAME+' '+kind+'sign-in code', [
+        'Your '+kind+'sign-in code\n'+plan.code,
+        message,
+        'This code works once and expires in 10 minutes. If you did not request it, you can ignore this email.'
+      ]);
       accepted=true;
     } catch {
       console.warn('Poké Poker Night sign-in mail provider declined request '+plan.ref);

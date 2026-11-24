@@ -93,7 +93,8 @@ test('an overlapping proof upload and gate scan during pass email preserve the e
   };
   assert.equal(admin.rpc('adminDispatchPasses',admin.admin).failed,0);
   assert.equal(scanned.status,'admitted');assert.equal(p.status().checkedInAt,scanned.checkedInAt);
-  assert.equal(p.status().delivery,'Email sent');assert.equal(event.mail.filter(m=>m.options.inlineImages).length,1);
+  assert.equal(p.status().delivery,'Email sent');
+  assert.equal(event.mail.filter(m=>m.subject.endsWith('entry pass')&&m.body.includes('#code='+pass)).length,1);
 });
 
 test('concurrent statement uploads share one original and a changed bank row invalidates an in-flight approval',()=>{

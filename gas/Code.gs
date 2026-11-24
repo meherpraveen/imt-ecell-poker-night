@@ -454,37 +454,9 @@ function proofImage(token,id){staff_(token,['desk']);const a=ledger_().attempts[
 // MailApp supplies the executing club account as From. All event mail shares its identity.
 const EVENT_MAIL_NAME = 'Poké Poker Night 2026';
 const EVENT_PAGE = 'https://meherpraveen.github.io/imt-ecell-poker-night/event.html';
-function escapeMailHtml_(value) {
-  const entities = {'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'};
-  return String(value).replace(/[&<>"']/g, char => entities[char]);
-}
-function sendEventMail_(recipient, {subject, heading, message, code, instructions, passUrl}) {
-  const organizer = 'Entrepreneurship Cell, IMT Ghaziabad';
-  const support = 'You can reply to this email for help.';
-  const plain = [heading, message, code, instructions, passUrl, organizer, support].filter(Boolean).join('\n\n');
-  const link = passUrl
-    ? '<p><a style="color:#164686" href="'+escapeMailHtml_(passUrl)+'">Open your pass on the event website</a></p>' : '';
-  const options = {name:EVENT_MAIL_NAME, replyTo:clubOwner_()};
-  let qrImage = '';
-  if(passUrl){
-    const qr = ticketQrEncoder_(0,'M');
-    qr.addData(code);qr.make();
-    const bytes=Utilities.base64Decode(qr.createDataURL(8,32).split(',')[1]);
-    options.inlineImages={entryQr:Utilities.newBlob(bytes,'image/gif','poker-night-entry.gif')};
-    qrImage='<p><img src="cid:entryQr" width="200" height="200" alt="Single-use entry QR"></p>';
-  }
-  options.htmlBody = '<!doctype html><html lang="en"><body style="margin:0;padding:16px;background:#ffffff;color:#162b48;font:16px/1.5 Arial,sans-serif">'+
-    '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:540px">'+
-    '<tr><td bgcolor="#10294e" style="border-top:5px solid #c5283d;padding:16px 20px;background:#10294e">'+
-    '<p style="margin:0;color:#ffcb05;font:700 20px/1.35 Arial,sans-serif">'+EVENT_MAIL_NAME+'</p>'+
-    '<p style="margin:3px 0 0;color:#d2e0f4;font-size:14px">'+organizer+'</p></td></tr>'+
-    '<tr><td style="padding:4px 20px">'+
-    '<h1 style="font:700 24px/1.25 Arial,sans-serif;margin:16px 0 8px">'+escapeMailHtml_(heading)+'</h1>'+
-    '<p>'+escapeMailHtml_(message)+'</p></td></tr>'+
-    '<tr><td bgcolor="#edf2fa" style="padding:14px 20px;color:#10294e;font:700 22px/1.4 Consolas,monospace">'+escapeMailHtml_(code)+'</td></tr>'+
-    '<tr><td style="padding:4px 20px 16px">'+qrImage+'<p>'+escapeMailHtml_(instructions)+'</p>'+link+
-    '<p style="font-size:14px;color:#4e5f77">'+support+'</p></td></tr></table></body></html>';
-  MailApp.sendEmail(recipient, subject, plain, options);
+function sendEventMail_(recipient, subject, paragraphs) {
+  const body = [...paragraphs, 'Entrepreneurship Cell, IMT Ghaziabad\nYou can reply to this email for help.'].join('\n\n');
+  MailApp.sendEmail(recipient, subject, body, {name:EVENT_MAIL_NAME, replyTo:clubOwner_()});
 }
 function deliverPass_(id,actor,force=false){
   const plan=locked_(()=>{
@@ -509,12 +481,13 @@ function deliverPass_(id,actor,force=false){
   try{
     const a=plan.a,person=roster_()[a.roll],code=pass_(id);
     if(person&&emailAddress_(person.email)){
-      sendEventMail_(person.email,{
-        subject:EVENT_MAIL_NAME+' '+(a.kind==='retry'?'retry':'entry')+' pass',heading:'Your '+(a.kind==='retry'?'retry':'entry')+' pass',
-        message:'E-Cell verified your '+formatFee_(a.fee)+' payment for Round 1, wave '+(a.wave+1)+'. Your single-use gate code is below.',
-        code,instructions:'On 27 November, bring your college ID and show the code or QR to the gate volunteer. Keep your pass private.',
-        passUrl:EVENT_PAGE+'?view=pass#code='+encodeURIComponent(code)
-      });
+      const subject=EVENT_MAIL_NAME+' '+(a.kind==='retry'?'retry':'entry')+' pass';
+      sendEventMail_(person.email,subject,[
+        'E-Cell verified your '+formatFee_(a.fee)+' payment for Round 1, wave '+(a.wave+1)+'.',
+        'Open your private pass to show or save your entry QR.\n'+EVENT_PAGE+'?view=pass#code='+encodeURIComponent(code),
+        'You can also give the gate volunteer this code.\n'+code,
+        'Bring your college ID on 27 November and keep your pass private.'
+      ]);
       delivery='Email sent';
     }
   }catch{console.warn('Pass email delivery was unconfirmed for '+id)}

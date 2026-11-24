@@ -2,13 +2,17 @@ import makeQr from 'qrcode-generator';
 import {test,expect} from './site.mjs';
 import {player} from './event-runtime.mjs';
 
-test('phone camera decodes the saved pass and email QR, expires both and updates the player’s ticket',async({context,page,site},testInfo)=>{
+test('the pass linked in the text email and its saved copy share one gate admission',async({context,page,site},testInfo)=>{
   site.at('2026-11-27T19:12:00+05:30');
   const desk=site.staff('staffLogin',[site.team.desk,site.invite('desk')]);
   site.staff('deskPayment',[desk.token,player.roll,'walk','123456784321',true,199,'2026-28']);
-  const mail=site.mail.at(-1),code=mail.body.match(/PN-[A-Z0-9]{16}/)[0];
-  const emailImage='data:image/gif;base64,'+Buffer.from(mail.options.inlineImages.entryQr.getBytes()).toString('base64');
-  await page.goto(site.origin+'/event.html?view=pass#code='+code);
+  const mail=site.mail.at(-1),gateCode=mail.body.match(/^PN-[A-Z0-9]{16}$/m)[0];
+  const link=new URL(mail.body.match(/https:\/\/\S+/)[0]);
+  expect(link.origin+link.pathname).toBe('https://meherpraveen.github.io/imt-ecell-poker-night/event.html');
+  expect(new URLSearchParams(link.hash.slice(1)).get('code')).toBe(gateCode);
+  await page.goto(site.origin+'/event.html'+link.search+link.hash);
+  const passQr=page.getByAltText('Single-use entry QR');await expect(passQr).toBeVisible();
+  const linkedQr=await passQr.getAttribute('src');
   const save=page.getByRole('link',{name:'Save pass to phone'});
   await expect(save).toBeVisible();
   const png=await save.getAttribute('href');
@@ -52,7 +56,7 @@ test('phone camera decodes the saved pass and email QR, expires both and updates
   await expect(camera.getByText('Sample Student')).toBeVisible();await expect(camera.getByText('Seat 01')).toBeVisible();
   expect(await camera.evaluate(()=>window.testTrack.readyState)).toBe('ended');
   await camera.screenshot({animations:'disabled',path:testInfo.outputPath('gate-admitted.png')});
-  await camera.evaluate(image=>window.testGateImage=image,emailImage);
+  await camera.evaluate(image=>window.testGateImage=image,linkedQr);
   await camera.getByRole('button',{name:'Scan next ticket'}).click();
   await expect(camera.getByRole('heading',{name:'Already used'})).toBeVisible();
   await expect(camera.getByText(/First scan.*IST/)).toBeVisible();await expect(camera.getByText('Seat 01')).toBeVisible();
