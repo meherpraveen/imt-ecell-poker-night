@@ -9,7 +9,7 @@ const deskPages={
 };
 const deskRoles={admin:'Administrator',desk:'Registration desk',gate:'Gate staff',floor:'Floor manager'};
 const paymentStates={
-  REVIEW:'Awaiting review',REGISTERED:'Awaiting payment',HOLD:'Seat held',EXPIRED:'Hold expired',
+  REVIEW:'Awaiting review',REGISTERED:'Awaiting payment',HOLD:'Awaiting payment',EXPIRED:'Closed',
   WAITLIST:'Waitlisted',PAID:'Paid',REJECTED:'Rejected',NO_SHOW:'No-show',QUALIFIED:'Qualified',
   ELIMINATED:'Eliminated',WINNER:'Winner'
 };

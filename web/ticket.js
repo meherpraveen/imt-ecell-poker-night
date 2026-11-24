@@ -66,13 +66,13 @@ function scheduleTicketUpdate(){
   clearTimeout(ticketTimer);
   if(document.hidden||!navigator.onLine)return;
   const paid=currentReceipt?.entryCode||currentPass?.active;
-  const waiting=['REGISTERED','REVIEW','WAITLIST'].includes(currentReceipt?.status);
+  const waiting=['REGISTERED','REVIEW','WAITLIST'].includes(currentReceipt?.status)||currentReceipt?.status==='HOLD'&&currentReceipt.full;
   if(paid||waiting)ticketTimer=setTimeout(updateTicket,paid?6000:18000);
 }
 let ticketUpdating=false;
 async function updateTicket(){
   if(ticketUpdating||document.hidden||!navigator.onLine)return;
-  if(busy){scheduleTicketUpdate();return}
+  if(busy||el('registrationEditor')?.open){scheduleTicketUpdate();return}
   ticketUpdating=true;
   try{
     if(currentPass?.active||currentReceipt?.entryCode){
@@ -80,12 +80,12 @@ async function updateTicket(){
       const next=await api('passInfo',code);
       if(next.used||!next.active){
         if(mode==='pass')drawPass(next);
-        else if(currentReceipt===before)showReceipt({...before,entryCode:'',seat:next.seat,checkedInAt:next.checkedInAt});
+        else if(currentReceipt===before&&!el('registrationEditor')?.open)showReceipt({...before,entryCode:'',seat:next.seat,checkedInAt:next.checkedInAt});
         if(next.seat&&(mode==='pass'||playerSession))el('ticketAnnouncement').textContent='Checked in. '+seatLabel(next.seat)+'. '+seatLocation(next.wave,next.seat);
       }
-    }else if(currentReceipt&&['REGISTERED','REVIEW','WAITLIST'].includes(currentReceipt.status)){
+    }else if(currentReceipt&&(['REGISTERED','REVIEW','WAITLIST'].includes(currentReceipt.status)||currentReceipt.status==='HOLD'&&currentReceipt.full)){
       const before=currentReceipt,next=await playerApi('playerStatus',before.ticket);
-      if(currentReceipt===before&&(before.status!==next.status||before.canCheckout!==next.canCheckout||before.checkoutEnded!==next.checkoutEnded||before.issue!==next.issue||before.proofVersion!==next.proofVersion)){
+      if(currentReceipt===before&&!el('registrationEditor')?.open&&(before.full!==next.full||before.status!==next.status||before.canCheckout!==next.canCheckout||before.checkoutEnded!==next.checkoutEnded||before.issue!==next.issue||before.proofVersion!==next.proofVersion)){
         if(before.status===next.status&&el('shot')?.files?.length)return;
         showReceipt(next);
         el('ticketAnnouncement').textContent=next.entryCode?'Payment verified. Your ticket is ready.':'Your registration status has changed.';
@@ -95,22 +95,46 @@ async function updateTicket(){
   }catch{el('net').textContent='Connection interrupted. Reconnecting for ticket updates.'}
   finally{ticketUpdating=false;scheduleTicketUpdate()}
 }
-let holdTimer;
-function scheduleHoldExpiry(){
-  clearTimeout(holdTimer);
-  if(currentReceipt?.status==='HOLD')holdTimer=setTimeout(()=>{
-    if(!expireCheckout())scheduleHoldExpiry();
-  },Math.max(1,currentReceipt.expires-eventNow()));
+let checkoutTimer,checkingCheckout;
+function nextCheckoutChange(r){
+  return r.offer.early?Math.min(r.offer.endsAt,r.paymentsCloseAt):r.paymentsCloseAt;
 }
-function expireCheckout(){
-  if(currentReceipt?.status==='HOLD'&&eventNow()>=currentReceipt.expires){
-    const expired={...currentReceipt,status:'EXPIRED',upi:'',paymentQr:'',checkoutReceivers:[],chosenReceiverId:''};
-    if(currentReceipt.receiver&&el('shot')?.files.length){
-      currentReceipt=expired;
-      const instructions=document.querySelector('.hold-line')?.closest('section');
-      if(instructions){instructions.innerHTML='<h2>Hold expired</h2><p>If you already paid, finish submitting your screenshot below. The desk will check your original payment.</p>'}
-    }else showReceipt(expired);
-    return true;
+function checkoutNeedsUpdate(){
+  const r=currentReceipt;
+  return r?.status==='HOLD'&&!r.checkoutEnded&&!!el('checkoutPayment')&&eventNow()>=nextCheckoutChange(r);
+}
+function scheduleCheckoutUpdate(){
+  clearTimeout(checkoutTimer);
+  const r=currentReceipt;
+  if(r?.status==='HOLD'&&!r.checkoutEnded&&el('checkoutPayment')){
+    checkoutTimer=setTimeout(checkCheckoutTime,Math.max(1,Math.min(2147483647,nextCheckoutChange(r)-eventNow())));
   }
-  return false;
+}
+function checkCheckoutTime(){
+  if(checkoutNeedsUpdate())refreshCheckoutQuote();else scheduleCheckoutUpdate();
+}
+async function refreshCheckoutQuote(){
+  const r=currentReceipt,slot=el('checkoutPayment'),note=el('checkoutUpdate');
+  if(!r||!slot||checkingCheckout===r)return;
+  checkingCheckout=r;slot.hidden=true;note.hidden=false;note.textContent='Checking the current entry fee…';
+  try{
+    const choice=el('receiverChoices')?.pendingChoice;
+    if(choice)await choice;
+    if(currentReceipt!==r||!slot.isConnected)return;
+    const next=await playerApi('playerStatus',r.ticket);
+    if(currentReceipt!==r||!slot.isConnected)return;
+    if(next.id!==r.id||next.status!==r.status){showReceipt(next);return}
+    // Keep the file input, OCR corrections and open details editor mounted.
+    for(const key of ['fee','offer','paymentsCloseAt','checkoutEnded','full','upi','name','paymentQr','checkoutReceivers'])r[key]=next[key];
+    if(next.receiverChoiceVersion>=r.receiverChoiceVersion){
+      r.receiver=next.receiver;r.chosenReceiverId=next.chosenReceiverId;r.receiverChoiceVersion=next.receiverChoiceVersion;
+    }
+    slot.innerHTML=checkoutPanel(r);slot.hidden=false;note.hidden=true;
+    updatePrices();scheduleCheckoutUpdate();
+  }catch(error){
+    if(currentReceipt===r&&slot.isConnected){
+      note.innerHTML=esc(error.message)+' '+btn('refreshQuote','Retry payment details');
+      clearTimeout(checkoutTimer);checkoutTimer=setTimeout(checkCheckoutTime,15000);
+    }
+  }finally{if(checkingCheckout===r)checkingCheckout=null}
 }

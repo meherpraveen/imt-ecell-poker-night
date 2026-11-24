@@ -1,4 +1,4 @@
-const CAP=36, WAVES=6, HOLD=15*60000;
+const CAP=36, WAVES=6;
 const PRE_OPENS=Date.parse('2026-11-23T00:00:00+05:30');
 const DESK_OPENS=Date.parse('2026-11-27T19:00:00+05:30'), NEW_CLOSE=Date.parse('2026-11-27T23:00:00+05:30'), EVENT_END=Date.parse('2026-11-28T04:00:00+05:30');
 const ROLE=['admin','desk','gate','floor'];
@@ -225,19 +225,22 @@ function staffClaims_(session,roles){
   return {name:r[0],role:r[1]};
 }
 function issued_(a){return ['PAID','ELIMINATED','QUALIFIED','WINNER','NO_SHOW'].includes(a.status)}
-function holdEnd_(a){
-  // Also bounds holds created by the previous release.
-  return a.kind!=='retry'&&a.fee===ENTRY_PRICING.earlyBird
-    ? Math.min(a.expires,Date.parse(ENTRY_PRICING.earlyBirdEndsAt)) : a.expires;
-}
+// HOLD is the journal's historical name for an unpaid checkout. It reserves no capacity.
 function quotedFee_(a,now){
-  return ['REGISTERED','WAITLIST'].includes(a.status)?entryOffer_(now,a.kind).amount:a.fee;
+  return ['REGISTERED','WAITLIST','HOLD'].includes(a.status)?entryOffer_(now,a.kind).amount:a.fee;
 }
-function occupied_(a,now){if(a.status==='REVIEW'&&a.late&&!a.reservedAfterReview)return false;return a.status==='HOLD'?holdEnd_(a)>now:['REVIEW','PAID','ELIMINATED','QUALIFIED','WINNER'].includes(a.status)}
-function waveFor_(st,roll,now){
+function occupied_(a){return ['REVIEW','PAID','ELIMINATED','QUALIFIED','WINNER'].includes(a.status)}
+function latestRegistration_(st,roll){
+  return Object.values(st.attempts).reduce((latest,a)=>a.roll===roll&&(!latest||a.created>=latest.created)?a:latest,null);
+}
+function currentRegistration_(st,a){
+  if(!['HOLD','REGISTERED','WAITLIST'].includes(a.status))return a;
+  return latestRegistration_(st,a.roll)||a;
+}
+function waveFor_(st,roll,now,exceptId){
   const past=new Set(Object.values(st.attempts).filter(a=>a.roll===roll&&issued_(a)).map(a=>a.wave));
   const start=st.game.next+(st.game.active?1:0);
-  for(let w=start;w<WAVES;w++){if(!past.has(w)&&Object.values(st.attempts).filter(a=>a.wave===w&&occupied_(a,now)).length<CAP)return w}
+  for(let w=start;w<WAVES;w++){if(!past.has(w)&&Object.values(st.attempts).filter(a=>a.id!==exceptId&&a.wave===w&&occupied_(a)).length<CAP)return w}
   return -1;
 }
 function eligibility_(st,roll,kind,now,exceptId){
@@ -246,16 +249,21 @@ function eligibility_(st,roll,kind,now,exceptId){
   if(kind==='walk')must_(now>=DESK_OPENS,'Walk-in registration opens at 7 PM IST.');
   if(kind==='pre')must_(now<DESK_OPENS,'Use the walk-in desk from 7 PM IST.');
   const mine=Object.values(st.attempts).filter(a=>a.roll===roll&&a.id!==exceptId);
-  const active=mine.find(a=>['REGISTERED','REVIEW','PAID','QUALIFIED','WINNER'].includes(a.status)||(a.status==='HOLD'&&holdEnd_(a)>now));
+  const latest=latestRegistration_(st,roll);
+  const active=mine.find(a=>(['REGISTERED','HOLD'].includes(a.status)&&a.id===latest?.id)||['REVIEW','PAID','QUALIFIED','WINNER'].includes(a.status));
   must_(!active,'There is already an active attempt for this roll. Use the original receipt page or ask the desk.');
   if(kind==='retry')must_(mine.some(a=>a.status==='ELIMINATED')&&st.game.next<6,'A retry requires an eliminated player and a later Round 1 wave.');
   else must_(!mine.some(a=>issued_(a)),'This roll has played already. The desk can check retry eligibility.');
 }
-function paymentTerms_(kind,now){
-  const offer=entryOffer_(now,kind);
-  return {fee:offer.amount,expires:offer.early?Math.min(now+HOLD,offer.endsAt):now+HOLD};
+function newAttempt_(roll,kind,availableWave,now){
+  return {id:rand_().slice(0,16),roll,kind,fee:entryOffer_(now,kind).amount,wave:-1,created:now,status:availableWave<0?'WAITLIST':'HOLD',used:false,delivery:''};
 }
-function newAttempt_(roll,kind,w,now){return {id:rand_().slice(0,16),roll,kind,...paymentTerms_(kind,now),wave:w,created:now,status:w<0?'WAITLIST':'HOLD',used:false,delivery:''}}
+function proofWave_(st,a,now){
+  if(now>=EVENT_END)return -1;
+  const first=st.game.next+(st.game.active?1:0);
+  if(a.status==='REVIEW'&&a.wave>=first&&a.wave<WAVES&&Object.values(st.attempts).filter(other=>other.id!==a.id&&other.wave===a.wave&&occupied_(other)).length<CAP)return a.wave;
+  return waveFor_(st,a.roll,now,a.id);
+}
 function publicInfo(){
   loadInitialReceivers_();
   ensureStaffLinks_();
@@ -273,36 +281,34 @@ function playerHome(session,preferred){
 function accountForRoll_(roll,preferred){
   loadInitialReceivers_();
   const st=ledger_(),set=settings_(),now=Date.now(),saved=fromReceipt_(st,preferred);
-  const latest=Object.values(st.attempts).filter(a=>a.roll===roll).sort((a,b)=>b.created-a.created)[0];
-  const attempt=saved&&saved.roll===roll?saved:latest;
+  const attempt=saved&&saved.roll===roll?currentRegistration_(st,saved):latestRegistration_(st,roll);
   const person=roster_()[roll]||{};
-  return {...signupInfo_(set,now,st),player:{name:person.name||'',roll,email:person.email||'',phone:person.phone||''},receipt:attempt?receipt_(attempt,set,st):null};
+  return {...signupInfo_(set,now,st),player:{name:person.name||'',roll,email:person.email||'',phone:person.phone||''},receipt:attempt?resumeReceipt_(attempt,set,st):null};
 }
 function playerStart(session,previous,requestId,detailsJson){
   const roll=playerRoll_(session);
   must_(!requestId||(typeof requestId==='string'&&/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(requestId)),'Refresh the page and try again.');
   const result=locked_(()=>{
     const set=settings_(),st=ledger_(),now=Date.now();
-    if(previous){const a=fromReceipt_(st,previous);if(a&&a.roll===roll)return {a,set,st};}
+    if(previous){const a=fromReceipt_(st,previous);if(a&&a.roll===roll)return {a:currentRegistration_(st,a),set,st};}
     const startHash=requestId?hash_('seat-request:'+requestId):'';
     if(startHash){
       const existing=Object.values(st.attempts).find(a=>a.roll===roll&&a.startHash===startHash);
-      if(existing)return {a:existing,set,st};
+      if(existing)return {a:currentRegistration_(st,existing),set,st};
     }
+    const current=latestRegistration_(st,roll);
+    if(current&&['REGISTERED','WAITLIST','HOLD','REVIEW','PAID'].includes(current.status))return {a:current,set,st};
     const info=signupInfo_(set,now,st);
     must_(info.open,info.message);
     const kind=now>=DESK_OPENS?'walk':'pre';
-    const wait=Object.values(st.attempts).find(a=>a.roll===roll&&a.status==='WAITLIST');
-    must_(!wait,'This roll is already on the waitlist. Open your original receipt page or ask the desk.');
     eligibility_(st,roll,kind,now);
     const a=attachReceiver_(newAttempt_(roll,kind,info.paymentsReady?waveFor_(st,roll,now):-1,now),st,now);
-    if(!info.paymentsReady){a.status='REGISTERED';a.expires=0}
-    if(detailsJson)a.details=registrationDetails_(roll,detailsJson);
-    else if(usesBankVerification_(st)){const p=roster_()[roll];a.details=registrationDetails_(roll,{fullName:p?.name,pgpId:roll,contact:'',batch:''})}
+    if(!info.paymentsReady)a.status='REGISTERED';
+    a.details=registrationDetails_(roll,detailsJson);a.detailsRevision=1;
     if(startHash)a.startHash=startHash;
-    commit_(st,a.status==='REGISTERED'?'Registration saved':'Seat request','Player',{attempts:[a],note:a.id});return {a,set,st};
+    commit_(st,a.status==='HOLD'?'Checkout opened':'Registration saved','Player',{attempts:[a],note:a.id});return {a,set,st};
   });
-  return receipt_(result.a,result.set,result.st);
+  return resumeReceipt_(result.a,result.set,result.st);
 }
 function fromReceipt_(st,t){const [id,sig]=String(t||'').split('.');return st.attempts[id]&&sig===mac_('receipt:'+id)?st.attempts[id]:null}
 function ownReceipt_(st,ticket,roll){
@@ -314,44 +320,51 @@ function ticketActive_(a,st,now){
   return a.status==='PAID'&&!a.used&&now<EVENT_END&&a.wave>=st.game.next+(st.game.active?1:0)&&a.wave<WAVES;
 }
 function receipt_(a,set,st){
-  const now=Date.now(),expires=holdEnd_(a),hold=a.status==='HOLD'&&now<expires,ready=paymentReadyFor_(set,st);
-  const managed=usesBankVerification_(st);
-  const selected=a.receiver;
-  const payable=hold&&(managed?!!selected&&st.receivers[selected.id]?.active&&st.receivers[selected.id]?.upi===selected.upi:ready);
+  const now=Date.now(),offer=entryOffer_(now,a.kind),ready=paymentReadyFor_(set,st),managed=usesBankVerification_(st),selected=a.receiver;
+  const checkout=a.status==='HOLD',ended=now>=EVENT_END;
+  const full=checkout&&!ended&&waveFor_(st,a.roll,now)<0;
+  const open=checkout&&!ended&&!full&&validBatch_(a.details?.batch)&&currentRegistration_(st,a).id===a.id;
+  const payable=open&&(managed?!!selected&&st.receivers[selected.id]?.active&&st.receivers[selected.id]?.upi===selected.upi:ready);
   const payee=selected||set;
-  const checkoutReceivers=hold&&selected?checkoutOptions_(a,st):[];
+  const checkoutReceivers=open&&selected?checkoutOptions_(a,st):[];
   const pinnedQr=checkoutReceivers.find(r=>r.id===selected?.id)?.qr;
   const paymentQr=payable?(selected?pinnedQr||'':payee.qrFile?paymentQrData_(payee.qrFile):''):'';
-  return {ticket:a.id+'.'+mac_('receipt:'+a.id),id:a.id,fee:quotedFee_(a,now),offer:entryOffer_(now,a.kind),wave:a.wave+1,status:a.status==='HOLD'&&!hold?'EXPIRED':a.status,
-    expires,upi:payable?payee.upi:'',name:payable?payee.name:'',paymentQr,
+  return {ticket:a.id+'.'+mac_('receipt:'+a.id),id:a.id,fee:quotedFee_(a,now),offer,wave:checkout?0:a.wave+1,status:a.status,
+    // Older clients use expires to discard an outdated UPI amount at the pricing cutoff.
+    paymentsCloseAt:EVENT_END,expires:checkout&&offer.early?Math.min(offer.endsAt,EVENT_END):checkout?EVENT_END:0,full,upi:payable?payee.upi:'',name:payable?payee.name:'',paymentQr,
     checkoutReceivers,chosenReceiverId:chosenReceiver_(a,checkoutReceivers),receiverChoiceVersion:a.receiverChoiceVersion||0,
-    managed,canChooseReceiver:hold&&!!selected&&!a.file&&!a.legacyReceiver,details:a.details||null,fairPlay:FAIR_PLAY_DECLARATION,fairPlayVersion:FAIR_PLAY_VERSION,
+    managed,canChooseReceiver:open&&!!selected&&!a.file&&!a.legacyReceiver,details:a.details||null,detailsRevision:a.detailsRevision||0,fairPlay:FAIR_PLAY_DECLARATION,fairPlayVersion:FAIR_PLAY_VERSION,
     paymentRecipients:selected?receivers_(st).filter(r=>r.active||r.id===selected.id||r.id===a.claim?.paidReceiver?.id||a.offeredReceivers?.some(option=>option.id===r.id)).map(receiverView_):[],
     receiver:selected?{id:selected.id,name:selected.name,upi:selected.upi,number:selected.number||''}:null,
     identifyReceivers:managed&&!selected&&['HOLD','REVIEW','REJECTED'].includes(a.status)?receivers_(st).map(receiverView_):[],
     paymentStatus:a.paymentStatus||(issued_(a)?'AUTHORIZED':'PENDING'),proofVersion:a.proofVersion||0,claim:a.claim||null,needsConfirmation:!!a.claim&&!a.claim.paidReceiver,issue:a.reviewReason||a.reason||(a.claim&&!a.claim.paidReceiver?'Confirm the payment recipient and fair-play declaration below.':''),beneficiary:a.roll,
-    canCheckout:a.status==='REGISTERED'&&ready&&now<NEW_CLOSE,checkoutEnded:now>=NEW_CLOSE,delivery:a.delivery||'',reason:a.reason||'',
+    canCheckout:a.status==='REGISTERED'&&ready&&!ended,checkoutEnded:ended,delivery:a.delivery||'',reason:a.reason||'',
     seat:a.seat||null,checkedInAt:a.checkedInAt||null,entryCode:ticketActive_(a,st,now)?pass_(a.id):''};
 }
-function playerStatus(session,ticket){
-  const roll=playerRoll_(session),st=ledger_();
-  return receipt_(ownReceipt_(st,ticket,roll),settings_(),st);
+function canResumeCheckout_(a,set,st,now){
+  if(!['REGISTERED','WAITLIST'].includes(a.status)||!validBatch_(a.details?.batch)||now>=EVENT_END||!paymentReadyFor_(set,st))return false;
+  return a.status==='REGISTERED'||waveFor_(st,a.roll,now)>=0;
 }
-function playerCheckout(session,ticket){
-  const roll=playerRoll_(session);
+function openSavedCheckout_(a,set,st,now){
+  if(!canResumeCheckout_(a,set,st,now))return a;
+  const available=waveFor_(st,a.roll,now)>=0;
+  const next=attachReceiver_({...a,wave:-1,fee:entryOffer_(now,a.kind).amount,status:available?'HOLD':'WAITLIST'},st,now);
+  commit_(st,available?'Checkout opened':'Added to waitlist','Player',{attempts:[next],note:a.id});
+  return next;
+}
+function resumeReceipt_(a,set,st){
+  if(!canResumeCheckout_(a,set,st,Date.now()))return receipt_(a,set,st);
   const result=locked_(()=>{
-    const st=ledger_(),a=ownReceipt_(st,ticket,roll),set=settings_(),now=Date.now();
-    if(a.status!=='REGISTERED')return {a,set,st};
-    must_(now<NEW_CLOSE,'New payment holds have ended. Contact E-Cell if you already paid.');
-    must_(paymentReadyFor_(set,st),'The club has not published payment details yet. Your registration is saved.');
-    const wave=waveFor_(st,a.roll,now);
-    const next=attachReceiver_({...a,...paymentTerms_(a.kind,now),wave,status:wave<0?'WAITLIST':'HOLD'},st,now);
-    if(wave<0)next.expires=0;
-    commit_(st,'Seat request','Player',{attempts:[next],note:a.id});
-    return {a:next,set,st};
+    const latest=ledger_(),settings=settings_(),registration=currentRegistration_(latest,latest.attempts[a.id]);
+    return {a:openSavedCheckout_(registration,settings,latest,Date.now()),set:settings,st:latest};
   });
   return receipt_(result.a,result.set,result.st);
 }
+function playerStatus(session,ticket){
+  const roll=playerRoll_(session),st=ledger_();
+  return resumeReceipt_(currentRegistration_(st,ownReceipt_(st,ticket,roll)),settings_(),st);
+}
+function playerCheckout(session,ticket){return playerStatus(session,ticket)}
 function imageBytes_(data){
   must_(typeof data==='string'&&data.length<=2400000,'Choose an image under 1.7 MB after compression.');
   const m=/^data:image\/(png|jpeg);base64,([A-Za-z0-9+/=]+)$/.exec(data);must_(m,'Upload a JPEG or PNG screenshot.');
@@ -365,10 +378,11 @@ function playerUpload(session,ticket,suffix,data){
   return locked_(()=>{const st=ledger_(),a=ownReceipt_(st,ticket,roll);
     must_(!usesBankVerification_(st),'Refresh the event page to submit the full payment details.');
     if(a.status==='REVIEW'||issued_(a))return receipt_(a,settings_(),st);
-    must_(a.status==='HOLD'&&Date.now()<holdEnd_(a),'Your seat hold ended. If you already paid, show the receipt to the desk before paying again.');
+    must_(a.status==='HOLD'&&currentRegistration_(st,a).id===a.id,'Open your current registration to submit proof.');
+    must_(validBatch_(a.details?.batch),'Choose your batch in registration details before submitting proof.');
     const im=imageBytes_(data),digest=Utilities.base64EncodeWebSafe(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256,im.bytes));
     const file=DriveApp.getFolderById(props_().getProperty('FOLDER')).createFile(Utilities.newBlob(im.bytes,im.mime,a.id+'.'+im.ext));
-    const updated={...a,status:'REVIEW',file:file.getId(),digest,suffix,submitted:Date.now()};
+    const now=Date.now(),updated={...a,status:'REVIEW',wave:proofWave_(st,a,now),fee:quotedFee_(a,now),file:file.getId(),digest,suffix,submitted:now};
     try{commit_(st,'Proof submitted','Player',{attempts:[updated],note:a.id})}catch(err){if(ledger_().attempts[a.id]?.file!==file.getId())file.setTrashed(true);throw err}
     return receipt_(updated,settings_(),st);
   });
@@ -451,30 +465,32 @@ function staffApprove(token,id,fullRef,confirmed){
     if(issued_(a)&&a.utr===fullRef)return {status:a.delivery||'Issued'};
     must_(!usesBankVerification_(st),'Use the admin statement review to authorize this payment.');
     must_(a.status==='REVIEW','This attempt is not awaiting review.');
+    must_(validBatch_(a.details?.batch),'Ask the player to choose their batch in registration details. Their proof is saved.');
     must_(!a.suffix||fullRef.endsWith(a.suffix),'The visible receipt digits do not match this bank reference. Check the credit and proof again.');
     must_(!Object.values(st.attempts).some(v=>v.id!==id&&v.utr===fullRef),'This bank reference has already paid for another attempt.');
-    must_(a.wave>=st.game.next+(st.game.active?1:0),'The selected wave has started. Move this payment to an available wave at the desk.');
+    must_(Date.now()<EVENT_END&&a.wave>=st.game.next+(st.game.active?1:0)&&a.wave<WAVES,'Move this payment to an available qualifier before approving it.');
+    must_(Object.values(st.attempts).filter(other=>other.id!==a.id&&other.wave===a.wave&&occupied_(other)).length<CAP,'The wave is full. Move this payment to an available wave.');
     const paid={...a,status:'PAID',utr:fullRef,verified:Date.now(),delivery:'Pending delivery'};
     commit_(st,'Payment approved',staff.name,{attempts:[paid],note:id});const row=mailCode_(st,paid,roster_()[paid.roll],staff.name);return {status:row.delivery};
   });
 }
 function staffReject(token,id,why){const s=staff_(token,['desk']);why=String(why||'').trim().slice(0,180);must_(why,'Add a short reason for the player.');return locked_(()=>{const st=ledger_(),a=st.attempts[id];must_(!usesBankVerification_(st),'Use the admin statement review to reject this proof.');must_(a&&a.status==='REVIEW','Only pending proofs can be rejected.');commit_(st,'Proof rejected',s.name,{attempts:[{...a,status:'REJECTED',reason:why}],note:id});return true})}
-function deskPayment(token,roll,kind,full,confirmed,verifiedFee){
+function deskPayment(token,roll,kind,full,confirmed,verifiedFee,batch){
   const s=staff_(token,['desk']);roll=roll_(roll);full=ref_(full);must_(['walk','retry'].includes(kind)&&full&&confirmed===true,'Check college ID and receiving-account credit, then enter the full UPI reference.');
   return locked_(()=>{const st=ledger_(),people=roster_(),now=Date.now();must_(!usesBankVerification_(st),'Open a desk payment and have the player upload proof.');must_(people[roll],'This roll is missing from the private directory.');
     const used=Object.values(st.attempts).find(a=>a.utr===full);
     if(used&&used.roll===roll&&(used.kind===kind||(kind==='walk'&&used.kind==='pre')))return {status:used.delivery,id:used.id};
     must_(!used,'This reference has already been used.');
     const existing=Object.values(st.attempts).find(a=>a.roll===roll&&(a.kind===kind||(kind==='walk'&&a.kind==='pre'))&&
-      (a.status==='REGISTERED'||a.status==='WAITLIST'||(a.status==='HOLD'&&holdEnd_(a)>now)));
+      ['REGISTERED','WAITLIST','HOLD'].includes(a.status)&&currentRegistration_(st,a).id===a.id);
     const fee=existing?quotedFee_(existing,now):entryOffer_(now,kind).amount;
     must_(verifiedFee===undefined||verifiedFee===fee,'The expected fee has changed. Refresh the player record and check the credit.');
     if(kind==='walk')must_(now>=DESK_OPENS&&now<NEW_CLOSE,'Walk-in purchases run from 7 to 11 PM IST.');
     eligibility_(st,roll,kind,now,existing?.id);
-    const held=existing?.status==='HOLD';
-    if(held)must_(existing.wave>=st.game.next+(st.game.active?1:0),'The held wave has already started.');
-    const wave=held?existing.wave:waveFor_(st,roll,now);must_(wave>=0,'No later Round 1 seat is available. Do not collect a payment.');
-    const a={...(existing||newAttempt_(roll,kind,wave,now)),fee,wave,status:'PAID',utr:full,verified:now,delivery:'Pending delivery'};
+    const wave=waveFor_(st,roll,now);must_(wave>=0,'No later Round 1 seat is available. Do not collect a payment.');
+    const saved=existing?.details||latestRegistration_(st,roll)?.details;
+    const details=registrationDetails_(roll,{fullName:saved?.fullName||people[roll].name,pgpId:roll,contact:saved?.contact||'',batch:validBatch_(saved?.batch)?saved.batch:batch});
+    const a={...(existing||newAttempt_(roll,kind,wave,now)),details,detailsRevision:existing?.detailsRevision||1,fee,wave,status:'PAID',utr:full,verified:now,delivery:'Pending delivery'};
     const oldWait=Object.values(st.attempts).filter(v=>v.roll===roll&&v.id!==a.id&&v.status==='WAITLIST').map(v=>({...v,status:'RELEASED'}));
     commit_(st,'Desk payment verified',s.name,{attempts:[...oldWait,a],note:a.id});const out=mailCode_(st,a,people[roll],s.name);return {status:out.delivery,id:a.id};
   });
@@ -522,7 +538,7 @@ function gateAction(token,action,value,op){
 function releaseSeat(token,id,mode){
   const s=staff_(token,['desk','floor']);return locked_(()=>{const st=ledger_(),a=st.attempts[id];must_(a,'Attempt missing.');
     if(mode==='no-show'){must_(a.status==='PAID'&&!a.used,'Only an unused paid pass can be marked no-show.');commit_(st,'No-show',s.name,{attempts:[{...a,status:'NO_SHOW'}],note:id})}
-    else if(mode==='move'){must_(['REVIEW','WAITLIST'].includes(a.status),'Only a pending or waitlisted attempt can move.');const now=Date.now(),w=waveFor_(st,a.roll,now);must_(w>=0,'No wave has space.');const moved={...a,wave:w,reservedAfterReview:a.status==='REVIEW'};if(a.status==='WAITLIST'){must_(paymentReadyFor_(settings_(),st)&&now<NEW_CLOSE,'Payment holds are currently unavailable.');Object.assign(moved,paymentTerms_(a.kind,now),{status:'HOLD'})}commit_(st,'Seat offered',s.name,{attempts:[a.status==='WAITLIST'?attachReceiver_(moved,st,now):moved],note:id})}
+    else if(mode==='move'){must_(['REVIEW','WAITLIST'].includes(a.status),'Only a pending or waitlisted attempt can move.');const now=Date.now(),w=waveFor_(st,a.roll,now,a.id);must_(w>=0,'No wave has space.');const moved={...a,wave:a.status==='REVIEW'?w:-1,reservedAfterReview:a.status==='REVIEW'};if(a.status==='WAITLIST'){must_(paymentReadyFor_(settings_(),st)&&now<EVENT_END,'Checkout is currently unavailable.');Object.assign(moved,{fee:entryOffer_(now,a.kind).amount,status:'HOLD'})}commit_(st,'Seat offered',s.name,{attempts:[a.status==='WAITLIST'?attachReceiver_(moved,st,now):moved],note:id})}
     else throw Error('Unknown seat action.');return true;
   });
 }

@@ -27,8 +27,8 @@ export function club(event){
   function publicRpc(action,...args){const r=event.post({action,args});if(!r.ok)throw Error(r.error);return r.value}
   function student(roll=player.roll,email=player.email){
     publicRpc('requestEventCode',roll);
-    const token=publicRpc('signInEvent',roll,event.code(email),'').session.token;
-    const hold=publicRpc('playerStart',token,'',randomUUID());
+    const signed=publicRpc('signInEvent',roll,event.code(email),''),token=signed.session.token;
+    const hold=publicRpc('playerStart',token,'',randomUUID(),JSON.stringify({pgpId:roll,fullName:signed.account.player.name,contact:'',batch:'2026-28'}));
     return {token,hold,status:()=>publicRpc('playerStatus',token,hold.ticket)};
   }
   function makeReceiver(upi=testUpi,name='Test receiver'){

@@ -3,13 +3,18 @@ function rowMentions_(row,utr){return !!utr&&(row.utr===utr||!row.utr&&(row.refs
 function paidReceiver_(a){return a.claim?.paidReceiver||a.receiver}
 function paymentBlock_(st,a,row,bank){
   if(!a.file||!a.claim||!a.receiver)return 'Missing structured proof or receiver. Ask the player to upload again.';
-  if(!a.details||!a.claim.paidReceiver||a.fairPlayVersion!==FAIR_PLAY_VERSION)return 'Ask the player to confirm their registration, payment recipient and fair-play declaration.';
+  if(!validBatch_(a.details?.batch))return 'Ask the player to choose their batch in registration details. Their proof is saved.';
+  if(!a.claim.paidReceiver||a.fairPlayVersion!==FAIR_PLAY_VERSION)return 'Ask the player to confirm their registration, payment recipient and fair-play declaration.';
   const recipient=paidReceiver_(a);
   if(row.account!==recipient.id||row.upi!==recipient.upi)return 'Bank credit belongs to a different account from the confirmed recipient.';
   if(row.issue||row.direction!=='CREDIT'||!row.utr)return row.issue||'No verified incoming credit.';
   if(row.minor!==a.fee*100)return 'Bank credit differs from the server-quoted fee.';
   const same=bank.filter(r=>rowMentions_(r,row.utr));
   if(same.some(r=>r.account!==row.account||r.upi!==row.upi||r.minor!==row.minor||r.date!==row.date||r.direction!==row.direction||r.issue))return 'The UTR has conflicting entries, a debit or a reversal.';
+  for(const credit of same){
+    const bankTime=Date.parse((credit.time||credit.date+'T00:00')+':00+05:30');
+    if(Number.isFinite(bankTime)&&row.minor<entryOffer_(bankTime,a.kind).amount*100)return 'Bank credit is below the entry fee at the recorded transfer time.';
+  }
   if(new Set(same.map(r=>r.statement)).size!==same.length)return 'The UTR appears more than once in the same statement.';
   const attempts=Object.values(st.attempts);
   if(attempts.some(x=>x.id!==a.id&&x.utr===row.utr))return 'This bank UTR already funded an entry.';
@@ -25,7 +30,6 @@ function autoReason_(st,a,row,bank){
   if(row.ocr)return 'PDF extraction needs visual confirmation against the original statement.';
   if(a.claim.paidReceiver.id!==a.receiver.id)return 'Confirmed payment recipient differs from the receiver shown at checkout.';
   if(a.legacyReceiver)return 'The receiving account was supplied after the original checkout.';
-  if(a.late)return 'Proof arrived after the seat hold expired.';
   if(a.ocr?.payee&&a.ocr.payee!==a.receiver.upi)return 'Screenshot shows a different receiving UPI ID.';
   if(a.ocr?.uncertain)return 'Screenshot indicates an unsuccessful or pending transfer.';
   if(!a.ocr||!a.ocr.utr||!a.ocr.time||paise_(a.ocr.amount)===null)return 'Screenshot fields could not be independently read.';
@@ -36,7 +40,12 @@ function autoReason_(st,a,row,bank){
   // A player can scan either displayed QR before saving the matching radio choice.
   const shownAtQuote=a.offeredReceivers?.some(option=>option.id===a.receiver.id);
   const firstShown=Math.max(a.quotedAt||a.created,shownAtQuote?0:a.receiverSelectedAt||0);
-  if(time+60000<firstShown||time>=holdEnd_(a)||time>a.submitted+60000)return 'Payment time falls outside the quoted payment window.';
+  if(time+60000<firstShown||time>=EVENT_END||time>a.submitted+60000)return 'Payment time falls outside this registration or the event.';
+  const offer=entryOffer_(time,a.kind),cutoffDate=new Date(offer.endsAt+19800000).toISOString().slice(0,10);
+  if(offer.early&&a.submitted>=offer.endsAt&&row.date===cutoffDate){
+    const confirmedTime=bank.some(r=>r.utr===row.utr&&r.time&&(r.statement===row.statement||r.applied));
+    if(!confirmedTime)return 'The statement shows only the cutoff date. Check the bank transfer time before authorizing the Early Bird fee.';
+  }
   return '';
 }
 function paymentMatch_(st,a,bank){
@@ -133,11 +142,12 @@ function adminOpenDeskPayment(token,roll,kind){
   must_(['walk','retry'].includes(kind),'Choose entry or retry.');
   return locked_(()=>{
     const st=ledger_(),now=Date.now();must_(roster_()[roll],'This roll is missing from the private directory.');
-    const active=Object.values(st.attempts).find(a=>a.roll===roll&&(a.status==='REVIEW'||a.status==='HOLD'&&holdEnd_(a)>now));
+    const active=Object.values(st.attempts).find(a=>a.roll===roll&&['REVIEW','HOLD'].includes(a.status)&&currentRegistration_(st,a).id===a.id);
     if(active)return {id:active.id,status:'This player already has a payment in progress.'};
     const saved=Object.values(st.attempts).find(a=>a.roll===roll&&['REGISTERED','WAITLIST'].includes(a.status)&&a.kind!=='retry'&&kind==='walk');
     eligibility_(st,roll,kind,now,saved?.id);const wave=waveFor_(st,roll,now);must_(wave>=0,'No later qualifier seat is available.');
-    const a=attachReceiver_({...newAttempt_(roll,kind,wave,now),...(saved?{id:saved.id,details:saved.details||null}:{}),status:'HOLD'},st,now);
+    const details=saved?.details||latestRegistration_(st,roll)?.details||null;
+    const a=attachReceiver_({...newAttempt_(roll,kind,wave,now),...(saved?{id:saved.id}:{}),details,detailsRevision:saved?.detailsRevision||(details?1:0),status:'HOLD'},st,now);
     must_(a.receiver,'Configure a receiving account first.');
     commit_(st,'Desk payment opened',user.name,{attempts:[a],note:a.id});
     return {id:a.id,status:'Payment pending. The player can sign in to see their receiver and upload proof.'};

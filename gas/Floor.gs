@@ -93,13 +93,15 @@ function staffSnapshot(token){
   const staff=staff_(token,['desk','gate','floor']);if(staff.role==='admin')loadInitialReceivers_();
   const st=ledger_(),as=Object.values(st.attempts),places=Object.values(st.venue);
   const finance=['admin','desk'].includes(staff.role),floor=['admin','floor'].includes(staff.role);
-  const students=as.length?roster_():{},digestHits={},suffixHits={};
-  for(const a of as){if(a.digest)digestHits[a.digest]=(digestHits[a.digest]||0)+1}
+  const students=as.length?roster_():{},digestHits={},suffixHits={},latestByRoll=new Map();
+  for(const a of as){
+    const latest=latestByRoll.get(a.roll);if(!latest||a.created>=latest.created)latestByRoll.set(a.roll,a);
+    if(a.digest)digestHits[a.digest]=(digestHits[a.digest]||0)+1}
   for(const a of as){if(!a.suffix)continue;const end=a.suffix.slice(-4);suffixHits[end]=(suffixHits[end]||0)+1}
   const records=as.slice().reverse().filter(a=>finance||issued_(a)).map(a=>{
-    const r={id:a.id,roll:a.roll,name:a.details?.fullName||students[a.roll]?.name||'',kind:a.kind,status:a.status==='HOLD'&&holdEnd_(a)<=Date.now()?'EXPIRED':a.status,wave:a.wave+1,used:a.used,seat:a.seat||null,where:st.venue[a.roll]?.where||'NEVER'};
+    const r={id:a.id,roll:a.roll,name:a.details?.fullName||students[a.roll]?.name||'',kind:a.kind,status:a.status==='HOLD'&&latestByRoll.get(a.roll).id!==a.id?'RELEASED':a.status,wave:a.status==='HOLD'?0:a.wave+1,used:a.used,seat:a.seat||null,where:st.venue[a.roll]?.where||'NEVER'};
     if(finance||staff.role==='gate')r.phone=a.details?a.details.contact.replace(/\D/g,''):students[a.roll]?.phone||'';
-    if(finance)Object.assign(r,{fee:quotedFee_(a,Date.now()),suffix:a.suffix||'',utr:a.utr||'',managed:!!a.receiver,issue:a.reviewReason||a.reason||'',image:!!a.file,sameImage:!!(a.digest&&digestHits[a.digest]>1),sameTail:!!(a.suffix&&suffixHits[a.suffix.slice(-4)]>1),delivery:a.delivery||''});
+    if(finance)Object.assign(r,{batch:a.details?.batch||'',fee:quotedFee_(a,Date.now()),suffix:a.suffix||'',utr:a.utr||'',managed:!!a.receiver,issue:a.reviewReason||a.reason||'',image:!!a.file,sameImage:!!(a.digest&&digestHits[a.digest]>1),sameTail:!!(a.suffix&&suffixHits[a.suffix.slice(-4)]>1),delivery:a.delivery||''});
     return r;
   });
   return {role:staff.role,label:staff.name,records,managed:usesBankVerification_(st),stats:{checked:places.length,inside:places.filter(v=>v.where==='IN').length,out:places.filter(v=>v.where==='OUT').length,

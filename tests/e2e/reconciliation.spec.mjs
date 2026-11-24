@@ -8,7 +8,7 @@ async function register(page,site){
   await page.goto(site.register);await page.getByLabel('Roll number or registered email').fill(player.roll);
   await button(page,'Send code').click();await expect(page.getByLabel('Six-digit code')).toBeVisible();
   await page.getByLabel('Six-digit code').fill(site.code(player.email));await button(page,'Verify and continue').click();
-  await expect(page.getByLabel('Full Name')).toHaveValue('Sample Student');await expect(page.getByLabel('PGP ID',{exact:true})).toHaveValue(player.roll);await page.getByLabel('Batch (optional)').selectOption('2026-28');await page.getByLabel('Contact No. (optional)').fill('9876543210');await button(page,'Request a seat').click();
+  await expect(page.getByLabel('Full Name')).toHaveValue('Sample Student');await expect(page.getByLabel('PGP ID',{exact:true})).toHaveValue(player.roll);await page.getByLabel('Batch',{exact:true}).selectOption('2026-28');await page.getByLabel('Contact No. (optional)').fill('9876543210');await button(page,'Continue to payment').click();
 }
 async function addReceiver(admin,site){
   await admin.goto(site.staffUrl('admin'));await button(admin,'Send code to club email').click();
@@ -27,7 +27,7 @@ async function proof(page,site,alter){
   if(alter)await page.getByLabel('Amount paid (₹)').fill('140');
   await page.getByLabel('Please confirm the recipient of your payment').selectOption({label:'Sample Treasurer'});
   await page.getByLabel('Who made the payment?').fill('Friend of Student');
-  await page.getByLabel('Who was the payment for?').selectOption(player.roll);
+  await expect(page.getByLabel('Who was the payment for?')).toHaveValue(new RegExp(player.roll));
   await page.getByLabel('I agree to play fair, respect the rules, and accept all decisions made by E-Cell, IMT Ghaziabad.',{exact:true}).check();await button(page,'Submit for verification').click();
   await expect(page.getByRole('heading',{name:'Payment pending'})).toBeVisible();
 }

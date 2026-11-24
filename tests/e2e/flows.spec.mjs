@@ -49,7 +49,8 @@ test('first paint accepts typed input before scripts arrive and sends one reques
   await enterCode(page,site.code(player.email),'Verify and continue');
   await expect(button(page,'Save my registration')).toBeVisible();
   expect(site.calls.filter(name=>name!=='publicPrices')).toEqual(['requestEventCode','signInEvent']);
-  await button(page,'Save my registration').dblclick();
+  await button(page,'Save my registration').click();await expect(page.locator('#regBatchError')).toContainText('Choose your batch');
+  await page.getByLabel('Batch',{exact:true}).selectOption('2025-27');await button(page,'Save my registration').dblclick();
   await expect(heading(page,'Registration saved')).toBeVisible();
   expect(site.rows.Journal.filter(r=>r[1]==='Registration saved')).toHaveLength(1);
   await page.reload();await expect(heading(page,'Registration saved')).toBeVisible();
@@ -116,7 +117,7 @@ test('owner publishes a payment QR, checks proof and issues a single-use pass; g
   await button(admin,'Settings').click();await admin.getByLabel('Recipient name shown by the UPI app').fill('Example Club');
   await admin.getByLabel('Upload payment QR').setInputFiles(png);await admin.getByLabel('Publish payment details to players').check();
   await button(admin,'Save payment settings').click();await expect(button(admin,'Preview saved QR')).toBeVisible();
-  await studentLogin(page,site);await button(page,'Request a seat').click();await expect(heading(page,'Pay ₹149')).toBeVisible();
+  await studentLogin(page,site);await page.getByLabel('Batch',{exact:true}).selectOption('2026-28');await button(page,'Continue to payment').click();await expect(heading(page,'Pay ₹149')).toBeVisible();
   await expect(page.getByAltText('Coordinator’s UPI payment QR')).toBeVisible();
   await page.getByLabel('Payment screenshot').setInputFiles(png);await page.getByLabel('Visible final digits',{exact:false}).fill('6789');
   await page.getByLabel('I agree to share',{exact:false}).check();await button(page,'Submit for review').click();
@@ -156,6 +157,7 @@ test('walk-in, a paid retry and offline gate sync honor the verified fee and hea
   async function deskPay(kind,ref){
     await button(page,'Walk-in or paid retry').click();
     await page.getByLabel('College roll number').fill(player.roll);await page.getByLabel('Purchase').selectOption(kind);
+    if(await page.locator('#deskBatch').isVisible())await page.getByLabel('Batch',{exact:true}).selectOption('2026-28');
     await page.getByLabel('Full UPI bank reference').fill(ref);await page.getByLabel('I checked the college ID, the exact fee',{exact:false}).check();
     await button(page,'Approve and send code').click();
   }
@@ -185,7 +187,7 @@ test('live floor recovers from a network error and reopens the last published sn
 });
 
 test('lost registration response is retryable and a shared receipt opens only for its owner',async({page,context,site})=>{
-  await studentLogin(page,site);let lost=true;
+  await studentLogin(page,site);await page.getByLabel('Batch',{exact:true}).selectOption('2026-28');let lost=true;
   await page.route(site.endpoint,async route=>{
     const body=route.request().postDataJSON();
     if(lost&&body.action==='playerStart'){lost=false;site.post(body);return route.abort()}
@@ -206,7 +208,7 @@ test('a no-show frees a seat and the payment desk can offer it to a waitlisted p
   site.rows.Settings[1][1]='club@example';site.rows.Settings[2][1]='Sample Club';site.rows.Settings[5][1]='yes';
   const full=Array.from({length:216},(_,i)=>({id:i.toString(16).padStart(16,'0'),roll:String(300000000+i),wave:Math.floor(i/36),kind:'pre',fee:149,created:site.now(),used:false,status:'PAID'}));
   site.rows.Journal.push([site.now(),'Existing paid seats','Fixture',JSON.stringify({attempts:full})]);
-  await studentLogin(page,site);await button(page,'Request a seat').click();await expect(heading(page,'On the waitlist')).toBeVisible();
+  await studentLogin(page,site);await page.getByLabel('Batch',{exact:true}).selectOption('2026-28');await button(page,'Continue to payment').click();await expect(heading(page,'On the waitlist')).toBeVisible();
   await expect(page.getByRole('link',{name:'Open UPI app'})).toHaveCount(0);
   const desk=await context.newPage();await staffLogin(desk,site,'desk');desk.on('dialog',d=>d.accept());
   await desk.getByLabel('Payment status',{exact:true}).selectOption('PAID');await desk.getByRole('button',{name:/^Open payment for /}).first().click();

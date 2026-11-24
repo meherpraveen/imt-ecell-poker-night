@@ -87,7 +87,7 @@ test('competing claims and screenshot reuse hold both registrations; rejecting o
   f.submit(q,f.submission(q));const replay=f.statement(f.receiver);
   assert.match(replay.matches[0].reason,/already funded/);assert.equal(f.apply(replay).authorized,0);
 });
-test('failed OCR, tampered OCR, a different payee, or an expired quote always require review',()=>{
+test('failed OCR, tampered OCR and a different payee require review while a later upload can match',()=>{
   for(const kind of ['unavailable','tampered','payee','late']){
     const f=start();
     if(kind==='late')f.event.advance(16*60*1000);
@@ -95,7 +95,8 @@ test('failed OCR, tampered OCR, a different payee, or an expired quote always re
     const s=f.submission(f.p,{},image,raw);
     if(kind==='tampered')s.values.ocr={...s.values.ocr,seal:'invalid'};
     f.submit(f.p,s);const plan=f.statement(f.receiver);
-    assert.match(plan.matches[0].reason,/read|different receiving|expired/i,kind);assert.equal(f.apply(plan).authorized,0);
+    if(kind==='late'){assert.equal(plan.matches[0].reason,'');assert.equal(f.apply(plan).authorized,1)}
+    else{assert.match(plan.matches[0].reason,/read|different receiving/i,kind);assert.equal(f.apply(plan).authorized,0)}
   }
 });
 test('bank parser blocks wrong account, amounts, debit, contradictions, formulas, reused and ambiguous UTRs',()=>{
@@ -145,7 +146,7 @@ test('fresh installation requires receiver verification even before the first ac
   assert.equal(f.rpc('staffSnapshot',f.admin).managed,true);
   assert.throws(()=>f.rpc('deskPayment',f.admin,'123456789','walk',utr,true,149),/upload proof/);
   const p=f.student();assert.equal(p.hold.status,'REGISTERED');assert.equal(p.hold.canCheckout,false);
-  f.makeReceiver();assert.equal(p.status().canCheckout,true);
+  f.makeReceiver();assert.equal(p.status().status,'HOLD');assert.ok(p.status().paymentQr);
 });
 test('clear PDF columns with explicit incoming direction can authorize; negative text cannot be transcribed as credit',()=>{
   const f=start();f.submit(f.p,f.submission(f.p));
@@ -167,12 +168,12 @@ test('a staged reversal invalidates an earlier exact preview before it can consu
   assert.throws(()=>f.rpc('adminReviewPayment',f.admin,f.p.hold.id,'approve',reviewed.matches[0].row,'Check original evidence',1),/conflicting/);
 });
 
-test('form fields are stored against verified PGP ID, with optional contact and batch',()=>{
+test('form fields are stored against verified PGP ID, with optional contact and a required batch',()=>{
   const event=createEvent(),f=club(event),r=f.makeReceiver();
   f.publicRpc('requestEventCode','123456789');
   const token=f.publicRpc('signInEvent','123456789',event.code('player@example.test'),'').session.token;
   const valid={pgpId:'123456789',fullName:'Sample Full Name',contact:'+91 98765 43210',batch:'2026-28'};
-  for(const overrides of [{pgpId:'223456789'},{fullName:'  '},{contact:'call me'},{batch:'2024-26'}]){
+  for(const overrides of [{pgpId:'223456789'},{fullName:'  '},{contact:'call me'},{batch:'2024-26'},{batch:''},{batch:undefined}]){
     assert.throws(()=>f.publicRpc('playerStart',token,'',randomUUID(),JSON.stringify({...valid,...overrides})));
   }
   const saved=f.publicRpc('playerStart',token,'',randomUUID(),JSON.stringify(valid));
@@ -190,7 +191,7 @@ test('both receiver options preserve the quote; a payment sent to a different co
   assert.throws(()=>f.submit(p,{...proof,values:{...proof.values,paidReceiver:''}}),/recipient/);
   assert.throws(()=>f.submit(p,{...proof,values:{...proof.values,agreementVersion:'old'}}),/fair-play/);
   f.submit(p,proof);
-  assert.throws(()=>f.publicRpc('playerSelectReceiver',p.token,p.hold.ticket,receiver.id),/hold changed/);
+  assert.throws(()=>f.publicRpc('playerSelectReceiver',p.token,p.hold.ticket,receiver.id),/current checkout/);
   const plan=f.statement(receiver);assert.match(plan.matches[0].reason,/differs from the receiver shown/);assert.equal(f.apply(plan).authorized,0);
   const v=f.rpc('adminPaymentDetail',admin,p.hold.id,'');assert.equal(v.receiver,next.name);assert.equal(v.confirmedRecipient,receiver.name);
   f.rpc('adminReviewPayment',admin,p.hold.id,'approve',v.rows[0].key,'Verified the confirmed alternate receiver’s original bank credit',1);
@@ -220,9 +221,9 @@ test('both codes are private to an open hold and receiver choices are audited, s
   assert.ok(!JSON.stringify(clubApi.publicRpc('publicInfo')).includes('samplebank'));
   clubApi.rpc('adminSaveReceiver',clubApi.admin,{...first,active:false});
   assert.equal(select(first.id,2).unavailable,true);assert.deepEqual(Array.from(student.status().checkoutReceivers,r=>r.id),[second.id]);
-  event.advance(student.hold.expires-event.now()+1);
-  const expired=student.status();assert.equal(expired.status,'EXPIRED');assert.equal(expired.checkoutReceivers.length,0);
-  assert.equal(expired.paymentQr,'');assert.throws(()=>select(second.id,2),/hold changed/);
+  event.advance(student.hold.paymentsCloseAt-event.now()+1);
+  const expired=student.status();assert.equal(expired.checkoutEnded,true);assert.equal(expired.checkoutReceivers.length,0);
+  assert.equal(expired.paymentQr,'');assert.throws(()=>select(second.id,2),/closed/);
 });
 test('a genuine credit can precede the radio choice when its QR was displayed with the quote',()=>{
   const event=createEvent(),f=club(event);
@@ -242,6 +243,54 @@ test('older receiver records regenerate a compact code from the verified private
   legacy.qrFile=file.getId();
   assert.equal(f.event.staff('checkoutQr_',[legacy]),f.p.hold.checkoutReceivers[0].qr);
   assert.throws(()=>f.event.staff('checkoutQr_',[{...legacy,upi:'different@samplebank'}]),/different UPI/);
+});
+test('a later submission uses the transfer-time price and a conflicting bank timestamp blocks the discount',()=>{
+  for(const [clock,paid,bankClock,eligible] of [
+    ['18:59','149','18:59',true],['19:00','199','19:00',true],
+    ['19:00','149','19:00',false],['18:59','149','19:00',false],['18:59','149','',false]
+  ]){
+    const event=createEvent();event.at('2026-11-27T17:00:00+05:30');
+    const f=club(event),receiver=f.makeReceiver(),p=f.student();
+    event.at('2026-11-27T21:00:00+05:30');
+    assert.equal(p.status().fee,199);assert.equal(p.status().ticket,p.hold.ticket);
+    const date='2026-11-27',raw=receiptText(utr,paid).replace('23 Nov 2026 3:00 PM',date+' '+clock);
+    const proof=f.submission(p,{amount:paid,time:date+'T'+clock},image,raw);f.submit(p,proof);
+    const plan=f.statement(receiver,[credit(utr,paid).replace(day,date+' '+bankClock)]);
+    assert.equal(f.apply(plan).authorized,eligible?1:0);
+    if(!eligible)assert.match(plan.matches[0].reason,/fee/);
+  }
+});
+test('old and new details edits are owner-bound, versioned and preserve proof, payment and admission',()=>{
+  const {p,receiver,event,...f}=start(),other=f.student('223456789','second@example.test');
+  const edit=(details,revision,token=p.token)=>f.publicRpc('playerSaveDetails',token,p.hold.ticket,JSON.stringify({...details,revision}));
+  const original=p.hold.details,changed={...original,fullName:'Updated Student',batch:'2025-27',contact:'9876543210'};
+  assert.throws(()=>edit({...changed,batch:''},1),/batch/);
+  assert.throws(()=>edit({...changed,pgpId:other.hold.beneficiary},1),/verified/);
+  assert.throws(()=>edit({...changed,pgpId:other.hold.beneficiary},1,other.token),/your account/);
+  const first=edit(changed,1);assert.equal(first.detailsRevision,2);
+  assert.equal(edit(changed,1).detailsRevision,2);
+  assert.equal(edit(original,1).detailsConflict,true);assert.equal(p.status().details.fullName,changed.fullName);
+  f.submit(p,f.submission(p));const pending=p.status();
+  const old=event.staff('ledger_',[]).attempts[p.hold.id];
+  event.rows.Journal.push([event.now(),'Previous release','Fixture',JSON.stringify({attempts:[{...old,details:{...changed,batch:''},detailsRevision:0}]})]);
+  const missing=f.statement(receiver);assert.match(missing.matches[0].reason,/batch/);
+  const saved=edit(changed,0);assert.equal(saved.paymentStatus,'PENDING');assert.equal(saved.proofVersion,pending.proofVersion);
+  const exact=f.statement(receiver);assert.equal(f.apply(exact).authorized,1);
+  const ticket=p.status(),after=edit({...changed,contact:''},1);
+  assert.equal(after.entryCode,ticket.entryCode);assert.equal(after.paymentStatus,'AUTHORIZED');
+  const scan=f.rpc('gateAction',f.admin,'admit',ticket.entryCode,randomUUID());
+  assert.equal(scan.player,changed.fullName);
+  const checked=edit({...changed,fullName:'Corrected Name'},2);
+  assert.equal(checked.seat,scan.seat);assert.equal(checked.checkedInAt,scan.checkedInAt);assert.equal(checked.entryCode,'');
+});
+test('a saved checkout with no batch reopens on its original receipt after selecting a batch',()=>{
+  const f=start(),{p,event}=f,st=event.staff('ledger_',[]),old=st.attempts[p.hold.id];
+  event.rows.Journal.push([event.now(),'Previous release','Fixture',JSON.stringify({attempts:[{...old,details:{...old.details,batch:''},detailsRevision:0,expires:event.now()+60000}]})]);
+  event.advance(90*60000);const missing=p.status();assert.equal(missing.ticket,p.hold.ticket);assert.equal(missing.checkoutReceivers.length,0);
+  assert.throws(()=>f.submit(p,f.submission(p)),/batch/);
+  const saved=f.publicRpc('playerSaveDetails',p.token,p.hold.ticket,JSON.stringify({...old.details,batch:'2025-27',revision:0}));
+  assert.equal(saved.id,old.id);assert.equal(saved.chosenReceiverId,old.receiver.id);assert.ok(saved.paymentQr);
+  assert.equal(Object.keys(event.staff('ledger_',[]).attempts).length,1);
 });
 test('payment screenshot accepts exactly 10 MB and rejects larger or unsupported uploads',()=>{
   const event=createEvent(),bytes=Buffer.alloc(10*1024*1024);bytes.set([137,80,78,71,13,10,26,10]);

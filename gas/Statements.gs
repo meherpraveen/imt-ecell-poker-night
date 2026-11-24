@@ -3,7 +3,8 @@ const BANK_COLUMNS={
   credit:['credit','credit amount','deposits','deposit','deposit amount','deposit amt','deposits cr','credit inr','credit amount inr'],
   debit:['debit','debit amount','withdrawal','withdrawals','withdrawal amount','withdrawal amt','withdrawals dr','debit inr','debit amount inr'],
   amount:['amount','transaction amount','amount inr','amount rs'],direction:['type','transaction type','direction','dr cr','cr dr','debit credit','credit debit'],
-  date:['date','value date','value dt','transaction dt','transaction date','txn date','transaction time','date and time','date time','posting date'],
+  date:['date','value date','value dt','transaction dt','transaction date','txn date','transaction date time','transaction date and time','date and time','date time','posting date'],
+  time:['time','transaction time','txn time','transfer time'],
   description:['description','remarks','transaction remarks','narration','particulars','transaction description','details'],
   receiver:['receiver upi','receiver upi id','beneficiary upi id','payee vpa','receiver vpa','receiver','payee upi id'],
   currency:['currency','ccy'],status:['status','transaction status']
@@ -26,6 +27,19 @@ function bankDate_(v){
   if(us&&Number(us[1])<=12&&Number(us[2])<=12&&Number(us[1])!==Number(us[2]))return '';
   if(iso)return localPaidTime_(iso[1]+'T00:00').slice(0,10);
   return readPaymentText_(s.replace(/\b\d{1,2}:\d{2}.*$/,'')+' 00:00').time.slice(0,10);
+}
+function bankTimestamp_(value,date){
+  if(!date||!value)return '';
+  const s=String(value).trim();
+  if(/^\d{4}-\d\d-\d\d[T ]\d\d:\d\d(?::\d\d(?:\.\d+)?)?(?:Z|[+-]\d\d:\d\d)$/i.test(s)){
+    const time=Date.parse(s.replace(' ','T'));
+    return Number.isFinite(time)?new Date(time+19800000).toISOString().slice(0,16):'';
+  }
+  const clock=s.match(/(?:^|[T\s,])(\d{1,2}):(\d\d)(?::[0-5]\d)?\s*(am|pm)?\s*(?:IST)?$/i);
+  if(!clock)return '';
+  let hour=Number(clock[1]);
+  if(clock[3]){if(hour<1||hour>12)return '';hour=hour%12+(clock[3].toLowerCase()==='pm'?12:0)}
+  return localPaidTime_(date+'T'+String(hour).padStart(2,'0')+':'+clock[2]);
 }
 function statementRows_(grid,receiver,sheet,source){
   let cols;const rows=[];
@@ -63,11 +77,14 @@ function statementRows_(grid,receiver,sheet,source){
     if(/\b(?:UPI\/DR\/|DEBITED\b)/i.test(narration)&&direction==='CREDIT')reasons.push('Debit wording conflicts with the credit column');
     if(/\b(?:revers(?:al|ed)|refund(?:ed)?|chargeback|failed|pending|cancelled)\b/i.test(narration+' '+get('status')))reasons.push('Reversal, refund or unconfirmed transaction');
     if(get('status')&&!/^(success(?:ful)?|completed|settled|posted|credited)$/i.test(get('status')))reasons.push('Unrecognized bank status');
-    const date=bankDate_(get('date'));
+    const dayCell=get('date')||get('time'),date=bankDate_(dayCell),timeCell=get('time');
+    const timeFromDate=bankTimestamp_(dayCell,date),timeFromColumn=bankTimestamp_(timeCell,date);
+    const time=timeFromColumn||timeFromDate;
     if(!date)reasons.push('Bank transaction date is unclear');
+    if((timeCell&&!timeFromColumn)||(dayCell.includes(':')&&!timeFromDate)||(timeFromDate&&timeFromColumn&&timeFromDate!==timeFromColumn))reasons.push('Bank transaction time is unclear');
     const printedDirection=['cr','credit','deposit','received'].includes(bankHeader_(get('direction')))||/\b(?:credited|credit|received)\b/i.test(narration);
     const pdfNeedsCheck=source==='pdf'&&(!printedDirection||cells.length!==cols.width||!!reasons.length);
-    rows.push({line:sheet+' '+(i+1),raw,utr,refs,minor,direction,date,issue:reasons.join('. '),ocr:pdfNeedsCheck});
+    rows.push({line:sheet+' '+(i+1),raw,utr,refs,minor,direction,date:time?time.slice(0,10):date,time,issue:reasons.join('. '),ocr:pdfNeedsCheck});
   }
   return rows;
 }

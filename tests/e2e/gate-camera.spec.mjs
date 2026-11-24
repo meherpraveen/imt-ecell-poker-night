@@ -5,7 +5,7 @@ import {player} from './event-runtime.mjs';
 test('phone camera decodes the saved pass and email QR, expires both and updates the player’s ticket',async({context,page,site},testInfo)=>{
   site.at('2026-11-27T19:12:00+05:30');
   const desk=site.staff('staffLogin',[site.team.desk,site.invite('desk')]);
-  site.staff('deskPayment',[desk.token,player.roll,'walk','123456784321',true,199]);
+  site.staff('deskPayment',[desk.token,player.roll,'walk','123456784321',true,199,'2026-28']);
   const mail=site.mail.at(-1),code=mail.body.match(/PN-[A-Z0-9]{16}/)[0];
   const emailImage='data:image/gif;base64,'+Buffer.from(mail.options.inlineImages.entryQr.getBytes()).toString('base64');
   await page.goto(site.origin+'/event.html?view=pass#code='+code);
@@ -71,7 +71,7 @@ test('phone camera decodes the saved pass and email QR, expires both and updates
 test('a lost camera response stays unconfirmed and retry recovers the original admission',async({page,site})=>{
   site.at('2026-11-27T19:15:00+05:30');
   const desk=site.staff('staffLogin',[site.team.desk,site.invite('desk')]);
-  site.staff('deskPayment',[desk.token,player.roll,'walk','111122223333',true,199]);
+  site.staff('deskPayment',[desk.token,player.roll,'walk','111122223333',true,199,'2026-28']);
   const code=site.mail.at(-1).body.match(/PN-[A-Z0-9]{16}/)[0];
   const gate=site.staff('staffLogin',[site.team.gate,site.invite('gate')]);
   const link=new URL(site.staff('staffSnapshot',[gate.token]).scannerUrl);
@@ -96,16 +96,14 @@ test('registration and checkout cross the same price boundary while a phone stay
   await page.getByLabel('Six-digit code').fill(site.code(player.email));await page.getByRole('button',{name:'Verify and continue'}).click();
   await expect(page.getByLabel('Full Name')).toHaveValue('Sample Student');await expect(offer).toContainText('₹149');
   await page.screenshot({animations:'disabled',path:testInfo.outputPath('registration-light.png')});
-  await page.getByRole('button',{name:'Request a seat'}).click();await expect(offer.locator('s')).toContainText('₹199');
+  await page.getByLabel('Batch',{exact:true}).selectOption('2025-27');await page.getByRole('button',{name:'Continue to payment'}).click();await expect(offer.locator('s')).toContainText('₹199');
   await expect(page.getByRole('link',{name:'Open UPI app'})).toHaveAttribute('href',/am=149.00/);
   await page.getByRole('button',{name:'Submit for review'}).click();
   await expect(page.getByLabel('Payment screenshot')).toHaveAttribute('aria-invalid','true');
   site.advance(60000);await page.clock.fastForward(60000);
-  await expect(page.getByRole('heading',{name:'Hold expired'})).toBeVisible();
-  await expect(page.getByRole('link',{name:'Open UPI app'})).toHaveCount(0);
-  await page.getByRole('button',{name:'Request another seat'}).click();
+  await expect(page.getByRole('heading',{name:'Pay ₹199'})).toBeVisible();
   await expect(offer).toContainText('Standard entry');await expect(offer.locator('s')).toHaveCount(0);
-  await page.getByRole('button',{name:'Request a seat'}).click();
+  expect(site.calls.filter(method=>method==='playerStart')).toHaveLength(1);
   await expect(page.getByRole('link',{name:'Open UPI app'})).toHaveAttribute('href',/am=199.00/);
   await expect(offer).not.toContainText('149');await expect(offer).not.toContainText('Early Bird');
 });

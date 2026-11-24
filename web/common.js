@@ -7,6 +7,10 @@ let clockEnd=0,busy=false;
 function msg(t='',bad=false){el('msg').textContent=t;el('msg').className='note'+(bad?' error':'')}
 function btn(action,label,cls='',id=''){return '<button type="button" data-do="'+action+'" data-id="'+esc(id)+'" class="'+cls+'">'+esc(label)+'</button>'}
 function input(id,label,extra=''){return '<label for="'+id+'">'+label+'</label><input id="'+id+'" '+extra+'>'}
+function batchField(id,value=''){
+  return '<label for="'+id+'">Batch</label><select id="'+id+'" required><option value="">Choose your batch</option>'+
+    ['2025-27','2026-28'].map(batch=>'<option'+(value===batch?' selected':'')+'>'+batch+'</option>').join('')+'</select>';
+}
 function checkbox(id,t){return '<label class="check"><input type="checkbox" id="'+id+'">'+esc(t)+'</label>'}
 function panel(t,body){return '<section class="panel"><h2>'+esc(t)+'</h2>'+body+'</section>'}
 function rollField(id){return input(id,'College roll number','inputmode="numeric" pattern="[0-9]{9}" maxlength="9" autocomplete="off" placeholder="Nine-digit roll number"')}

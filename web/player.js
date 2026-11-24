@@ -40,7 +40,7 @@ function codePage(){
   startResendTimer(challenge.resendAt);el('loginCode').focus({preventScroll:true});
 }
 function clearPlayer(){
-  clearTimeout(ticketTimer);clearTimeout(holdTimer);proofRead=null;currentReceipt=null;
+  clearTimeout(ticketTimer);clearTimeout(checkoutTimer);proofRead=null;currentReceipt=null;
   playerSession=null;challenge=null;pendingRequest='';preferredReceipt='';accountInfo=null;
   for(const key of ['player-login','seat-request','email-step','receipt-link'])tabValue(key,'');
   for(const key of ['player-login','receipt','pending-seat'])durable.set(key,'');
@@ -54,31 +54,37 @@ function progress(step){
     '<li class="'+(i<step?'done':'')+'"'+(i===step?' aria-current="step"':'')+'><span aria-hidden="true">'+(i<step?'✓':i+1)+'</span>'+label+'</li>').join('')+'</ol>';
 }
 function accountScreen(step,body){
-  el('content').innerHTML='<div class="narrow">'+progress(step)+body+'<div class="account-actions">'+btn('logout','Sign out','quiet')+'</div></div>';
+  el('content').innerHTML='<div class="narrow">'+progress(step)+(step&&currentReceipt?detailsEditor(currentReceipt):'')+body+'<div class="account-actions">'+btn('logout','Sign out','quiet')+'</div></div>';
   updatePrices();
   if(busy){const title=el('title');title.tabIndex=-1;title.focus({preventScroll:true});title.scrollIntoView({block:'nearest'})}
 }
 function registrationForm(person,action,label,fee,next){
   return '<form data-action="'+action+'" novalidate>'+
-    input('regName','Full Name','autocomplete="name" required maxlength="100" value="'+esc(person.name||'')+'"')+
-    input('regPgp','PGP ID','readonly required aria-describedby="pgpHint" value="'+esc(person.roll||'')+'"')+
+    input('regName','Full Name','autocomplete="name" required maxlength="100" value="'+esc(person.fullName??person.name??'')+'"')+
+    input('regPgp','PGP ID','readonly required aria-describedby="pgpHint" value="'+esc(person.pgpId||person.roll||'')+'"')+
     '<p class="sub" id="pgpHint">Your PGP ID was verified at sign-in.</p>'+
-    input('regContact','Contact No. (optional)','type="tel" autocomplete="tel" maxlength="24" value="'+esc(person.phone||'')+'"')+
-    '<label for="regBatch">Batch (optional)</label><select id="regBatch"><option value="">Choose your batch</option><option value="2025-27">2025-27</option><option value="2026-28">2026-28</option></select>'+
+    input('regContact','Contact No. (optional)','type="tel" autocomplete="tel" maxlength="24" value="'+esc(person.contact??person.phone??'')+'"')+
+    batchField('regBatch',person.batch)+
     (fee?'<div data-entry-price class="offer"></div>':'')+(next?'<p class="sub">'+esc(next)+'</p>':'')+
     '<button class="primary wide" type="submit">'+esc(label)+'</button></form>';
+}
+function registrationPerson(r){return {...(accountInfo?.player||{}),...r.details,pgpId:r.beneficiary}}
+function detailsEditor(r){
+  return '<details id="registrationEditor" class="registration-editor"><summary>Edit registration details<span id="detailsSaved" aria-hidden="true"></span></summary>'+
+    registrationForm(registrationPerson(r),'saveDetails','Save changes',false,'')+'<p class="sub" id="detailsFeedback" role="status"></p></details>';
 }
 function enteredDetails(){
   const fullName=val('regName'),contact=val('regContact');
   if(!fullName){fieldError('regName','Enter your full name.');return}
   if(contact&&(!/^\+?[\d ()-]{7,24}$/.test(contact)||!/^\d{7,15}$/.test(contact.replace(/\D/g,'')))){fieldError('regContact','Check your contact number or leave it blank.');return}
-  return {fullName,pgpId:val('regPgp'),contact,batch:val('regBatch')};
+  const batch=val('regBatch');if(!batch){fieldError('regBatch','Choose your batch to continue.');return}
+  return {fullName,pgpId:val('regPgp'),contact,batch};
 }
 function registrationPage(){
   currentReceipt=null;clearTimeout(ticketTimer);heading('Poké Poker Night','Your registration');
   const info=accountInfo,person=info.player||{};
-  const next=info.paymentsReady?'Continue to hold your place and see the payment details.':'You can pay here when E-Cell opens checkout.';
-  const form=registrationForm(person,'start',info.paymentsReady?'Request a seat':'Save my registration',true,next);
+  const next=info.paymentsReady?'':'You can pay here when E-Cell opens checkout.';
+  const form=registrationForm(person,'start',info.paymentsReady?'Continue to payment':'Save my registration',true,next);
   accountScreen(0,panel(info.open?'Entry details':'Registration closed',info.open?form:'<p>'+esc(info.message)+'</p>'));
 }
 async function loadAccount(){
@@ -89,9 +95,34 @@ function renderAccount(info){
   tabValue('receipt-link','');
   if(accountInfo.receipt)showReceipt(accountInfo.receipt);else{preferredReceipt='';durable.set('receipt','');registrationPage()}
 }
+function checkoutPanel(r){
+  const price='<div data-entry-price class="offer"></div>';
+  if(r.checkoutEnded||r.full)return panel(r.checkoutEnded?'Payments closed':'All waves are full','<p>If you already paid, submit your screenshot below for review.</p>');
+  let instructions=price;
+  if(r.receiver&&Array.isArray(r.checkoutReceivers))return panel('Pay '+formatFee_(r.fee),instructions+choosePaymentReceiver(r));
+  if(r.upi||r.paymentQr){
+    instructions+='<div data-payment-target><p>Pay <strong>'+esc(r.name)+'</strong> using UPI.</p>';
+    if(r.upi){
+      const params=new URLSearchParams({pa:r.upi,pn:r.name,am:Number(r.fee).toFixed(2),cu:r.offer.currency,tn:'Poké Poker Night '+r.id});
+      instructions+='<p><code>'+esc(r.upi)+'</code></p><a class="button" data-payment-link target="_blank" rel="noopener" href="upi://pay?'+esc(params.toString().replace(/\+/g,'%20'))+'">Open UPI app</a>';
+    }
+    if(r.receiver?.number)instructions+='<p class="sub">UPI number · '+esc(r.receiver.number)+'</p>';
+    if(r.paymentQr){
+      const fileName=r.paymentQr.startsWith('data:image/png;')?'payment-qr.png':'payment-qr.jpg';
+      instructions+='<figure class="payment-qr"><img alt="Coordinator’s UPI payment QR" src="'+esc(r.paymentQr)+'"><figcaption>Scan in your UPI app or <a download="'+fileName+'" href="'+esc(r.paymentQr)+'">save the QR image</a>.</figcaption></figure>';
+    }
+    return panel('Pay '+formatFee_(r.fee),instructions+'</div>');
+  }
+  return panel('Payments paused',instructions+'<p>If you already paid, upload your proof below.</p>'+btn('receipt','Refresh payment details'));
+}
 function showReceipt(r){
-  proofRead=null;currentReceipt=r;scheduleHoldExpiry();preferredReceipt=r.ticket;durable.set('receipt',r.ticket);
-  if(typeof proofForm!=='function'&&(r.receiver||r.identifyReceivers?.length)&&['HOLD','REVIEW','EXPIRED','REJECTED'].includes(r.status)){
+  proofRead=null;currentReceipt=r;clearTimeout(checkoutTimer);preferredReceipt=r.ticket;durable.set('receipt',r.ticket);
+  if(!r.details?.batch&&['REGISTERED','WAITLIST','HOLD','REVIEW','REJECTED'].includes(r.status)){
+    heading('Poké Poker Night','Your registration');
+    const note=r.status==='REVIEW'?'Your payment proof is saved. Choose your batch to complete your registration.':'';
+    accountScreen(0,panel('Registration details',registrationForm(registrationPerson(r),'saveDetails','Save and continue',false,note)));return;
+  }
+  if(typeof proofForm!=='function'&&(r.receiver||r.identifyReceivers?.length)&&['HOLD','REVIEW','REJECTED'].includes(r.status)){
     el('content').innerHTML=skeleton('Opening payment details');
     loadPaymentForm().then(()=>{if(currentReceipt===r)showReceipt(r)}).catch(()=>{
       if(currentReceipt===r)accountScreen(1,panel('Payment details unavailable','<p>Check your connection and try again.</p>'+btn('receipt','Retry opening payment','primary wide')));
@@ -101,49 +132,30 @@ function showReceipt(r){
   const ticket=!!(r.entryCode||r.checkedInAt);
   heading('Poké Poker Night',ticket?'Your ticket':'Your registration');
   let body='';
-  if(r.managed&&!r.details&&['REGISTERED','WAITLIST','HOLD','REVIEW','REJECTED','EXPIRED'].includes(r.status)){
-    accountScreen(0,panel('Registration details',registrationForm(accountInfo?.player||{},'saveDetails','Save details and continue',false,'Your existing registration and payment stay linked to this PGP ID.')));return;
-  }
   if(r.identifyReceivers?.length){body=receiverRecovery(r)}else if(r.status==='REGISTERED'){
-    const next=r.checkoutEnded?'Online checkout has ended. Contact E-Cell if you already paid.':r.canCheckout?'Payment is open. Continue to hold your place and see where to pay.':'Your details are saved. Return here when E-Cell opens payment.';
+    const next=r.checkoutEnded?'Online checkout has ended. Contact E-Cell if you already paid.':r.canCheckout?'Payment is open for your registration.':'Your details are saved. Return here when E-Cell opens payment.';
     body=panel('Registration saved','<p>'+next+'</p>'+(r.checkoutEnded?'':'<div data-entry-price class="offer"></div>')+
       (r.checkoutEnded?'':r.canCheckout?btn('checkout','Continue to payment','primary wide'):btn('receipt','Check payment availability','primary wide'))+
       btn('copyReceipt','Copy private receipt link','quiet')+'<div id="copyReceiptFallback"></div>');
   }else if(r.status==='HOLD'){
-    let instructions='<div data-entry-price class="offer"></div><p class="hold-line">Wave '+r.wave+' · Pay and submit before <strong>'+localTime(r.expires)+' IST</strong></p>';
-    if(r.receiver&&Array.isArray(r.checkoutReceivers)){
-      body+=panel('Pay '+formatFee_(r.fee),instructions+choosePaymentReceiver(r));
-    }else if(r.upi||r.paymentQr){
-      instructions+='<div data-payment-target><p>Pay <strong>'+esc(r.name)+'</strong> using UPI.</p>';
-      if(r.upi){
-        const params=new URLSearchParams({pa:r.upi,pn:r.name,am:Number(r.fee).toFixed(2),cu:r.offer.currency,tn:'Poké Poker Night '+r.id});
-        instructions+='<p><code>'+esc(r.upi)+'</code></p><a class="button" data-payment-link target="_blank" rel="noopener" href="upi://pay?'+esc(params.toString().replace(/\+/g,'%20'))+'">Open UPI app</a>';
-      }
-      if(r.receiver?.number)instructions+='<p class="sub">UPI number · '+esc(r.receiver.number)+'</p>';
-      if(r.paymentQr){
-        const fileName=r.paymentQr.startsWith('data:image/png;')?'payment-qr.png':'payment-qr.jpg';
-        instructions+='<figure class="payment-qr"><img alt="Coordinator’s UPI payment QR" src="'+esc(r.paymentQr)+'"><figcaption>Scan in your UPI app or <a download="'+fileName+'" href="'+esc(r.paymentQr)+'">save the QR image</a>.</figcaption></figure>';
-      }
-      body+=panel('Pay '+formatFee_(r.fee),instructions+'</div>');
-    }else body+=panel('Payments paused',instructions+'<p>If you already paid, upload your proof below.</p>'+btn('receipt','Refresh payment details'));
+    body='<div id="checkoutPayment">'+checkoutPanel(r)+'</div><div id="checkoutUpdate" class="sub" role="status" hidden></div>';
     body+=r.receiver?proofForm(r):panel('Upload payment proof','<form data-action="upload" novalidate><label for="shot">Payment screenshot</label><input id="shot" type="file" accept="image/jpeg,image/png,image/webp">'+input('tail','Visible final digits of the UPI reference (optional)','inputmode="numeric" maxlength="12" placeholder="Last 4–12 digits"')+'<p class="sub">Keep the amount, recipient and reference visible.</p>'+checkbox('consent','I agree to share this proof with the E-Cell payment desk for verification.')+'<button class="primary wide" type="submit">Submit for review</button></form>');
-  }else if(r.receiver&&['REVIEW','REJECTED','EXPIRED'].includes(r.status)){
-    const issue=r.issue||(r.status==='EXPIRED'?'The hold expired. If you already paid, submit the original receipt.':'Your screenshot is saved. Your pass will appear when the bank credit is authorized.');
-    body=panel(r.status==='REJECTED'?'Proof needs attention':r.status==='EXPIRED'?'Hold expired':'Payment pending','<p>'+esc(issue)+'</p><p class="sub">Receiver · '+esc(r.receiver.name)+'</p>'+btn('receipt','Refresh status'));
+  }else if(r.receiver&&['REVIEW','REJECTED'].includes(r.status)){
+    const issue=r.issue||'Your screenshot is saved. Your pass will appear when the bank credit is authorized.';
+    body=panel(r.status==='REJECTED'?'Proof needs attention':'Payment pending','<p>'+esc(issue)+'</p><p class="sub">Receiver · '+esc(r.receiver.name)+'</p>'+btn('receipt','Refresh status'));
     if(r.status==='REVIEW')body+='<details'+(r.needsConfirmation?' open':'')+'><summary>'+ (r.needsConfirmation?'Confirm your payment details':'Replace my screenshot')+'</summary>'+proofForm(r)+'</details>';else body+=proofForm(r);
-    if(r.status==='EXPIRED'&&accountInfo?.open)body+=btn('renew','Request another seat','quiet');
   }else if(ticket){
     body=walletCard(r,r.details?.fullName||accountInfo?.player?.name,false);
   }else{
-    const labels={REVIEW:['Payment under review','The desk will check the coordinator’s incoming payment. Keep this page. Please pay only once.'],WAITLIST:['On the waitlist','All available seats are held. Wait for a seat offer here before paying.'],EXPIRED:['Hold expired','If you paid, bring your bank reference to the desk before making another payment.'],REJECTED:['Proof needs attention',r.reason||'Contact the desk with your receipt.'],NO_SHOW:['No-show recorded','Speak to the desk if you are at the venue.'],RELEASED:['Offer released','Speak to the desk for your current attempt.']};
+    const labels={REVIEW:['Payment under review','The desk will check the coordinator’s incoming payment. Keep this page. Please pay only once.'],WAITLIST:['On the waitlist','All qualifier waves are full. Payment will open here if a place becomes available.'],REJECTED:['Proof needs attention',r.reason||'Contact the desk with your receipt.'],NO_SHOW:['No-show recorded','Speak to the desk if you are at the venue.'],RELEASED:['Offer released','Speak to the desk for your current attempt.']};
     const [title,bodyText]=labels[r.status]||['Entry closed','This qualifier is closed. Speak to the event desk about your ticket.'];
-    const renew=['EXPIRED','RELEASED','REJECTED'].includes(r.status)&&accountInfo?.open;
+    const renew=['RELEASED','REJECTED'].includes(r.status)&&accountInfo?.open;
     body+=panel(title,'<p>'+esc(bodyText)+'</p>'+(r.wave?'<p class="sub">Round 1 · Wave '+r.wave+'</p>':'')+
       (renew?btn('renew','Request another seat','primary wide'):btn('receipt','Refresh status','primary wide')));
   }
   accountScreen(ticket||['PAID','NO_SHOW','QUALIFIED','ELIMINATED','WINNER'].includes(r.status)?2:1,body);
   if(r.entryCode)fillTicketQr(r.entryCode,r.wave);
-  scheduleTicketUpdate();
+  scheduleTicketUpdate();scheduleCheckoutUpdate();
   if(document.body.dataset.host!=='pages'){
     const link=document.createElement('a');
     link.href='https://meherpraveen.github.io/imt-ecell-poker-night/event.html?view=register#receipt='+encodeURIComponent(r.ticket);
@@ -197,7 +209,25 @@ async function action(name){
   if(name==='refreshBoard'){await refreshBoard();return}
   if(name==='logout'){const token=playerSession?.token;clearPlayer();signInPage();if(token)await api('playerLogout',token);return}
   if(name==='renew'){preferredReceipt='';pendingRequest='';tabValue('seat-request','');durable.set('receipt','');registrationPage();return}
-  if(name==='saveDetails'){const d=enteredDetails();if(d)showReceipt(await playerApi('playerSaveDetails',currentReceipt.ticket,JSON.stringify(d)));return}
+  if(name==='refreshQuote'){await refreshCheckoutQuote();return}
+  if(name==='saveDetails'){
+    const d=enteredDetails();if(!d)return;
+    const r=currentReceipt,editor=el('registrationEditor'),previousName=r.details?.fullName||accountInfo?.player?.name||'';
+    const saved=await playerApi('playerSaveDetails',r.ticket,JSON.stringify({...d,revision:r.detailsRevision||0}));
+    if(currentReceipt!==r)return;
+    r.detailsRevision=saved.detailsRevision;r.details=saved.details;
+    if(saved.detailsConflict){
+      const text='Another tab saved '+[saved.details.fullName,saved.details.batch,saved.details.contact].filter(Boolean).join(' · ')+'. Check your changes and save again.';
+      if(editor)el('detailsFeedback').textContent=text;else msg(text,true);return;
+    }
+    if(!editor||r.status!==saved.status){showReceipt(saved);return}
+    if(el('paymentPayer')&&el('paymentPayer').value===previousName)el('paymentPayer').value=d.fullName;
+    if(el('beneficiaryName'))el('beneficiaryName').value=d.fullName+' · '+r.beneficiary;
+    const walletName=document.querySelector('.wallet-player');if(walletName)walletName.textContent=d.fullName;
+    editor.open=false;editor.querySelector('summary').focus({preventScroll:true});
+    el('detailsFeedback').textContent='';el('detailsSaved').textContent='Saved';el('ticketAnnouncement').textContent='Registration details saved.';
+    return;
+  }
   if(name==='start'){
     const details=enteredDetails();if(!details)return;
     if(accountInfo.paymentsReady)warmPaymentForm();
@@ -216,13 +246,12 @@ async function action(name){
     return;
   }
   if(name==='upload'){
-    if(expireCheckout())return;
     const file=el('shot').files[0],tail=val('tail');
     if(!file){fieldError('shot','Choose a screenshot of your payment.');return}
     if(tail&&!/^\d{4,12}$/.test(tail)){fieldError('tail','Enter the last 4–12 digits, or leave this blank.');return}
     if(!el('consent').checked){fieldError('consent','Confirm that the desk may review your screenshot.');return}
     let data;try{data=await picture(file)}catch(e){fieldError('shot',e.message);return}
-    if(!expireCheckout())showReceipt(await playerApi('playerUpload',preferredReceipt,tail,data));
+    showReceipt(await playerApi('playerUpload',preferredReceipt,tail,data));
   }
 }
 let boardRequest,boardFingerprint='',boardTimer;
@@ -296,10 +325,10 @@ addEventListener('online',()=>{el('net').textContent='';if(mode==='board')refres
 addEventListener('offline',()=>{el('net').textContent='Offline. Reconnect for updates.'});
 if(mode==='board')document.addEventListener('visibilitychange',()=>{if(document.hidden)clearTimeout(boardTimer);else if(navigator.onLine)refreshBoard()});
 if(mode==='register'||mode==='pass'){
-  document.addEventListener('click',e=>{if(e.target.closest('[data-payment-link]')&&expireCheckout())e.preventDefault()},true);
-  document.addEventListener('visibilitychange',()=>{if(document.hidden)clearTimeout(ticketTimer);else{expireCheckout();updateTicket()}});
-  addEventListener('online',updateTicket);
-  addEventListener('pageshow',()=>{expireCheckout();if(currentPass||currentReceipt)updateTicket()});
+  document.addEventListener('click',e=>{if(e.target.closest('#checkoutPayment a')&&checkoutNeedsUpdate()){e.preventDefault();refreshCheckoutQuote()}},true);
+  document.addEventListener('visibilitychange',()=>{if(document.hidden)clearTimeout(ticketTimer);else{checkCheckoutTime();updateTicket()}});
+  addEventListener('online',()=>{checkCheckoutTime();updateTicket()});
+  addEventListener('pageshow',()=>{checkCheckoutTime();if(currentPass||currentReceipt)updateTicket()});
 }
 window.pokerReady=true;
 launch();

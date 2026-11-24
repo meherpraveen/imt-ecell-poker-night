@@ -2,6 +2,7 @@
 const FAIR_PLAY_VERSION='imt-ecell-2026-v2';
 const FAIR_PLAY_DECLARATION='I agree to play fair, respect the rules, and accept all decisions made by E-Cell, IMT Ghaziabad.';
 const PROOF_MAX_BYTES=10*1024*1024;
+function validBatch_(batch){return ['2025-27','2026-28'].includes(batch)}
 function registrationDetails_(roll,value){
   const v=typeof value==='string'?JSON.parse(value):value||{};
   must_(v&&typeof v==='object'&&!Array.isArray(v),'Check your registration details.');
@@ -9,16 +10,22 @@ function registrationDetails_(roll,value){
   must_(fullName&&fullName.length<=100&&!/[\x00-\x1f]/.test(fullName),'Enter your full name.');
   must_(roll_(v.pgpId)===roll,'Use the PGP ID verified at sign-in.');
   must_(!contact||/^\+?[\d ()-]{7,24}$/.test(contact)&&/^\d{7,15}$/.test(contact.replace(/\D/g,'')),'Check your contact number or leave it blank.');
-  must_(['','2025-27','2026-28'].includes(batch),'Choose your batch from the list.');
+  must_(validBatch_(batch),'Choose your batch to continue.');
   return {fullName,pgpId:roll,contact,batch};
 }
 function playerSaveDetails(session,ticket,json){
-  const roll=playerRoll_(session),details=registrationDetails_(roll,json);
-  return locked_(()=>{
-    const st=ledger_(),a=ownReceipt_(st,ticket,roll);
-    if(!a.details&&!issued_(a))commit_(st,'Registration details confirmed',roll,{attempts:[{...a,details}],note:a.id});
-    return receipt_(st.attempts[a.id],settings_(),st);
+  const roll=playerRoll_(session),input=JSON.parse(json||'{}'),details=registrationDetails_(roll,input);
+  const result=locked_(()=>{
+    const st=ledger_(),set=settings_(),a=ownReceipt_(st,ticket,roll);
+    must_(currentRegistration_(st,a).id===a.id,'Open your current registration to edit its details.');
+    const revision=a.detailsRevision||0;
+    if(JSON.stringify(a.details)!==JSON.stringify(details)){
+      if((input.revision??0)!==revision)return {a,set,st,conflict:true};
+      commit_(st,a.details?'Registration details updated':'Registration details confirmed',roll,{attempts:[{...a,details,detailsRevision:revision+1}],note:a.id});
+    }
+    return {a:openSavedCheckout_(st.attempts[a.id],set,st,Date.now()),set,st};
   });
+  return {...receipt_(result.a,result.set,result.st),detailsConflict:!!result.conflict};
 }
 function proofImageBytes_(data){
   must_(typeof data==='string'&&data.length<=4*Math.ceil(PROOF_MAX_BYTES/3)+64,'Choose one payment screenshot up to 10 MB.');
@@ -142,7 +149,9 @@ function playerSelectReceiver(session,ticket,id,expectedVersion){
   if(compact)must_(/^\d{1,9}$/.test(expectedVersion),"Refresh your checkout and try again.");
   const result=locked_(()=>{
     const st=ledger_(),a=ownReceipt_(st,ticket,roll),receiver=st.receivers[id];
-    must_(a.status==="HOLD"&&a.receiver&&!a.file&&!a.legacyReceiver&&Date.now()<holdEnd_(a),"The payment hold changed. Refresh your checkout.");
+    must_(a.status==='HOLD'&&a.receiver&&!a.file&&!a.legacyReceiver&&currentRegistration_(st,a).id===a.id,'Open your current checkout to select a receiver.');
+    must_(validBatch_(a.details?.batch),'Choose your batch before paying.');
+    must_(Date.now()<EVENT_END&&waveFor_(st,roll,Date.now())>=0,'Payments have closed or the event is full. If you already paid, submit your screenshot.');
     if(compact&&Object.hasOwn(st.receivers,id)&&!receiver.active)return {unavailable:true};
     must_(Object.hasOwn(st.receivers,id)&&receiver.active,"This receiver is unavailable. Refresh to choose an active account.");
     const version=a.receiverChoiceVersion||0,already=a.receiverSelectedAt&&a.receiver.id===id;
@@ -248,12 +257,13 @@ function playerSubmitPayment(session,ticket,data,json){
     const st=ledger_(),a=ownReceipt_(st,ticket,roll),now=Date.now(),set=settings_();
     if(issued_(a))return receipt_(a,set,st);
     must_(a.receiver&&a.receiver.id===form.receiver,'Reload your saved receiver before submitting payment proof.');
-    if(a.status==='HOLD'&&now<holdEnd_(a)){
+    must_(currentRegistration_(st,a).id===a.id,'Open your current registration to submit proof.');
+    if(a.status==='HOLD'&&now<EVENT_END&&waveFor_(st,roll,now)>=0){
       const hasMultiple=a.offeredReceivers?.length>1&&receivers_(st).filter(r=>r.active).length>1;
       must_(!hasMultiple||a.receiverSelectedAt,'Choose your payment receiver before submitting proof.');
       must_(form.receiverChoiceVersion===undefined||form.receiverChoiceVersion===(a.receiverChoiceVersion||0),'The receiver changed in another window. Check your selection before submitting.');
     }
-    must_(a.details,'Complete your registration details before submitting proof.');
+    must_(validBatch_(a.details?.batch),'Choose your batch in registration details before submitting proof.');
     const paid=st.receivers[form.paidReceiver];must_(Object.hasOwn(st.receivers,form.paidReceiver)&&paid,'Confirm the recipient who received this payment.');
     claim.paidReceiver=a.claim?.paidReceiver?.id===paid.id?a.claim.paidReceiver:{id:paid.id,name:paid.name,upi:paid.upi};
     const o=form.ocr||{},trusted=o.seal&&o.seal===proofSeal_(a.id,digest,o)?{utr:o.utr,amount:o.amount,time:o.time,payee:o.payee||'',uncertain:!!o.uncertain}:null;
@@ -261,8 +271,10 @@ function playerSubmitPayment(session,ticket,data,json){
     must_(Number.isInteger(form.revision)&&form.revision===(a.proofVersion||0),'Your proof changed. Refresh before replacing it.');
     must_(['HOLD','REVIEW','REJECTED'].includes(a.status),'This registration cannot accept a payment. Contact the event desk.');
     const file=privateBlob_(im.bytes,im.mime,a.id+'-proof-'+(form.revision+1)+'.'+im.ext);
-    const updated={...a,file:file.getId(),digest,claim,ocr:trusted,suffix:claim.utr.slice(-4),proofVersion:form.revision+1,status:'REVIEW',paymentStatus:'PENDING',submitted:now,
-      late:a.late||a.status==='HOLD'&&now>=holdEnd_(a),reason:'',reviewReason:'',linkedRow:'',linkReason:'',fairPlayVersion:FAIR_PLAY_VERSION,agreement:FAIR_PLAY_DECLARATION};
+    const transferTime=Date.parse(claim.time+':00+05:30');
+    const fee=entryOffer_(Math.max(a.quotedAt||a.created,Math.min(transferTime,now)),a.kind).amount;
+    const updated={...a,wave:proofWave_(st,a,now),fee,file:file.getId(),digest,claim,ocr:trusted,suffix:claim.utr.slice(-4),proofVersion:form.revision+1,status:'REVIEW',paymentStatus:'PENDING',submitted:now,
+      late:false,reason:'',reviewReason:'',linkedRow:'',linkReason:'',fairPlayVersion:FAIR_PLAY_VERSION,agreement:FAIR_PLAY_DECLARATION};
     commit_(st,a.file?'Proof replaced':'Proof submitted',roll,{attempts:[updated],note:a.id});
     return receipt_(updated,set,st);
   });
