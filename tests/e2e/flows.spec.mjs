@@ -57,6 +57,17 @@ test('first paint accepts typed input before scripts arrive and sends one reques
   await button(page,'Sign out').click();await expect(identifier).toBeVisible();
 });
 
+test('a student can sign in after five earlier code emails in the same day',async({page,site})=>{
+  for(let sent=0;sent<5;sent++){
+    expect(site.post({action:'requestEventCode',args:[player.email]}).ok).toBe(true);
+    site.advance(60000);
+  }
+  site.advance(10*60000);
+  await studentLogin(page,site);
+  await expect(button(page,'Save my registration')).toBeVisible();
+  expect(site.mail).toHaveLength(6);
+});
+
 test('club email at the public sign-in opens the private admin desk with one code',async({page,context,site})=>{
   await page.goto(site.register);
   await expect(page.locator('a[href*="view=staff"]')).toHaveCount(0);

@@ -1,6 +1,7 @@
 const CODE_LIFETIME = 10 * 60000;
 const CODE_RESEND = 60000;
 const AUTH_DAY = 24 * 3600000;
+const SIGN_IN_EMAILS_PER_DAY = 20;
 const STUDENT_SESSION_LIFETIME = 30 * AUTH_DAY;
 const PLAYER_SIGN_IN = 'Sign in with your registered email to continue.';
 const STAFF_SIGN_IN = 'Sign in to the staff desk again.';
@@ -99,7 +100,11 @@ function planCode_(identity, owner) {
     must_(active, 'You recently used your code. Request another in '+cooldown+' seconds.');
     return {wait:cooldown, expiresIn:remaining, delivery:'existing'};
   }
-  if(state.sends>=5)must_(false,'This account has reached its sign-in email limit. Enter an unexpired code or try again in about '+Math.ceil((state.windowEnd-now)/3600000)+' hours.');
+  if (state.sends >= SIGN_IN_EMAILS_PER_DAY) {
+    const minutes = Math.ceil((state.windowEnd - now) / 60000);
+    const wait = minutes <= 60 ? minutes + (minutes === 1 ? ' minute' : ' minutes') : Math.ceil(minutes / 60) + ' hours';
+    must_(false, 'This account has reached its sign-in email limit of ' + SIGN_IN_EMAILS_PER_DAY + ' per 24 hours. Enter an unexpired code or try again in about ' + wait + '.');
+  }
   must_(available, limitMessage);
   const ref = rand_().slice(0,16), nonce = active ? state.nonce : rand_();
   const code=codeFor_(key,nonce);

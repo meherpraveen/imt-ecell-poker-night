@@ -153,7 +153,7 @@ test('roll and email resolve to one directory mailbox; unknown or shared address
   people['987654321'].email='sample@example.test';
   ctx.requestPlayerCode('987654321');ctx.requestPlayerCode('sample@example.test');assert.equal(loginMail.length,1);
 });
-test('wrong codes have five attempts, expire after ten minutes and sends are bounded',()=>{
+test('wrong codes have five attempts and codes expire after ten minutes',()=>{
   const {ctx,loginMail,at}=fixture(),roll='123456789';
   ctx.requestPlayerCode(roll);
   const old=mailDigits(loginMail),wrong=old==='000000'?'111111':'000000';
@@ -163,10 +163,27 @@ test('wrong codes have five attempts, expire after ten minutes and sends are bou
   at('2026-11-25T12:11:00+05:30');ctx.requestPlayerCode(roll);
   const next=mailDigits(loginMail);
   at('2026-11-25T12:21:00+05:30');assert.throws(()=>ctx.verifyPlayerCode(roll,next));
-  for(const minute of [22,23,24]){at('2026-11-25T12:'+minute+':00+05:30');ctx.requestPlayerCode(roll)}
-  at('2026-11-25T12:26:00+05:30');assert.throws(()=>ctx.requestPlayerCode(roll),/sign-in email limit/);
-  assert.equal(loginMail.length,5);
-  at('2026-11-26T12:30:00+05:30');ctx.requestPlayerCode(roll);assert.equal(loginMail.length,6);
+});
+test('a student can receive 20 sign-in emails per 24-hour window across all student sign-in routes',()=>{
+  const {ctx,loginMail,at}=fixture(),roll='123456789',email='sample@example.test';
+  const start=ctx.Date.now();
+  for(let minute=0;minute<20;minute++){
+    at(new Date(start+minute*60000).toISOString());
+    if(minute<5)ctx.requestPlayerCode(roll);
+    else if(minute===5)ctx.requestMatchedPlayerCode(roll,email);
+    else ctx.requestEventCode(email);
+    assert.equal(loginMail.length,minute+1);
+    if(minute===4)ctx.playerLogout(ctx.verifyPlayerCode(roll,mailDigits(loginMail)).token);
+  }
+  at(new Date(start+20*60000).toISOString());
+  assert.throws(()=>ctx.requestMatchedPlayerCode(roll,email),/sign-in email limit/);
+  assert.equal(loginMail.length,20);
+  const signed=ctx.signInEvent(roll,mailDigits(loginMail),'');
+  assert.equal(ctx.playerRoll_(signed.session.token),roll);
+  at('2026-11-26T11:59:59+05:30');
+  assert.throws(()=>ctx.requestEventCode(email),/try again in about 1 minute/);
+  at('2026-11-26T12:00:00+05:30');
+  ctx.requestEventCode(email);assert.equal(loginMail.length,21);
 });
 test('failed mail can be retried, and the last available email is reserved for the owner',()=>{
   const {ctx,loginMail}=fixture(),deliver=ctx.MailApp.sendEmail;
