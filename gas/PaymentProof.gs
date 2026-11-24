@@ -204,10 +204,33 @@ function localPaidTime_(text){
   const time=Date.parse(s+':00+05:30');
   return Number.isFinite(time)&&new Date(time+19800000).toISOString().slice(0,16)===s?s:'';
 }
+// Keep digits as text, including leading zeroes. A bank reference outranks an app transaction ID.
+function screenshotReferences_(text){
+  const bank=new Set(),transaction=new Set(),unlabelled=new Set();
+  const suffix=/(?:\b(?:u[\s.]?t[\s.]?r|r[\s.]?r[\s.]?n)|\b(?:upi|bank)\s*(?:(?:transaction|txn)\s*)?ref(?:erence)?|\bretrieval\s+reference|\bupi\s*(?:transaction|txn))[\s.:#№-]*(?:(?:no|num(?:ber)?|id|code)\b[\s.:#№-]*)?$/i;
+  const generic=/\b(?:trans(?:action)?|txn|ref(?:erence)?)[\s.:#-]*(?:id|no|num(?:ber)?|code)?[\s.:#-]*$/i;
+  const unrelated=/(?:\b(?:order|invoice|customer|mobile|phone|card|account|a\/c|aadhaar|aadhar|wallet|merchant|upi\s*(?:id|number))[\s.:#-]*(?:(?:ref(?:erence)?|no|num(?:ber)?|id)[\s.:#-]*)*|(?:₹|\b(?:INR|Rs))[\s.:]*)$/i;
+  const digits=/[0-9]{12}|[0-9]{4}(?:[\s-]+[0-9]{4}){2}|[0-9]{6}[\s-]+[0-9]{6}|[0-9]{3}(?:[\s-]+[0-9]{3}){3}/g;
+  for(const m of text.matchAll(digits)){
+    const before=text.slice(Math.max(0,m.index-96),m.index),after=text.slice(m.index+m[0].length,m.index+m[0].length+12);
+    const labelled=suffix.test(before),weak=generic.test(before);
+    if(unrelated.test(before)||/[\d@_+]$/.test(before)||/^[\w@]/.test(after)||/^[.]\d/.test(after))continue;
+    if(!labelled&&!weak&&(/[a-z]$/i.test(before)||m[0].includes('\n')))continue;
+    // A grouped bank account/card or a longer continuous identifier must not yield a 12-digit substring.
+    const grouped=/\D/.test(m[0]);
+    if(grouped&&(/\d[ \t-]+$/.test(before)||/^[ \t-]+\d{3}/.test(after)))continue;
+    if(!grouped&&(/\d-$/.test(before)||/^-\d/.test(after)))continue;
+    const value=m[0].replace(/\D/g,'');
+    (labelled?bank:weak?transaction:unlabelled).add(value);
+  }
+  const best=bank.size?bank:transaction.size?transaction:unlabelled,values=[...best];
+  return {utr:values.length===1?values[0]:'',utrCandidates:values.length>1?values.slice(0,8):[]};
+}
 function readPaymentText_(text){
-  const s=String(text||'').replace(/\u00a0/g,' ');
+  const s=String(text||'').normalize('NFKC').replace(/[\u200b-\u200f\ufeff]/g,'').replace(/[\u2010-\u2014]/g,'-')
+    .replace(/[०-९]/g,c=>String(c.charCodeAt(0)-0x966));
   function unique(values){const options=[...new Set(values)];return options.length===1?options[0]:''}
-  const utr=unique(Array.from(s.matchAll(/(?:\bUTR(?:\s*(?:no\.?|number|id))?|\bRRN|\bUPI\s*(?:transaction|ref(?:erence)?)\s*(?:no\.?|number|id)?)\s*[:#.\s-]*([0-9]{12})(?!\d)/gi),m=>m[1]));
+  const references=screenshotReferences_(s);
   const amounts=Array.from(s.matchAll(/(?:₹|INR\b|Rs\.?)\s*([\d,]+(?:\.\d{1,2})?)(?![\d.])/gi),m=>paise_(m[1])).filter(n=>n!==null);
   const amount=unique(amounts),months=['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
   const dates=[],times=[];
@@ -221,7 +244,7 @@ function readPaymentText_(text){
     if(h<=23&&Number(m[2])<60)times.push(String(h).padStart(2,'0')+':'+m[2]);
   }
   const payees=Array.from(s.matchAll(/(?:paid to|payee(?:\s+(?:upi\s*id|vpa))?|receiver(?:\s+upi\s*id)?|beneficiary(?:\s+upi\s*id)?)\s*[:\s-]*(?:[^@\n]{1,65}\n\s*)?([a-z0-9._-]+@[a-z][a-z0-9.-]+)/gi),m=>m[1].toLowerCase());
-  return {utr,payee:unique(payees),amount:amount===''?'':(amount/100).toFixed(2),time:localPaidTime_(unique(dates)+'T'+unique(times)),
+  return {...references,payee:unique(payees),amount:amount===''?'':(amount/100).toFixed(2),time:localPaidTime_(unique(dates)+'T'+unique(times)),
     uncertain:new Set(payees).size>1||/\b(?:failed|pending|reversed|refunded|declined|unsuccessful)\b/i.test(s)};
 }
 function convertPaymentFile_(blob,mime,read){
@@ -280,6 +303,32 @@ function reserveScreenshotRead_(roll){
 function extractScreenshot_(a,image){
   try{return readPaymentText_(paymentDocument_(Utilities.newBlob(image.bytes,image.mime,'receipt.'+image.ext)).text)}
   catch{console.warn('Receipt text extraction failed for '+a.id);return null}
+}
+// Older uploads keep their original evidence. An administrator can read it again without a student resubmission.
+function adminReadScreenshotReference(token,id,version){
+  const admin=staff_(token,[]),original=ledger_().attempts[id];
+  const eligible=a=>a?.status==='REVIEW'&&a.file&&(a.proofVersion||0)===version;
+  must_(eligible(original),'The payment changed. Reopen it before reading its screenshot.');
+  if(original.ocr?.utr)return {found:true};
+  let extracted;
+  try{
+    const originalImage=DriveApp.getFileById(original.file).getBlob();
+    extracted=readPaymentText_(paymentDocument_(originalImage).text);
+  }catch{throw Error('The original screenshot could not be read. Try again or look up the bank credit.')}
+  return locked_(()=>{
+    const st=ledger_(),a=st.attempts[id];
+    must_(eligible(a)&&a.file===original.file,'The screenshot changed. Reopen the payment.');
+    if(a.ocr?.utr)return {found:true};
+    if(!extracted.utr&&!extracted.utrCandidates.length)return {found:false};
+    if(!extracted.utr&&JSON.stringify(a.ocr?.utrCandidates||[])===JSON.stringify(extracted.utrCandidates))return {found:false};
+    const ocr={...(a.ocr||extracted),utr:extracted.utr,utrCandidates:extracted.utrCandidates,uncertain:!!(a.ocr?.uncertain||extracted.uncertain)};
+    const updated={...a,ocr,proofVersion:version+1};
+    if(a.claim?.source==='screenshot'&&!a.claim.utr&&ocr.utr){
+      updated.claim={...a.claim,utr:ocr.utr};updated.suffix=ocr.utr.slice(-4);
+    }
+    commit_(st,'Screenshot reference reread',admin.name,{attempts:[updated],note:id});
+    return {found:!!ocr.utr};
+  },false);
 }
 function playerReadProof(session,ticket,data){
   const roll=playerRoll_(session),a=ownReceipt_(ledger_(),ticket,roll),image=proofImageBytes_(data),digest=proofDigest_(image.bytes);

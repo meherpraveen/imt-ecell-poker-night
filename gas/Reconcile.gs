@@ -133,7 +133,8 @@ function adminPaymentDetail(token,id,lookup){
   const bank=bankRows_(st,'',true),available=bank.filter(r=>r.applied),query=String(lookup||'').trim();
   must_(!query||ref_(query),'Search with a full 12-digit UTR.');
   const rows=query?available.filter(r=>rowMentions_(r,query)).slice(0,40):reviewCandidates_(a,available);
-  return {version:a.proofVersion||0,linked:a.linkedRow||'',claim:a.claim||null,ocr:a.ocr||null,
+  return {version:a.proofVersion||0,canReadReference:a.status==='REVIEW'&&!!a.file&&!a.ocr?.utr,
+    linked:a.linkedRow||'',claim:a.claim||null,ocr:a.ocr||null,
     receiver:a.receiver?.name||'Unknown',confirmedRecipient:a.claim?.paidReceiver?.name||'',details:a.details||null,reason:paymentMatch_(st,a,bank).reason||'Exact match available.',rows:rows.map(r=>({...r,sourceUrl:'https://drive.google.com/open?id='+encodeURIComponent(st.statements[r.statement].original)}))};
 }
 function adminReviewPayment(token,id,action,rowKey,reason,revision){

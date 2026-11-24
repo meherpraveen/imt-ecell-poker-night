@@ -44,8 +44,10 @@ function updateDesk(previous,next,reloadSettings,background){
   const changed=(a,b)=>JSON.stringify(a)!==JSON.stringify(b);
   if(tab==='Review'||tab==='Gate'){
     if(changed(previous.records,next.records))filterRecords();
-    if(tab==='Review')setPaymentAction();
-    else queueLabel();
+    if(tab==='Review'){
+      if(previous.managed!==next.managed||previous.settings?.unsent!==next.settings?.unsent)el('deskBankActions').innerHTML=bankDeskLinks();
+      setPaymentAction();
+    }else queueLabel();
     return;
   }
   if(tab==='Settings'){
@@ -79,8 +81,9 @@ async function refresh(background=false,reloadSettings=false){
   const session=token,version=++refreshVersion;
   if(background)polling=true;
   try{
-    const next=await api('staffSnapshot',session);
+    const next=await api('staffSnapshot',session,background&&snapshot?snapshot.revision||'':'');
     if(session!==token||version!==refreshVersion||(background&&(busy||el('dialog').open)))return;
+    if(next.unchanged){if(el('net').textContent.startsWith('Connection interrupted'))el('net').textContent='';return}
     const previous=snapshot;snapshot=next;syncOffer(next.offer);el('net').textContent='';
     updateDesk(previous,next,reloadSettings,background);
   }finally{if(background)polling=false}
@@ -138,7 +141,7 @@ function presentGateReply(reply){
 }
 el('dialog').addEventListener('close',()=>{
   if(el('dialog').open)return;
-  opened=null;
+  opened=null;reviewPayment=null;
   if(token&&gateResults.length){nextGateResult();return}
   const target=dialogTrigger?.isConnected?dialogTrigger:el('deskMainAction')?.querySelector('button')||el('title');
   target?.focus({preventScroll:true});
@@ -283,6 +286,13 @@ async function action(name,id){
     detail('<h2>Volunteer invitation</h2><p>Share both items privately with the named volunteer.</p>'+input('inviteUrl','Private desk link','readonly value="'+esc(access.url)+'"')+input('inviteKey','Sign-in key','readonly value="'+esc(access.key)+'"'));
   }
 }
+document.addEventListener('click',event=>{
+  const control=event.target.closest('[data-page-step]');
+  if(!control||!lookupState[tab])return;
+  lookupState[tab].page+=Number(control.dataset.pageStep);filterRecords();
+  if(control.disabled)(control.id==='deskNext'?el('deskPrev'):el('deskNext')).focus({preventScroll:true});
+  el('find').scrollIntoView({block:'nearest',behavior:'instant'});
+});
 function markSettingsEdit(event){
   if(tab==='Settings'&&el('content').contains(event.target))el('content').dataset.modified='yes';
 }
@@ -294,6 +304,7 @@ document.addEventListener('input',e=>{markSettingsEdit(e);
 }});document.addEventListener('change',e=>{
   markSettingsEdit(e);
   if(e.target.id==='filter')filterRecords();
+  if(e.target.id==='bankRow'&&el('bankVerified'))el('bankVerified').checked=false;
   if(e.target.id==='gateMode')el('gateID').checked=false;
   if(e.target.id==='kind')deskFee();
   if(e.target.id==='paymentQr'){

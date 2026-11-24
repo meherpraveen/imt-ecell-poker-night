@@ -89,9 +89,15 @@ function finishStage(token,n){
     commit_(st,'Stage closed',s.name,{attempts:changed,game:{next:n+1,active:null,history:[...g.history,h]},note:stageName_(n)});return true;
   });
 }
-function staffSnapshot(token){
-  const staff=staff_(token,['desk','gate','floor']);if(staff.role==='admin')loadInitialReceivers_();
-  const st=ledger_(),as=Object.values(st.attempts),places=Object.values(st.venue);
+function staffSnapshot(token,knownRevision){
+  const staff=staff_(token,['desk','gate','floor']);
+  if(staff.role==='admin')loadInitialReceivers_();
+  const journal=book_().getSheetByName('Journal'),end=journal.getLastRow(),now=Date.now(),offer=entryOffer_(now);
+  const settings=staff.role==='admin'?adminSettingsView_(settings_()):null;
+  // A periodic full read also picks up direct directory edits and expiring mail-delivery statuses.
+  const revision=JSON.stringify([end,staff.role,staff.name,settings?.version||'',offer.amount,Math.floor(now/60000)]);
+  if(knownRevision===revision)return {unchanged:true};
+  const st=ledger_(journal,end),as=Object.values(st.attempts),places=Object.values(st.venue);
   const finance=['admin','desk'].includes(staff.role),floor=['admin','floor'].includes(staff.role);
   const students=as.some(a=>!a.details)?roster_():{},digestHits={},suffixHits={},latestByRoll=new Map();
   for(const a of as){
@@ -102,14 +108,14 @@ function staffSnapshot(token){
   const records=as.slice().reverse().filter(a=>finance||issued_(a)).map(a=>{
     const r={id:a.id,roll:a.roll,name:a.details?.fullName||students[a.roll]?.name||'',kind:a.kind,status:a.status==='HOLD'&&latestByRoll.get(a.roll).id!==a.id?'RELEASED':a.status,wave:a.status==='HOLD'?0:a.wave+1,used:a.used,seat:a.seat||null,where:st.venue[a.roll]?.where||'NEVER'};
     if(finance||staff.role==='gate')r.phone=a.details?a.details.contact.replace(/\D/g,''):students[a.roll]?.phone||'';
-    if(finance)Object.assign(r,{batch:a.details?.batch||'',fee:quotedFee_(a,Date.now()),suffix:a.suffix||'',utr:a.utr||'',managed:!!a.receiver||managed&&!!a.file,issue:a.reviewReason||a.reason||'',image:!!a.file,sameImage:!!(a.digest&&digestHits[a.digest]>1),sameTail:!!(a.suffix&&suffixHits[a.suffix.slice(-4)]>1),delivery:a.mailUntil>Date.now()?'Sending email':a.delivery||''});
+    if(finance)Object.assign(r,{batch:a.details?.batch||'',fee:quotedFee_(a,now),suffix:a.suffix||'',utr:a.utr||a.claim?.utr||a.ocr?.utr||'',managed:!!a.receiver||managed&&!!a.file,issue:a.reviewReason||a.reason||'',image:!!a.file,sameImage:!!(a.digest&&digestHits[a.digest]>1),sameTail:!!(a.suffix&&suffixHits[a.suffix.slice(-4)]>1),delivery:a.mailUntil>now?'Sending email':a.delivery||''});
     return r;
   });
-  return {role:staff.role,label:staff.name,records,managed,stats:{checked:places.length,inside:places.filter(v=>v.where==='IN').length,out:places.filter(v=>v.where==='OUT').length,
+  return {revision,role:staff.role,label:staff.name,records,managed,stats:{checked:places.length,inside:places.filter(v=>v.where==='IN').length,out:places.filter(v=>v.where==='OUT').length,
     noShow:new Set(as.filter(a=>a.status==='NO_SHOW').map(a=>a.roll)).size,pending:as.filter(a=>a.status==='REVIEW').length},
-    scannerUrl:finance||staff.role==='gate'?scannerLink_(token):'',offer:entryOffer_(Date.now()),retryFee:ENTRY_PRICING.retry,
+    scannerUrl:finance||staff.role==='gate'?scannerLink_(token):'',offer,retryFee:ENTRY_PRICING.retry,
     board:publicFloor_(st),game:floor?{next:st.game.next,active:st.game.active}:null,
-    settings:staff.role==='admin'?{...adminSettingsView_(settings_()),receivers:receivers_(st).map(receiverView_),statements:Object.values(st.statements).map(statementView_).reverse(),unsent:as.filter(a=>a.bankRow&&a.delivery==='Pending delivery').length}:null,audit:staff.role==='admin'?st.audit.slice().reverse():[]};
+    settings:settings?{...settings,receivers:receivers_(st).map(receiverView_),statements:Object.values(st.statements).map(statementView_).reverse(),unsent:as.filter(a=>a.bankRow&&a.delivery==='Pending delivery').length}:null,audit:staff.role==='admin'?st.audit.slice().reverse():[]};
 }
 function adminSettingsView_(s){
   const version=mac_('payment-settings:'+JSON.stringify([s.upi,s.name,s.open,s.qrFile,s.published]));

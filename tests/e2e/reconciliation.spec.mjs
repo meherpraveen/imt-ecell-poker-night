@@ -1,9 +1,57 @@
 import {test,expect} from './site.mjs';
 import {owner,player} from './event-runtime.mjs';
-import {credit,csvHeader,jpegQr,receiptText,testUpi,utr} from '../payment-fixtures.mjs';
+import {club,credit,csvHeader,image,jpegQr,receiptText,testUpi,utr} from '../payment-fixtures.mjs';
 
 const button=(page,name)=>page.getByRole('button',{name,exact:true});
 const screenshot={name:'payment.jpg',mimeType:'image/jpeg',buffer:jpegQr()};
+test('a slow private screenshot leaves the admin desk usable and historical references can be reread from the original',async({page,site})=>{
+  const api=club(site);api.makeReceiver();const student=api.student();
+  site.ocr(null);api.publicRpc('playerSubmitScreenshot',student.token,student.hold.ticket,image,'0');
+  await page.addInitScript(({invite,token})=>sessionStorage.setItem('pn26:staff:'+invite,token),{invite:site.invite('admin'),token:api.admin});
+  await page.setViewportSize({width:320,height:740});await page.goto(site.staffUrl('admin'));
+  let allowDetail,allowImage,sawDetail,sawImage;
+  const detailGate=new Promise(r=>{allowDetail=r}),imageGate=new Promise(r=>{allowImage=r});
+  const pending=[new Promise(r=>{sawDetail=r}),new Promise(r=>{sawImage=r})];
+  await page.route('**/test-staff-rpc',async route=>{
+    const method=route.request().postDataJSON().name;
+    if(method==='adminPaymentDetail'){sawDetail();await detailGate}
+    if(method==='proofImage'){sawImage();await imageGate}
+    await route.fallback();
+  });
+  await button(page,'Review next payment').click();
+  try{
+    await expect(page.getByRole('dialog')).toContainText('Loading payment details');
+    await Promise.all(pending);
+    allowDetail();
+    await expect(button(page,'Read screenshot reference again')).toBeVisible();
+    await button(page,'Close').click();await button(page,'Settings').click();
+    await expect(page.getByRole('heading',{name:'Settings',exact:true})).toBeVisible();await expect(page.getByRole('dialog')).toBeHidden();
+    await button(page,'Payments').click();await button(page,'Review next payment').click();
+    await expect(button(page,'Read screenshot reference again')).toBeVisible();
+    const rowOffset=()=>page.locator('#bankLookup').evaluate(input=>input.offsetTop);
+    const before=await rowOffset();allowImage();
+    await button(page,'Enlarge payment screenshot').click();await expect(button(page,'Fit payment screenshot')).toHaveAttribute('aria-pressed','true');
+    expect(Math.abs(await rowOffset()-before)).toBeLessThan(2);
+  }finally{allowDetail();allowImage()}
+  await expect(page.getByAltText('Student payment screenshot')).toBeVisible();
+  const reads=site.calls.filter(x=>x==='proofImage').length;
+  await page.getByLabel('Reason for your decision').fill('Checking the original bank entry.');
+  await page.getByLabel('Find another row by full UTR').fill(utr);await button(page,'Find row').click();
+  await expect(page.getByAltText('Student payment screenshot')).toBeVisible();
+  await expect(page.getByLabel('Reason for your decision')).toHaveValue('Checking the original bank entry.');
+  expect(site.calls.filter(x=>x==='proofImage').length).toBe(reads);
+  site.ocr('Payment successful\nBank reference number\n0123 4567 8901');
+  await button(page,'Read screenshot reference again').click();
+  const dialog=page.getByRole('dialog');
+  await expect(dialog.locator('dt').filter({hasText:'Payment UTR'}).locator('..')).toContainText('012345678901');
+  await expect(button(page,'Read screenshot reference again')).toHaveCount(0);
+  expect(student.status().status).toBe('REVIEW');
+  await button(page,'Close').click();await button(page,'Refresh').click();
+  await page.getByLabel('Search payments').fill('012345678901');
+  await expect(button(page,'Open payment for Sample Student')).toBeVisible();
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+});
+
 async function register(page,site){
   await page.goto(site.register);await page.getByLabel('Roll number or registered email').fill(player.roll);
   await button(page,'Send code').click();await expect(page.getByLabel('Six-digit code')).toBeVisible();

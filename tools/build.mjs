@@ -95,17 +95,22 @@ const deskIcons=['activity','arrow-right','camera','check-circle','chevron-down'
 const iconSymbols=deskIcons.map(name=>'<symbol id="desk-i-'+name+'" viewBox="0 0 24 24">'+feather.icons[name].contents+'</symbol>').join('');
 const iconLicense=fs.readFileSync(require.resolve('feather-icons/LICENSE'),'utf8');
 const deskSprite='<!-- Feather Icons\n'+iconLicense+'-->\n<svg xmlns="http://www.w3.org/2000/svg" width="0" height="0" aria-hidden="true" style="position:absolute;overflow:hidden">'+iconSymbols+'</svg>';
+const inlineSources=[library,priceDisplay+'\n'+commonCode,
+  ['payment-admin','staff-views','staff'].map(name=>read('web/'+name+'.js')).join('\n'),
+  [paymentCode,accountCode,playerCode].join('\n')];
+const [inlineQr,inlineCommon,inlineStaff,inlinePlayer]=await Promise.all(inlineSources.map(async source=>(await minify(source,{ecma:2020})).code));
+const qrNotice=library.slice(0,library.indexOf('var qrcode'));
 const page=read('web/App.html')
   .replace('__CLUB_LOGO__',()=> 'data:image/webp;base64,'+fs.readFileSync(path.join(root,assets+'imt-ecell-logo.webp')).toString('base64'))
   .replace('__EVENT_WORDMARK__',()=> 'data:image/webp;base64,'+fs.readFileSync(path.join(root,assets+'poke-poker-night-small.webp')).toString('base64'))
   .replace('__EVENT_ICON__',()=> 'data:image/png;base64,'+fs.readFileSync(path.join(root,assets+'poke-chip.png')).toString('base64'))
   .replace('/* BASE_STYLES */',()=>baseStyles)
   .replace('/* EVENT_STYLES */',()=>eventStyles)
-  .replace('/* QR_LIBRARY */',()=>library)
-  .replace('/* COMMON_CODE */',()=>priceDisplay+'\n'+commonCode)
+  .replace('/* QR_LIBRARY */',()=>qrNotice+inlineQr)
+  .replace('/* COMMON_CODE */',()=>inlineCommon)
   .replace('/* STAFF_STYLES */',()=>read('web/staff.css'))
   .replace('<!-- STAFF_ICONS -->',()=>deskSprite)
-  .replace('/* STAFF_CODE */',()=>read('web/payment-admin.js')+'\n'+read('web/staff-views.js')+'\n'+read('web/staff.js'))
-  .replace('/* APP_CODE */',()=>paymentCode+'\n'+accountCode+'\n'+playerCode);
+  .replace('/* STAFF_CODE */',()=>inlineStaff)
+  .replace('/* APP_CODE */',()=>inlinePlayer);
 fs.writeFileSync(path.join(out,'App.html'),page);
 console.log('Apps Script files ready in .deploy');

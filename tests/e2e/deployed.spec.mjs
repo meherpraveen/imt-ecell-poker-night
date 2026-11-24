@@ -35,6 +35,7 @@ test('published navigation, mobile startup, live floor and backend validation @d
   await expect(clubLogo).toBeVisible();await expect.poll(()=>clubLogo.evaluate(img=>img.naturalWidth)).toBeGreaterThan(100);
   const hero=page.getByRole('region',{name:'Poké Poker Night',exact:true});
   await expect(hero.getByRole('heading',{name:'Poké Poker Night'})).toBeVisible();
+  await expect(hero.getByText('prizes worth ₹1 lakh',{exact:true})).toBeVisible();
   const wordmark=hero.getByRole('img',{name:'Poké Poker Night',exact:true});
   await expect(wordmark).toBeVisible();
   await expect.poll(()=>wordmark.evaluate(img=>img.complete&&img.naturalWidth>0)).toBe(true);

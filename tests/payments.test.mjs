@@ -8,6 +8,53 @@ function start(){
   const event=createEvent(),api=club(event),receiver=api.makeReceiver(),p=api.student();
   return {...api,event,receiver,p};
 }
+test('receipt references prefer bank labels, preserve zeroes and handle unlabeled OCR without guessing among competing IDs',()=>{
+  const event=createEvent(),read=text=>event.staff('readPaymentText_',[text]);
+  const ref='012345678901',other='987654321012';
+  for(const text of [
+    'UPI Ref No.:\n012345678901','Bank Reference Number\n0123 4567 8901','RRN: 012345-678901',
+    'UTR Number: 012 345 678 901','UPI Txn ID: 0123\n4567\n8901','UPI Ref. No. ०१२३४५६७८९०१',
+    'Payment successful\n'+ref+'\nShare receipt','UPI Transaction ID: '+ref+'\nOrder ID: '+other,
+    'Transaction ID: '+other+'\nBank ref. no: '+ref,'Order ID: '+other+'\n'+ref,'Reference Number: '+ref,
+    'Bank Ref: '+ref+' 25 Nov 2026','UTR '+ref+' 15:36 IST'
+  ])assert.equal(read(text).utr,ref,text);
+  for(const text of ['Order ID: '+other,'Account No: '+other,'ACME123456789012','VPA: '+other+'@bank',
+    'Card 1234 5678 9012 3456','UPI Ref No: 123456789012345','Mobile: +919876543210','₹123456789012.50'])
+    assert.equal(read(text).utr,'',text);
+  assert.equal(read(ref+'\n'+ref).utr,ref);
+  for(const text of [ref+'\n'+other,ref+' '+other,'UPI Ref No: '+ref+'\nUTR: '+other]){
+    const result=read(text);assert.equal(result.utr,'');assert.deepEqual(Array.from(result.utrCandidates),[ref,other]);
+  }
+});
+
+test('an administrator can reread an existing original without replacing it, overriding a payer or authorizing an entry',()=>{
+  const f=start(),id=f.p.hold.id,admin=f.admin;
+  f.event.ocr(null);f.publicRpc('playerSubmitScreenshot',f.p.token,f.p.hold.ticket,image,'0');
+  const original=f.event.staff('ledger_',[]).attempts[id].file;
+  const before=f.rpc('adminPaymentDetail',admin,id,'');assert.equal(before.canReadReference,true);
+  const gate=f.rpc('staffLogin',f.event.team.gate,f.event.invite('gate')).token;
+  assert.throws(()=>f.rpc('adminReadScreenshotReference',gate,id,1),/role/);
+  f.event.ocr('UPI Ref No: 012345678901\nUTR: 987654321012');
+  assert.equal(f.rpc('adminReadScreenshotReference',admin,id,1).found,false);
+  let detail=f.rpc('adminPaymentDetail',admin,id,'');
+  assert.equal(detail.version,2);assert.equal(detail.claim.utr,'');assert.equal(detail.ocr.utrCandidates.length,2);
+  f.event.ocr('Payment successful\n'+utr);
+  assert.throws(()=>f.rpc('adminReadScreenshotReference',admin,id,1),/changed/);
+  assert.equal(f.rpc('adminReadScreenshotReference',admin,id,2).found,true);
+  detail=f.rpc('adminPaymentDetail',admin,id,'');
+  assert.equal(detail.claim.utr,utr);assert.equal(detail.canReadReference,false);
+  const saved=f.event.staff('ledger_',[]).attempts[id];
+  assert.equal(saved.file,original);assert.equal(saved.status,'REVIEW');assert.equal(saved.utr||'','');
+  assert.equal(f.rpc('proofImage',admin,id,true).version,detail.version);
+  assert.equal(f.rpc('staffSnapshot',admin).records.find(r=>r.id===id).utr,utr);
+  assert.equal(f.p.status().entryCode,'');
+  const g=start();g.event.ocr(null);g.submit(g.p,g.submission(g.p,{},image,'No reference'));
+  g.event.ocr('Bank Reference: 987654321012');
+  g.rpc('adminReadScreenshotReference',g.admin,g.p.hold.id,1);
+  const legacy=g.rpc('adminPaymentDetail',g.admin,g.p.hold.id,'');
+  assert.equal(legacy.ocr.utr,'987654321012');assert.equal(legacy.claim.utr,utr);
+});
+
 test('managed checkout pins the server quote and receiver, validates QR and preserves old account revisions',()=>{
   const f=start(),{rpc,admin,p,receiver,event}=f;
   assert.equal(p.hold.fee,149);assert.equal(p.hold.paymentStatus,'PENDING');assert.equal(p.hold.receiver.id,receiver.id);

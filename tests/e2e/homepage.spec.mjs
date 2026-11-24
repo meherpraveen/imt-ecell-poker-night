@@ -12,6 +12,8 @@ test('the homepage updates both entry quotes at the cutoff and keeps its event l
   await page.goto(site.origin);
   const hero=page.getByRole('region',{name:'Poké Poker Night',exact:true});
   const details=page.getByRole('region',{name:'Entry details'});
+  await expect(hero.getByText('prizes worth ₹1 lakh',{exact:true})).toBeVisible();
+  await expect(page.locator('#format')).toContainText('wins the tournament');
   await expect(hero.locator('[data-home-fee=entry]')).toHaveText(format(pricing.earlyBird));
   await expect(hero.locator('s')).toHaveText('Standard price '+format(pricing.standard));
   await expect(details.locator('.price-time')).toContainText('left');

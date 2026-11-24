@@ -13,7 +13,8 @@ const paymentStates={
   WAITLIST:'Waitlisted',PAID:'Paid',REJECTED:'Rejected',NO_SHOW:'No-show',QUALIFIED:'Qualified',
   ELIMINATED:'Eliminated',WINNER:'Winner'
 };
-const lookupState={Review:{query:'',status:'REVIEW'},Gate:{query:''}};
+const deskPageSize=30;
+const lookupState={Review:{query:'',status:'REVIEW',page:0},Gate:{query:'',page:0}};
 
 function deskIcon(name){
   return '<svg class="desk-icon" aria-hidden="true" focusable="false"><use href="#desk-i-'+name+'"></use></svg>';
@@ -47,7 +48,7 @@ function clearDeskShell(){
   el('detail').replaceChildren();
   if(el('deskMainAction'))el('deskMainAction').replaceChildren();
   el('title').removeAttribute('tabindex');
-  lookupState.Review={query:'',status:'REVIEW'};lookupState.Gate={query:''};
+  lookupState.Review={query:'',status:'REVIEW',page:0};lookupState.Gate={query:'',page:0};
 }
 function showDeskShell(allowed){
   const title=el('title'),rail=el('deskRail'),tools=el('deskTools');
@@ -112,17 +113,28 @@ function personRow(r){
 function filterRecords(){
   if(!el('records'))return;
   const gate=tab==='Gate',state=lookupState[tab];
-  state.query=el('find').value;if(!gate)state.status=el('filter').value;
-  const query=state.query.trim().toLowerCase();
+  const search=el('find').value,status=gate?'':el('filter').value;
+  if(search!==state.query||status!==(state.status||''))state.page=0;
+  state.query=search;state.status=status;
+  const query=search.trim().toLowerCase();
   const records=snapshot.records.filter(r=>{
     if(!gate&&state.status!=='all'&&r.status!==state.status)return false;
+    if(!query)return true;
     const values=gate?[r.name,r.roll,r.phone]:[r.name,r.roll,r.phone,r.suffix,r.utr,r.id];
-    return !query||values.some(value=>String(value||'').toLowerCase().includes(query));
+    return values.some(value=>String(value||'').toLowerCase().includes(query));
   });
   if(!gate&&state.status==='REVIEW')records.reverse();
   const active=document.activeElement,activeId=active?.dataset.do==='inspect'?active.dataset.id:'';
-  const list=el('records');
-  list.innerHTML=records.map(personRow).join('');
+  const list=el('records'),lastPage=Math.max(0,Math.ceil(records.length/deskPageSize)-1);
+  state.page=Math.min(lastPage,Math.max(0,state.page));
+  const start=state.page*deskPageSize,visible=records.slice(start,start+deskPageSize);
+  if(list.recordStatus!==status||visible.length!==list.visibleRecords?.length||visible.some((r,i)=>r!==list.visibleRecords[i])){
+    list.innerHTML=visible.map(personRow).join('');
+    list.visibleRecords=visible;list.recordStatus=status;
+  }
+  el('deskPager').hidden=lastPage===0;
+  el('deskPageRange').textContent=records.length?(start+1)+'–'+(start+visible.length)+' of '+records.length:'';
+  el('deskPrev').disabled=state.page===0;el('deskNext').disabled=state.page===lastPage;
   list.hidden=!records.length;
   const empty=el('deskEmpty');
   empty.innerHTML=records.length?'':query?deskEmpty('search','No matches','Try another name or roll number.'):
@@ -139,13 +151,14 @@ function filterRecords(){
 }
 function recordList(title,gate=false){
   return '<section class="desk-card desk-list-card"><div class="desk-card-heading"><h2>'+title+'</h2><span id="deskListCount" class="desk-number" aria-hidden="true"></span></div>'+
-    searchBar(gate)+'<span id="deskResultCount" class="sr-only" role="status"></span><ul id="records" class="desk-records" aria-label="'+title+'"></ul><div id="deskEmpty"></div></section>';
+    searchBar(gate)+'<span id="deskResultCount" class="sr-only" role="status"></span><ul id="records" class="desk-records" aria-label="'+title+'"></ul><div id="deskEmpty"></div>'+
+    '<nav class="desk-pages" id="deskPager" aria-label="'+title+' pages" hidden><button id="deskPrev" type="button" data-page-step="-1">Previous</button><span id="deskPageRange" role="status"></span><button id="deskNext" type="button" data-page-step="1">Next</button></nav></section>';
 }
 function deskLink(action,label,icon){
   return '<button type="button" class="desk-link" data-do="'+action+'">'+deskIcon(icon)+'<span>'+esc(label)+'</span>'+deskIcon('chevron-right')+'</button>';
 }
 function paymentsView(){
-  const actions=deskSection('At the desk',bankDeskLinks()+deskLink('deskform','Walk-in or paid retry','credit-card')+
+  const actions=deskSection('At the desk','<div id="deskBankActions">'+bankDeskLinks()+'</div>'+deskLink('deskform','Walk-in or paid retry','credit-card')+
     deskLink('studentform','Add missing student details','user-plus'),'desk-aside-card desk-links');
   return '<div class="desk-columns desk-payments">'+actions+recordList('Payment queue')+attendance()+'</div>';
 }

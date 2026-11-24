@@ -15,7 +15,7 @@ window.google={script:{
   history:{replace(state,params,hash){const url=new URL(location.href);url.search=new URLSearchParams(params);url.hash=hash;window.history.replaceState(state,'',url)}}
 }};
 </script>`;
-const staffMethods=new Set(['requestOwnerCode','verifyOwnerCode','completeDeskSignIn','staffLogin','staffLogout','staffSnapshot','adminSettings','adminPaymentQr','adminAddStaff','deskPayment','deskStudent','staffApprove','staffReject','staffPass','proofImage','gateAction','releaseSeat','gamePreview','startStage','skipEmptyWave','tableResult','finishStage','adminSaveReceiver','adminImportStatement','adminStatementPreview','adminApplyStatement','adminDispatchPasses','adminPaymentDetail','adminNeedsReview','adminReviewPayment','adminCertifyPdfRow','adminOpenDeskPayment']);
+const staffMethods=new Set(['requestOwnerCode','verifyOwnerCode','completeDeskSignIn','staffLogin','staffLogout','staffSnapshot','adminSettings','adminPaymentQr','adminAddStaff','deskPayment','deskStudent','staffApprove','staffReject','staffPass','proofImage','gateAction','releaseSeat','gamePreview','startStage','skipEmptyWave','tableResult','finishStage','adminSaveReceiver','adminImportStatement','adminStatementPreview','adminApplyStatement','adminDispatchPasses','adminPaymentDetail','adminReadScreenshotReference','adminNeedsReview','adminReviewPayment','adminCertifyPdfRow','adminOpenDeskPayment']);
 
 export const test=base.extend({
   site:async({context},use)=>{

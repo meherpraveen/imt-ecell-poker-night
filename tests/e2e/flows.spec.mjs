@@ -274,6 +274,27 @@ test('phone, tablet and desktop layouts fit, and a desk poll preserves an unsave
   await expect(field).toHaveValue('Unsaved example');await expect(field).toBeFocused();
 });
 
+test('a large admin queue pages smoothly, searches the full screenshot UTR and preserves the active page on polls',async({page,site})=>{
+  for(let i=0;i<165;i++){
+    const roll=String(400000000+i),id='receipt-'+i,ref=String(700000000000+i);
+    site.rows.Journal.push([site.now()+i,'Proof submitted','fixture',JSON.stringify({attempts:[{id,roll,created:site.now()+i,kind:'pre',status:'REVIEW',fee:149,wave:0,file:'fixture-'+i,details:{fullName:'Player '+i,contact:'9000000000',batch:'2026-28'},claim:{source:'screenshot',utr:ref},suffix:ref.slice(-4)}]})]);
+  }
+  await page.setViewportSize({width:320,height:740});await page.clock.install({time:new Date(site.now())});
+  await staffLogin(page,site,'admin');
+  const queue=page.getByRole('list',{name:'Payment queue'}),rows=queue.getByRole('button'),pager=page.getByRole('navigation',{name:'Payment queue pages'});
+  await expect(rows).toHaveCount(30);await expect(pager).toContainText('1–30 of 165');
+  await button(pager,'Next').click();await expect(pager).toContainText('31–60 of 165');
+  const previous=await rows.first().elementHandle();
+  const poll=page.waitForResponse(r=>r.url().endsWith('/test-staff-rpc')&&r.request().postDataJSON()?.name==='staffSnapshot');
+  await page.clock.fastForward(16000);
+  expect((await (await poll).json()).value).toEqual({unchanged:true});
+  expect(await previous.evaluate(el=>el.isConnected)).toBe(true);
+  await page.getByLabel('Search payments').fill('700000000164');
+  await expect(rows).toHaveCount(1);await expect(rows.first()).toHaveAccessibleName('Open payment for Player 164');
+  await expect(pager).toBeHidden();await page.getByLabel('Search payments').fill('');
+  await expect(pager).toContainText('1–30 of 165');expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+});
+
 test('the desk keeps payment review keyboard accessible and phone shortcuts within reach',async({page,site})=>{
   const add=(id,roll)=>site.rows.Journal.push([site.now(),'Proof submitted','Player',JSON.stringify({
     attempts:[{id,roll,kind:'pre',status:'REVIEW',wave:0,fee:site.staff('publicInfo',[]).offer.amount,suffix:id.slice(-4)}],note:id

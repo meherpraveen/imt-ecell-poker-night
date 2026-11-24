@@ -42,14 +42,57 @@ async function dispatchBankPasses(){
   do{result=await api('adminDispatchPasses',token);failed+=result.failed}while(result.remaining);
   return failed?failed+' pass email(s) need desk delivery.':'Pass delivery is up to date.';
 }
-async function bankReviewDialog(id,query=''){
-  const r=await api('adminPaymentDetail',token,id,query);reviewPayment={...r,id,proofVisible:false};opened=id;
+function bankReviewDialog(id,query=''){
+  const previous=el('dialog').open&&reviewPayment?.id===id?reviewPayment:null;
+  const reason=previous?el('bankReason')?.value||'':'';
+  const review={id,proofVisible:false};
+  reviewPayment=review;opened=id;
+  detail('<h2>Review payment</h2><p role="status">Loading payment details…</p>');
+  // Read the image alongside the statement lookup. A slow image must never lock the desk.
+  const readImage=()=>api('proofImage',token,id,true).then(value=>({value}),error=>({error}));
+  review.image=previous?.image||readImage();
+  const current=()=>reviewPayment===review&&opened===id&&el('dialog').open;
+  async function load(){
+    const r=await api('adminPaymentDetail',token,id,query);
+    if(!current())return;
+    Object.assign(review,r);
+    renderBankReview(r,query);
+    if(previous?.version===r.version&&reason)el('bankReason').value=reason;
+    let image=await review.image;
+    if(!current())return;
+    if(image.value&&image.value.version!==r.version){review.image=readImage();image=await review.image}
+    if(!current())return;
+    const slot=el('bankProofImage');
+    if(image.error||image.value?.version!==r.version){
+      review.image=null;
+      slot.textContent=image.error?'The screenshot could not be loaded. ':'The screenshot changed. ';
+      slot.insertAdjacentHTML('beforeend',btn('bankReview','Reload payment','',id));return;
+    }
+    const picture=new Image();picture.className='shot';picture.alt='Student payment screenshot';picture.src=image.value.data;
+    try{await picture.decode()}catch{if(current()){review.image=null;slot.textContent='The image could not be opened. ';slot.insertAdjacentHTML('beforeend',btn('bankReview','Reload payment','',id))}return}
+    if(!current())return;
+    const zoom=document.createElement('button');zoom.type='button';zoom.className='bank-proof-zoom';
+    zoom.setAttribute('aria-label','Enlarge payment screenshot');zoom.setAttribute('aria-pressed','false');
+    zoom.addEventListener('click',()=>{
+      const enlarge=zoom.getAttribute('aria-pressed')==='false';
+      zoom.setAttribute('aria-pressed',String(enlarge));zoom.setAttribute('aria-label',enlarge?'Fit payment screenshot':'Enlarge payment screenshot');
+      slot.scrollTo(0,0);
+    });
+    zoom.append(picture);slot.replaceChildren(zoom);review.proofVisible=true;
+  }
+  load().catch(error=>{
+    if(current())detail('<h2>Review payment</h2><p role="alert">'+esc(error.message||'Payment details could not be loaded.')+'</p>'+btn('bankReview','Retry loading payment','',id));
+  });
+}
+function renderBankReview(r,query){
   const c=r.claim||{},money=n=>n==null?'Unknown':formatFee_(n/100),options=r.rows.map(x=>'<option value="'+esc(x.key)+'"'+(x.key===r.linked?' selected':'')+'>'+esc([x.source,x.line,x.utr||'No UTR',money(x.minor)].join(' · '))+'</option>').join('');
   const rows=r.rows.map(x=>'<li><strong>'+esc(x.line+' · '+x.source)+'</strong><small>'+esc(x.raw)+'</small><small>'+esc(x.issue||x.direction)+' · '+esc(x.date)+'</small>'+
     '<a href="'+esc(x.sourceUrl)+'" target="_blank" rel="noopener">Open original statement</a></li>').join('');
   const contact=[['Contact No.',r.details?.contact],['Batch',r.details?.batch]].filter(([,v])=>v).map(([k,v])=>'<div><dt>'+k+'</dt><dd>'+esc(v)+'</dd></div>').join('');
-  detail('<h2>Review payment</h2><p>'+esc(r.reason)+'</p><dl class="details-list"><div><dt>Receiver shown</dt><dd>'+esc(r.receiver)+'</dd></div><div><dt>Payment recipient</dt><dd>'+esc(r.confirmedRecipient||'Check original screenshot')+'</dd></div><div><dt>Paid for</dt><dd>'+esc([r.details?.fullName,c.beneficiary].filter(Boolean).join(' · '))+'</dd></div>'+contact+(c.payer?'<div><dt>Paid by</dt><dd>'+esc(c.payer)+'</dd></div>':'')+'<div><dt>Payment UTR</dt><dd>'+esc(c.utr||'Unreadable')+'</dd></div><div><dt>Receipt amount</dt><dd>'+esc(money(c.amount))+'</dd></div><div><dt>Paid at (IST)</dt><dd>'+esc(c.time||'Unreadable')+'</dd></div></dl>'+
+  detail('<h2>Review payment</h2><p>'+esc(r.reason)+'</p><dl class="details-list"><div><dt>Receiver shown</dt><dd>'+esc(r.receiver)+'</dd></div><div><dt>Payment recipient</dt><dd>'+esc(r.confirmedRecipient||'Check original screenshot')+'</dd></div><div><dt>Paid for</dt><dd>'+esc([r.details?.fullName,c.beneficiary].filter(Boolean).join(' · '))+'</dd></div>'+contact+(c.payer?'<div><dt>Paid by</dt><dd>'+esc(c.payer)+'</dd></div>':'')+'<div><dt>Payment UTR</dt><dd>'+esc(c.utr||r.ocr?.utr||'Unreadable')+'</dd></div><div><dt>Receipt amount</dt><dd>'+esc(money(c.amount))+'</dd></div><div><dt>Paid at (IST)</dt><dd>'+esc(c.time||'Unreadable')+'</dd></div></dl>'+
     '<details><summary>Original OCR values</summary><p>'+esc([r.ocr?.utr||'UTR unreadable',r.ocr?.amount||'Amount unreadable',r.ocr?.time||'Time unreadable'].join(' · '))+'</p></details>'+
+    (r.ocr?.utrCandidates?.length?'<p>Possible references from the screenshot</p><div class="bank-candidates">'+r.ocr.utrCandidates.map(ref=>btn('bankFind',ref,'',ref)).join('')+'</div>':'')+
+    (r.canReadReference?btn('bankReadReference','Read screenshot reference again'):'')+
     '<div id="bankProofImage" role="status">Loading private screenshot…</div><h3>Closest statement rows</h3>'+
     input('bankLookup','Find another row by full UTR','inputmode="numeric" maxlength="12" value="'+esc(query)+'"')+btn('bankFind','Find row')+
     (rows?'<ul class="bank-list">'+rows+'</ul><label for="bankRow">Statement row to use</label><select id="bankRow"><option value="">Choose a row</option>'+options+'</select>':'<p>No matching applied statement rows. Upload or apply the receiver statement first.</p>')+
@@ -57,8 +100,7 @@ async function bankReviewDialog(id,query=''){
     (rows?checkbox('bankVerified','I checked the screenshot and the original bank credit.')+btn('bankApprove','Approve payment','primary wide')+btn('bankLink','Link row and keep pending'):'')+
     btn('bankReject','Reject proof')+btn('move','Move to an open wave')+
     (r.rows.some(x=>x.ocr)?'<details><summary>Transcribe an unclear PDF credit</summary><p>Choose the original line above and verify it in the PDF.</p>'+input('pdfUtr','Full UTR on the PDF line','inputmode="numeric" maxlength="12"')+input('pdfAmount','Incoming amount on the PDF','inputmode="decimal"')+input('pdfDate','Bank credit date','type="date"')+btn('bankTranscribe','Record verified PDF values')+'</details>':''));
-  try{const pic=await api('proofImage',token,id),slot=el('bankProofImage');if(!slot||reviewPayment?.id!==id)return;const img=new Image();img.className='shot';img.alt='Student payment screenshot';img.src=pic;slot.replaceChildren(img);await img.decode();if(slot.isConnected&&reviewPayment?.id===id)reviewPayment.proofVisible=true}
-  catch(e){if(el('bankProofImage'))el('bankProofImage').textContent='Screenshot unavailable. '+e.message}
+
 }
 async function bankAction(name,id){
   if(name==='bankReceiver'){receiverDialog(id);return}
@@ -89,7 +131,22 @@ async function bankAction(name,id){
     const rows=queue.rows.map(r=>'<li><strong>'+esc(r.source+' · '+r.line)+'</strong><small>'+esc([r.utr,r.minor==null?'':formatFee_(r.minor/100),r.reason].filter(Boolean).join(' · '))+'</small><a href="'+esc(r.sourceUrl)+'" target="_blank" rel="noopener">Open original statement</a></li>').join('');
     detail('<h2>Needs Review</h2>'+(payments?'<h3>Student payments</h3><ul class="bank-list">'+payments+'</ul>':'')+(rows?'<h3>Statement rows</h3><ul class="bank-list">'+rows+'</ul>':'')+(!payments&&!rows?'<p>No payments or bank rows need review.</p>':''));return;
   }
-  if(name==='bankReview'||name==='bankFind'){await bankReviewDialog(id||reviewPayment.id,name==='bankFind'?val('bankLookup'):'');return}
+  if(name==='bankReview'){bankReviewDialog(id);return}
+  if(name==='bankFind'){bankReviewDialog(reviewPayment.id,id||val('bankLookup'));return}
+  if(name==='bankReadReference'){
+    const review=reviewPayment,button=el('detail').querySelector('[data-do="bankReadReference"]');
+    const feedback=document.createElement('p');feedback.setAttribute('role','status');feedback.textContent='Reading the original screenshot…';
+    button.replaceWith(feedback);
+    api('adminReadScreenshotReference',token,review.id,review.version).then(result=>{
+      if(reviewPayment===review&&el('dialog').open){
+        bankReviewDialog(review.id);
+        msg(result.found?'Reference found in the screenshot.':'Check the original screenshot for the bank reference.');
+      }
+    }).catch(error=>{
+      if(reviewPayment===review&&feedback.isConnected){feedback.textContent=error.message+' ';feedback.append(button)}
+    });
+    return;
+  }
   if(name==='bankTranscribe'){
     await api('adminCertifyPdfRow',token,val('bankRow'),{utr:val('pdfUtr'),amount:val('pdfAmount'),date:val('pdfDate'),reason:val('bankReason'),confirmed:!!el('bankVerified')?.checked});
     await bankReviewDialog(reviewPayment.id);return;

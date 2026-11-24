@@ -7,6 +7,29 @@ import {setTimeout as pause} from 'node:timers/promises';
 import {createEvent} from './e2e/event-runtime.mjs';
 import {club,testUpi,receiptText,credit,paidAt,image} from './payment-fixtures.mjs';
 
+test('quiet desk polls validate staff access and skip the journal payload until records, settings or prices change',()=>{
+  const reads=[],site=createEvent({onSheetRead:(sheet,start,count)=>reads.push([sheet,start,count])});
+  site.at('2026-11-27T18:59:50+05:30');const api=club(site),{admin}=api;
+  for(let i=0;i<300;i++){
+    const roll=String(400000000+i),id='large-queue-'+i;
+    site.rows.Journal.push([site.now(),'Proof submitted','fixture',JSON.stringify({attempts:[{id,roll,kind:'pre',status:'REVIEW',fee:149,wave:0,details:{fullName:'Test '+i,contact:'9000000000',batch:'2026-28'}}]})]);
+  }
+  const initial=api.rpc('staffSnapshot',admin);assert.equal(initial.records.length,300);
+  reads.length=0;
+  const quiet=api.rpc('staffSnapshot',admin,initial.revision);
+  assert.deepEqual(Object.keys(quiet),['unchanged']);assert.equal(quiet.unchanged,true);
+  assert.ok(JSON.stringify(quiet).length<32);assert.ok(reads.some(([s])=>s==='Staff'));assert.ok(!reads.some(([s])=>s==='Journal'||s==='Students'));
+  site.rows.Settings[3][1]='no';
+  const changed=api.rpc('staffSnapshot',admin,initial.revision);assert.equal(changed.settings.open,false);
+  site.rows.Journal.push([site.now(),'Desk activity','fixture',JSON.stringify({note:'queue changed'})]);
+  const updated=api.rpc('staffSnapshot',admin,changed.revision);assert.notEqual(updated.revision,changed.revision);
+  site.at('2026-11-27T19:00:00+05:30');assert.equal(api.rpc('staffSnapshot',admin,updated.revision).offer.amount,199);
+  const gate=api.rpc('staffLogin',site.team.gate,site.invite('gate')).token;
+  assert.equal(api.rpc('staffSnapshot',gate,initial.revision).settings,null);
+  site.rows.Staff.find(row=>row[1]==='admin')[3]='no';
+  assert.throws(()=>api.rpc('staffSnapshot',admin,updated.revision),/role/);
+});
+
 const transport=new vm.Script(readFileSync(new URL('../web/transport.js',import.meta.url),'utf8'));
 const endpoint='https://script.google.com/macros/s/capacity-fixture/exec';
 function client(fetch){

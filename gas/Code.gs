@@ -191,8 +191,7 @@ function saveJournalSnapshot_(cache,row,state){
   }
   cache.put(JOURNAL_SNAPSHOT,JSON.stringify(value),600);
 }
-function ledger_(){
-  const sheet=book_().getSheetByName('Journal'),end=sheet.getLastRow();
+function ledger_(sheet=book_().getSheetByName('Journal'),end=sheet.getLastRow()){
   let cache,saved;
   try{cache=CacheService.getScriptCache();saved=readJournalSnapshot_(cache,end)}catch{/* Evicted or unreadable snapshots are rebuilt from the sheet. */}
   const state=saved?saved.state:fresh_(),after=saved?saved.row:1;
@@ -453,7 +452,12 @@ function passInfo(code){
   const active=ticketActive_(a,st,Date.now());
   return {used:!!a.used,active,wave:a.wave+1,seat:a.seat||null,checkedInAt:a.checkedInAt||null,code:active?pass_(a.id):''};
 }
-function proofImage(token,id){staff_(token,['desk']);const a=ledger_().attempts[id];must_(a&&a.file,'No screenshot was uploaded for this attempt.');const b=DriveApp.getFileById(a.file).getBlob();return 'data:'+b.getContentType()+';base64,'+Utilities.base64Encode(b.getBytes())}
+function proofImage(token,id,withVersion){
+  staff_(token,['desk']);
+  const a=ledger_().attempts[id];must_(a&&a.file,'No screenshot was uploaded for this attempt.');
+  const blob=DriveApp.getFileById(a.file).getBlob(),data='data:'+blob.getContentType()+';base64,'+Utilities.base64Encode(blob.getBytes());
+  return withVersion===true?{data,version:a.proofVersion||0}:data;
+}
 
 // MailApp supplies the executing club account as From. All event mail shares its identity.
 const EVENT_MAIL_NAME = 'Poké Poker Night 2026';
