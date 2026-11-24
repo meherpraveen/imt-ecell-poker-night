@@ -4,15 +4,46 @@ function receiverRecovery(r){
   return panel('Confirm your original receiver','<p>This registration predates the receiver list. Select the account shown on your payment receipt.</p><label for="originalReceiver">Who did you pay?</label><select id="originalReceiver"><option value="">Choose the receiver</option>'+
     r.identifyReceivers.map(x=>'<option value="'+esc(x.id)+'">'+esc(x.name+' · '+x.upi)+'</option>').join('')+'</select>'+btn('identifyReceiver','Save receiver','primary'));
 }
-function upiLink(r,receiver){
-  const params=new URLSearchParams({pa:receiver.upi,pn:receiver.name,am:Number(r.fee).toFixed(2),cu:r.offer.currency,tn:'Poké Poker Night '+r.id});
-  return 'upi://pay?'+params.toString().replace(/\+/g,'%20');
+const iosUpiApps=[
+  ['Google Pay','gpay://upi/pay'],
+  ['PhonePe','phonepe://pay'],
+  ['Paytm','paytmmp://pay'],
+  ['BHIM','bhim://upi/pay']
+];
+function paymentAppActions(r,receiver){
+  // iPadOS can request a desktop site and identify itself as a Mac.
+  const device=navigator.userAgent+' '+navigator.platform;
+  const ios=/iPhone|iPad|iPod/i.test(device)||(navigator.maxTouchPoints>1&&/MacIntel|Macintosh/.test(device));
+  const apps=ios?iosUpiApps:[['Open UPI app','upi://pay']];
+  const query=receiver?new URLSearchParams({
+    pa:receiver.upi,pn:receiver.name,am:Number(r.fee).toFixed(2),cu:r.offer.currency,tr:r.id,tn:'Poké Poker Night '+r.id
+  }).toString().replace(/\+/g,'%20'):'';
+  const links=apps.map(([label,base])=>{
+    const style=ios?'button':'button primary';
+    if(!receiver)return '<button type="button" class="'+style+'" aria-describedby="receiverFeedback" disabled>'+label+'</button>';
+    return '<a class="'+style+'" data-payment-link target="'+(ios?'_top':'_blank')+'" rel="noopener noreferrer" href="'+base+'?'+esc(query)+'">'+label+'<span class="sr-only"> to pay '+esc(receiver.name)+'</span></a>';
+  }).join('');
+  const saveQr=receiver?.qr?'<a class="qr-save" download="payment-qr.gif" href="'+esc(receiver.qr)+'">Save QR<span class="sr-only"> for '+esc(receiver.name)+'</span></a>':'';
+  if(!ios)return links+saveQr;
+  const alternatives=receiver?'<div class="upi-fallback">'+btn('copyUpi','Copy UPI ID','quiet')+saveQr+'</div>'+
+    '<p id="upiCopyStatus" class="sub" role="status">If your app doesn’t open, copy the UPI ID and pay in your app.</p>'+
+    '<input id="upiCopyValue" aria-label="UPI ID to copy" readonly hidden value="'+esc(receiver.upi)+'">':'';
+  return '<div class="upi-payment"><fieldset class="upi-apps"><legend>Choose a UPI app</legend><div class="upi-app-grid">'+links+'</div></fieldset>'+alternatives+'</div>';
 }
 function receiverActions(r,id){
-  const x=r.checkoutReceivers.find(option=>option.id===id&&option.qr);
-  if(!x)return '<button class="primary" type="button" aria-describedby="receiverFeedback" disabled>Open UPI app</button>';
-  return '<a class="button primary" data-payment-link target="_blank" rel="noopener" href="'+esc(upiLink(r,x))+'">Open UPI app<span class="sr-only"> to pay '+esc(x.name)+'</span></a>'+
-    '<a class="qr-save" download="payment-qr.gif" href="'+esc(x.qr)+'">Save QR<span class="sr-only"> for '+esc(x.name)+'</span></a>';
+  return paymentAppActions(r,r.checkoutReceivers.find(option=>option.id===id&&option.qr));
+}
+async function copyPaymentUpi(){
+  if(checkoutNeedsUpdate())return refreshCheckoutQuote();
+  const input=el('upiCopyValue'),status=el('upiCopyStatus');
+  try{
+    await navigator.clipboard.writeText(input.value);
+    status.textContent='UPI ID copied.';
+  }catch{
+    if(!input.isConnected)return;
+    input.hidden=false;input.focus();input.select();
+    status.textContent='Touch and hold the UPI ID to copy it.';
+  }
 }
 function choosePaymentReceiver(r){
   const options=r.checkoutReceivers;

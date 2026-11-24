@@ -143,8 +143,7 @@ function checkoutPanel(r){
   if(r.upi||r.paymentQr){
     instructions+='<div data-payment-target><p>Pay <strong>'+esc(r.name)+'</strong> using UPI.</p>';
     if(r.upi){
-      const params=new URLSearchParams({pa:r.upi,pn:r.name,am:Number(r.fee).toFixed(2),cu:r.offer.currency,tn:'Poké Poker Night '+r.id});
-      instructions+='<p><code>'+esc(r.upi)+'</code></p><a class="button" data-payment-link target="_blank" rel="noopener" href="upi://pay?'+esc(params.toString().replace(/\+/g,'%20'))+'">Open UPI app</a>';
+      instructions+='<p><code>'+esc(r.upi)+'</code></p>'+paymentAppActions(r,{upi:r.upi,name:r.name});
     }
     if(r.receiver?.number)instructions+='<p class="sub">UPI number · '+esc(r.receiver.number)+'</p>';
     if(r.paymentQr){
@@ -210,6 +209,7 @@ function showReceipt(r){
   }
 }
 async function action(name){
+  if(name==='copyUpi')return copyPaymentUpi();
   if(name==='submitPayment'){await submitPaymentProof();return}
   if(name==='identifyReceiver'){if(!val('originalReceiver'))return fieldError('originalReceiver','Choose the receiver you paid.');showReceipt(await playerApi('playerIdentifyReceiver',currentReceipt.ticket,val('originalReceiver')));return}
   if(mode==='scan')return name==='reloadScanner'?launch():scannerAction(name);

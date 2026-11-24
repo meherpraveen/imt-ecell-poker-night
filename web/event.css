@@ -117,6 +117,14 @@ code,.mono,.ticket-code {font: 550 .98rem/1.45 var(--mono); overflow-wrap: anywh
 .panel .receiver-feedback {margin: .75rem 0 .25rem; min-height: 1.5em; font-size: .88rem}
 .receiver-actions {display: flex; align-items: center; flex-wrap: wrap; gap: .75rem; min-height: 48px}
 .receiver-actions .button {margin: 0}
+.upi-payment {width: 100%; min-width: 0}
+.upi-apps {min-width: 0; margin: .4rem 0 0; padding: 0; border: 0}
+.upi-apps legend {padding: 0; font-size: 1rem; font-weight: 650}
+.upi-app-grid {display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: .5rem; margin-top: .55rem}
+.panel .upi-app-grid .button {margin: 0; color: var(--accent); padding-inline: .5rem}
+.upi-fallback {display: flex; align-items: center; flex-wrap: wrap; gap: 1rem; margin-top: .35rem}
+.panel .upi-fallback button {margin: 0; padding-inline: 0; font-size: .875rem}
+.panel #upiCopyStatus {font-size: .875rem; margin: .1rem 0 .5rem}
 .qr-save {font-size: .875rem}
 @media (max-width: 400px) {.offer {min-height: 9.25rem}}
 @media (max-width: 370px) {.receiver-grid {margin-inline: -.5rem}.receiver-name {font-size: .86rem}}

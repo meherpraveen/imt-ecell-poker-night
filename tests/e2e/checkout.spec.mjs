@@ -1,4 +1,5 @@
 import {createRequire} from 'node:module';
+import {devices} from '@playwright/test';
 import {test,expect} from './site.mjs';
 import {club,jpegQr,receiptText,testUpi,utr} from '../payment-fixtures.mjs';
 
@@ -53,6 +54,82 @@ test('both payment codes scan at their displayed size on a small phone, tablet a
   await expect(page.getByRole('link',{name:'Open UPI app to pay Second receiver'})).toHaveAttribute('href',/alternate%40samplebank/);
   await expect(images).toHaveCount(2);await page.reload();
   await expect(target).toBeChecked();expect(player.status().chosenReceiverId).toBe(second.id);
+});
+
+test.describe('iPhone payment apps',()=>{
+  const {userAgent,viewport,isMobile,hasTouch}=devices['iPhone 13'];
+  test.use({userAgent,viewport,isMobile,hasTouch});
+
+  test('each app opens only on tap with the confirmed receiver and current quote',async({page,site})=>{
+    site.at('2026-11-27T18:59:45+05:30');
+    await page.clock.install({time:new Date(site.now())});
+    const {player,first,second}=await openCheckout(page,site);
+    const picker=page.getByRole('group',{name:'Choose a UPI app'});
+    await expect(picker.getByRole('link')).toHaveCount(0);
+    await expect(picker.locator('button:disabled')).toHaveCount(4);
+    await page.getByRole('radio',{name:first.name}).check();
+    await expect(picker.getByRole('link',{name:/^Google Pay/})).toHaveAttribute('href',/am=149\.00/);
+
+    const saving=await holdRequest(page,site.endpoint,'playerSelectReceiver');
+    await page.getByRole('radio',{name:second.name}).check();await saving.seen;
+    await expect(picker.getByRole('link')).toHaveCount(0);
+    site.advance(16000);await page.clock.fastForward(16000);
+    await expect(page.locator('#checkoutUpdate')).toBeVisible();
+    saving.release();
+    await expect(picker.getByRole('link')).toHaveCount(4);
+    await expect(page.locator('#checkoutPayment a[href^="upi://"]')).toHaveCount(0);
+    expect(await picker.getByRole('link').evaluateAll(links=>links.every(link=>{
+      const {width,height}=link.getBoundingClientRect();return width>=44&&height>=44;
+    }))).toBe(true);
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+
+    // Observe the actual tap destination without launching a financial app on the test host.
+    await page.evaluate(()=>{
+      window.paymentTaps=[];
+      document.addEventListener('click',event=>{
+        const link=event.target.closest('[data-payment-link]');
+        if(link&&!event.defaultPrevented){event.preventDefault();window.paymentTaps.push(link.href)}
+      });
+      Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async text=>{window.copiedUpi=text}}});
+    });
+    const routes={'Google Pay':'gpay://upi/pay',PhonePe:'phonepe://pay',Paytm:'paytmmp://pay',BHIM:'bhim://upi/pay'};
+    for(const [name,base] of Object.entries(routes)){
+      const link=picker.getByRole('link',{name:name+' to pay '+second.name,exact:true});
+      await expect(link).toHaveAttribute('target','_top');
+      await link.click();
+      const url=new URL(await page.evaluate(()=>window.paymentTaps.at(-1)));
+      expect(url.href.split('?')[0]).toBe(base);
+      expect(Object.fromEntries(url.searchParams)).toEqual({
+        pa:second.upi,pn:second.name,am:'199.00',cu:'INR',tr:player.hold.id,tn:'Poké Poker Night '+player.hold.id
+      });
+    }
+    await page.getByRole('button',{name:'Copy UPI ID'}).click();
+    await expect(page.getByRole('status').filter({hasText:'UPI ID copied.'})).toBeVisible();
+    expect(await page.evaluate(()=>window.copiedUpi)).toBe(second.upi);
+    expect(player.status().paymentStatus).toBe('PENDING');
+    await page.reload();
+    await expect(picker.getByRole('link',{name:'Google Pay to pay '+second.name})).toBeVisible();
+  });
+});
+
+test('iPad desktop mode offers app links and a selectable UPI ID on an older checkout',async({page,site})=>{
+  site.rows.Settings[1][1]=testUpi;site.rows.Settings[2][1]='Club & Events';site.rows.Settings[5][1]='yes';
+  const player=club(site).student();
+  await page.addInitScript(({token,userAgent})=>{
+    Object.defineProperties(navigator,{
+      userAgent:{get:()=>userAgent},platform:{get:()=>'MacIntel'},maxTouchPoints:{get:()=>5},
+      clipboard:{get:()=>({writeText:async()=>{throw Error('Clipboard unavailable')}})}
+    });
+    sessionStorage.setItem('pn26:player-login',JSON.stringify({token,expires:Date.now()+3600000}));
+  },{token:player.token,userAgent:devices['Desktop Safari'].userAgent});
+  await page.goto(site.register);
+  const picker=page.getByRole('group',{name:'Choose a UPI app'});
+  await expect(picker.getByRole('link')).toHaveCount(4);
+  const href=await picker.getByRole('link',{name:'PhonePe to pay Club & Events'}).getAttribute('href');
+  expect(new URL(href).searchParams.get('pn')).toBe('Club & Events');
+  await page.getByRole('button',{name:'Copy UPI ID'}).click();
+  const manual=page.getByRole('textbox',{name:'UPI ID to copy'});
+  await expect(manual).toBeVisible();await expect(manual).toBeFocused();await expect(manual).toHaveValue(testUpi);
 });
 
 test('a busy payment desk retries on its own and a cache miss reuses the selected screenshot',async({page,site})=>{
