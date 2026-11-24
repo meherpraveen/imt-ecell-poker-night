@@ -12,6 +12,35 @@ async function verify(page,site){
   await page.getByLabel('Six-digit code').fill(site.code(player.email));await button(page,'Verify and continue').click();
 }
 
+test('a late account response cannot replace the student signed in from another tab',async({page,context,site})=>{
+  await requestCode(page,site);await verify(page,site);
+  await expect(page.getByLabel('Full Name')).toHaveValue('Sample Student');
+  const other=await context.newPage();await other.goto(site.register);
+  await expect(other.getByLabel('Full Name')).toHaveValue('Sample Student');
+  let held=false,release;
+  const paused=new Promise(resolve=>{release=resolve});
+  await page.route(site.endpoint,async route=>{
+    const body=route.request().postDataJSON();
+    if(held||body.action!=='playerHome')return route.fallback();
+    const reply=site.post(body);held=true;await paused;await route.fulfill({json:reply});
+  });
+  try{
+    await page.reload();await expect.poll(()=>held).toBe(true);
+    await button(other,'Sign out').click();
+    await other.getByLabel('Roll number or registered email').fill('223456789');
+    await button(other,'Send code').click();
+    await other.getByLabel('Six-digit code').fill(site.code('second@example.test'));
+    await button(other,'Verify and continue').click();
+    await expect(page.getByLabel('Full Name')).toHaveValue('Second Student');
+    await page.bringToFront();
+    const completed=page.waitForEvent('requestfinished',req=>req.url()===site.endpoint&&req.postDataJSON().action==='playerHome');
+    release();await completed;
+    await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+    await expect(page.getByLabel('Full Name')).toHaveValue('Second Student');
+    await expect(page.locator('#msg')).toBeEmpty();
+  }finally{release()}
+});
+
 test('closing the browser resumes registration details and the selected receiver and screenshot on the same phone',async({site},testInfo)=>{
   const api=club(site);api.makeReceiver(testUpi,'First receiver');const receiver=api.makeReceiver('other@samplebank','Second receiver');
   site.rows.Students[1][3]='';

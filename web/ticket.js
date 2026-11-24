@@ -4,10 +4,10 @@ function walletCard(r,player,standalone){
   const wordmark=document.querySelector('.appbar .event-wordmark');
   const name=wordmark?'<img class="wallet-wordmark" src="'+esc(wordmark.getAttribute('src'))+'" width="360" height="126" alt="Poké Poker Night">':'Poké Poker Night';
   const header='<header class="wallet-head"><div><p class="wallet-issuer">E-Cell · IMT Ghaziabad</p><h2>'+name+'</h2></div><span class="suit" aria-hidden="true">♠</span></header>';
-  const details='<dl class="wallet-facts"><div><dt>Event date</dt><dd>27 Nov 2026</dd></div><div><dt>Qualifier</dt><dd>Wave '+r.wave+'</dd></div></dl>';
+  const details='<dl class="wallet-facts"><div><dt>Event date</dt><dd>27 Nov 2026</dd></div><div><dt>Qualifier</dt><dd>Wave '+esc(r.wave)+'</dd></div></dl>';
   const title=used?(standalone?'Pass already scanned':'Checked in'):(standalone?'Show at the gate':'Payment verified');
   const passUrl=publicEventLink('pass','code',code||'');
-  const admission=used?'<strong class="wallet-seat">'+seatLabel(r.seat)+'</strong><p>'+seatLocation(r.wave,r.seat)+'</p><p class="sub">Checked in '+esc(scanTime(r.checkedInAt))+'</p>':
+  const admission=used?'<strong class="wallet-seat">'+esc(seatLabel(r.seat))+'</strong><p>'+esc(seatLocation(r.wave,r.seat))+'</p><p class="sub">Checked in '+esc(scanTime(r.checkedInAt))+'</p>':
     '<div id="passImage" class="pass-image" aria-busy="true"></div><p class="ticket-code">'+esc(code)+'</p><p class="sub">Show this QR with your college ID.</p>';
   const action=used?'':standalone?'<a id="savePass" class="button primary wide" hidden>Save pass to phone</a>':
     '<a class="button primary wide" href="'+esc(passUrl)+'">Open phone pass</a>';
@@ -68,25 +68,28 @@ async function updateTicket(){
   if(ticketUpdating||document.hidden||!navigator.onLine)return;
   if(busy||el('registrationEditor')?.open){scheduleTicketUpdate();return}
   ticketUpdating=true;
+  const before=currentReceipt;
   try{
     if(currentPass?.active||currentReceipt?.entryCode){
-      const before=currentReceipt,code=mode==='pass'?document.body.dataset.pass:before.entryCode;
+      const code=mode==='pass'?document.body.dataset.pass:before.entryCode;
       const next=await api('passInfo',code);
+      if(currentReceipt!==before)return;
       if(next.used||!next.active){
         if(mode==='pass')drawPass(next);
-        else if(currentReceipt===before&&!el('registrationEditor')?.open)showReceipt({...before,entryCode:'',seat:next.seat,checkedInAt:next.checkedInAt});
+        else if(!el('registrationEditor')?.open)showReceipt({...before,entryCode:'',seat:next.seat,checkedInAt:next.checkedInAt});
         if(next.seat&&(mode==='pass'||playerSession))el('ticketAnnouncement').textContent='Checked in. '+seatLabel(next.seat)+'. '+seatLocation(next.wave,next.seat);
       }
     }else if(currentReceipt&&(['REGISTERED','REVIEW','WAITLIST'].includes(currentReceipt.status)||currentReceipt.status==='HOLD'&&currentReceipt.full)){
-      const before=currentReceipt,next=await playerApi('playerStatus',before.ticket);
-      if(currentReceipt===before&&!el('registrationEditor')?.open&&(before.full!==next.full||before.status!==next.status||before.canCheckout!==next.canCheckout||before.checkoutEnded!==next.checkoutEnded||before.issue!==next.issue||before.proofVersion!==next.proofVersion)){
+      const next=await playerApi('playerStatus',before.ticket);
+      if(currentReceipt!==before)return;
+      if(!el('registrationEditor')?.open&&(before.full!==next.full||before.status!==next.status||before.canCheckout!==next.canCheckout||before.checkoutEnded!==next.checkoutEnded||before.issue!==next.issue||before.proofVersion!==next.proofVersion)){
         if(before.status===next.status&&el('shot')?.files?.length)return;
         showReceipt(next);
         el('ticketAnnouncement').textContent=next.entryCode?'Payment verified. Your ticket is ready.':'Your registration status has changed.';
       }
     }
     ticketFailures=0;el('net').textContent='';
-  }catch{ticketFailures++;el('net').textContent='Connection interrupted. Reconnecting for ticket updates.'}
+  }catch{if(currentReceipt===before){ticketFailures++;el('net').textContent='Connection interrupted. Reconnecting for ticket updates.'}}
   finally{ticketUpdating=false;scheduleTicketUpdate()}
 }
 let checkingCheckout;

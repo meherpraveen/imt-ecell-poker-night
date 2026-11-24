@@ -96,16 +96,23 @@ function statementPlan_(st,s,bank=bankRows_(st,s.id,true)){
 function adminStatementPreview(token,id){
   staff_(token,[]);const st=ledger_(),s=st.statements[id];must_(s,'Statement not found.');return statementPlan_(st,s);
 }
+function bankRevision_(state){
+  return JSON.stringify([state.statements,state.bankCorrections]);
+}
+function readBankEvidence_(state,includeStaged){
+  return {revision:bankRevision_(state),rows:bankRows_(state,'',includeStaged)};
+}
 function adminApplyStatement(token,id,version){
-  const admin=staff_(token,[]),before=ledger_(),original=before.statements[id];must_(original,'Statement not found.');
+  staff_(token,[]);
+  const before=ledger_(),original=before.statements[id];must_(original,'Statement not found.');
   if(original.lastVersion===version&&original.applied)return original.lastResult;
-  const bank=bankRows_(before,id,true);
-  const source=JSON.stringify([before.statements,before.bankCorrections]);
+  const evidence=readBankEvidence_(before,true);
   return locked_(()=>{
+    const admin=staff_(token,[]);
     const st=ledger_(),s=st.statements[id];must_(s,'Statement not found.');
     if(s.lastVersion===version&&s.applied)return s.lastResult;
-    must_(source===JSON.stringify([st.statements,st.bankCorrections]),'The preview changed. Open a fresh preview before applying.');
-    const plan=statementPlan_(st,s,bank);
+    must_(evidence.revision===bankRevision_(st),'The preview changed. Open a fresh preview before applying.');
+    const plan=statementPlan_(st,s,evidence.rows);
     must_(plan.version===version,'The preview changed. Open a fresh preview before applying.');
     const decisions=plan.matches.filter(m=>!m.reason).map(m=>({id:m.id,row:m.row,utr:m.utr,fee:m.fee}));
     const flagged=plan.matches.filter(m=>m.reason&&st.attempts[m.id].reviewReason!==m.reason).map(m=>[m.id,m.reason]);
@@ -130,8 +137,9 @@ function reviewCandidates_(a,bank){
 }
 function adminPaymentDetail(token,id,lookup){
   staff_(token,[]);const st=ledger_(),a=st.attempts[id];must_(a&&(a.receiver||a.file&&usesBankVerification_(st)),'Payment not found.');
-  const bank=bankRows_(st,'',true),available=bank.filter(r=>r.applied),query=String(lookup||'').trim();
+  const query=String(lookup||'').trim();
   must_(!query||ref_(query),'Search with a full 12-digit UTR.');
+  const bank=bankRows_(st,'',true),available=bank.filter(r=>r.applied);
   const rows=query?available.filter(r=>rowMentions_(r,query)).slice(0,40):reviewCandidates_(a,available);
   return {version:a.proofVersion||0,canReadReference:a.status==='REVIEW'&&!!a.file&&!a.ocr?.utr,
     linked:a.linkedRow||'',claim:a.claim||null,ocr:a.ocr||null,
@@ -140,13 +148,20 @@ function adminPaymentDetail(token,id,lookup){
 function adminReviewPayment(token,id,action,rowKey,reason,revision){
   const admin=staff_(token,[]);reason=String(reason||'').trim();
   must_(['approve','link','reject'].includes(action)&&reason.length>=3&&reason.length<=240,'Enter a reason for this decision (3–240 characters).');
+  let evidence;
+  if(action!=='reject'){
+    const before=ledger_(),a=before.attempts[id];
+    if(a?.status==='REVIEW'&&revision===(a.proofVersion||0))evidence=readBankEvidence_(before,true);
+  }
   const result=locked_(()=>{
+    if(evidence)staff_(token,[]);
     const st=ledger_(),a=st.attempts[id];must_(a&&(a.receiver||a.file&&usesBankVerification_(st)),'Payment not found.');
     if(action==='approve'&&issued_(a)&&a.bankRow===rowKey)return null;
     if(action==='reject'&&a.status==='REJECTED'&&a.reason===reason&&revision===(a.proofVersion||0))return {status:'Rejected'};
     must_(a.status==='REVIEW'&&revision===(a.proofVersion||0),'The payment has changed. Reopen it before deciding.');
     if(action==='reject'){commit_(st,'Proof rejected',admin.name,{attempts:[{...a,status:'REJECTED',paymentStatus:'PENDING',reason,linkedRow:'',reviewReason:reason}],note:id});return {status:'Rejected'}}
-    const bank=bankRows_(st,'',true),row=bank.find(r=>r.applied&&r.key===rowKey);must_(row,'Choose an applied statement row.');
+    must_(evidence&&evidence.revision===bankRevision_(st),'The bank evidence changed. Reopen the payment before deciding.');
+    const bank=evidence.rows,row=bank.find(r=>r.applied&&r.key===rowKey);must_(row,'Choose an applied statement row.');
     if(action==='link'){
       const recipient=bankRecipient_(st,a,row);
       must_(recipient&&row.account===recipient.id&&row.upi===recipient.upi,'Select a row from the receiving account.');
@@ -179,10 +194,13 @@ function adminOpenDeskPayment(token,roll,kind){
 }
 
 function adminCertifyPdfRow(token,key,values){
-  const admin=staff_(token,[]),v=values||{};
-  must_(v.confirmed===true&&String(v.reason||'').trim().length>=3&&String(v.reason).length<=240,'Open the original PDF and record why this is an incoming credit.');
+  staff_(token,[]);const v=values||{};
+  must_(v.confirmed===true&&typeof v.reason==='string'&&v.reason.trim().length>=3&&v.reason.length<=240,'Open the original PDF and record why this is an incoming credit.');
+  const evidence=readBankEvidence_(ledger_(),false);
   return locked_(()=>{
-    const st=ledger_(),bank=bankRows_(st),row=bank.find(r=>r.key===key);
+    const admin=staff_(token,[]),st=ledger_();
+    must_(evidence.revision===bankRevision_(st),'The bank evidence changed. Reopen the payment before transcribing.');
+    const row=evidence.rows.find(r=>r.key===key);
     must_(row?.ocr&&row.direction!=='DEBIT'&&!/debit, not|reversal|foreign currency|receiver differs/i.test(row.issue)&&!/\b(?:debit(?:ed)?|dr|withdrawal|refund(?:ed)?|revers(?:al|ed)|chargeback|declined|pending|cancelled|failed)\b/i.test(row.raw),'Only an unclear PDF credit can be transcribed.');
     const utr=ref_(v.utr),minor=paise_(v.amount),date=bankDate_(v.date);
     must_(utr&&row.raw.includes(utr)&&(!row.utr||row.utr===utr)&&minor>0&&date,'Enter the UTR visible on this line, the credit amount and its bank date.');
@@ -200,10 +218,11 @@ function adminNeedsReview(token){
   const payments=attempts.filter(a=>a.status==='REVIEW'&&(a.receiver||managed&&a.file)).map(a=>paymentMatch_(st,a,bank));
   const spent=new Map(attempts.filter(a=>a.utr).map(a=>[a.utr,a]));
   const claims=new Set(payments.map(p=>p.row));
+  const byKey=new Map(bank.map(row=>[row.key,row]));
   const rows=[];
   for(const row of bank){
     if(!row.applied||claims.has(row.key))continue;
-    const used=spent.get(row.utr),original=used&&bank.find(r=>r.key===used.bankRow);
+    const used=spent.get(row.utr),original=used&&byKey.get(used.bankRow);
     if(used&&!row.issue&&row.direction==='CREDIT'&&original&&original.account===row.account&&original.minor===row.minor&&original.date===row.date)continue;
     let reason=row.issue||'Bank credit has no matching student proof.';
     if(used)reason='Already authorized for '+used.roll+'. '+(row.issue||'Check this additional bank entry.');

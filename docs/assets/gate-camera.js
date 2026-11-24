@@ -1,5 +1,5 @@
 'use strict';
-let mediaStream=null,cameraGeneration=0,frameTimer,decoderReady,pendingScan=null,readingTicket=false;
+let mediaStream=null,cameraGeneration=0,frameTimer,pendingScan=null,readingTicket=false;
 
 function stopScanner(){
   cameraGeneration++;clearTimeout(frameTimer);
@@ -63,8 +63,7 @@ async function startCamera(){
         }
         if(!detector){
           if(typeof jsQR!=='function'){
-            decoderReady=decoderReady||scriptAsset('assets/jsQR-1.4.0.js').catch(e=>{decoderReady=null;throw e});
-            await decoderReady;
+            await scriptAsset('assets/jsQR-1.4.0.js');
             if(generation!==cameraGeneration)return;
           }
           const scale=Math.min(1,760/Math.max(video.videoWidth,video.videoHeight));

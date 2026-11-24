@@ -29,10 +29,11 @@ let proofDatabase;
 function openProofDatabase(){
   if(!proofDatabase)proofDatabase=new Promise((resolve,reject)=>{
     const request=indexedDB.open('pn26-registration-drafts',1);
+    let blocked=false;
     request.onupgradeneeded=()=>{const files=request.result.createObjectStore('files',{keyPath:'key'});files.createIndex('owner','owner')};
-    request.onsuccess=()=>{const db=request.result;db.onversionchange=()=>{db.close();proofDatabase=null};resolve(db)};
+    request.onsuccess=()=>{const db=request.result;if(blocked){db.close();return}db.onversionchange=()=>{db.close();proofDatabase=null};resolve(db)};
     request.onerror=()=>reject(request.error);
-    request.onblocked=()=>reject(Error('Draft storage is busy.'));
+    request.onblocked=()=>{blocked=true;reject(Error('Draft storage is busy.'))};
   }).catch(error=>{proofDatabase=null;throw error});
   return proofDatabase;
 }

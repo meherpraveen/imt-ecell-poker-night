@@ -5,6 +5,7 @@ import path from 'node:path';
 import {createHash} from 'node:crypto';
 import {createRequire} from 'node:module';
 import {runInNewContext} from 'node:vm';
+import server from './server-source.cjs';
 const root=fileURLToPath(new URL('../',import.meta.url));
 const read=p=>fs.readFileSync(path.join(root,p),'utf8');
 const require=createRequire(import.meta.url);
@@ -83,20 +84,20 @@ fs.copyFileSync(require.resolve('jsqr'),path.join(root,assets,'jsQR-1.4.0.js'));
 writeAsset('jsQR-LICENSE.txt',fs.readFileSync(require.resolve('jsqr/LICENSE'),'utf8').trimEnd()+'\n');
 const out=path.join(root,'.deploy');
 fs.mkdirSync(out,{recursive:true});
-for(const f of ['appsscript.json','Floor.gs','Auth.gs'])fs.copyFileSync(path.join(root,'gas',f),path.join(out,f));
+fs.copyFileSync(path.join(root,'gas/appsscript.json'),path.join(out,'appsscript.json'));
+for(const name of ['Auth','Floor'])fs.writeFileSync(path.join(out,name+'.gs'),server.readServerSource(name));
 const decoderSource=fs.readFileSync(require.resolve('jpeg-js/lib/decoder'),'utf8');
 const qrSource=fs.readFileSync(require.resolve('jsqr'),'utf8');
 const wrapModule=source=>'(()=>{const module={exports:{}},exports=module.exports;\n'+source+'\nreturn module.exports})()';
 const qrReader='function readReceiverQr_(bytes){const decode='+wrapModule(decoderSource)+',scan='+wrapModule(qrSource)+';const im=decode(bytes,{useTArray:true,maxResolutionInMP:3,maxMemoryUsageInMB:48});return scan(new Uint8ClampedArray(im.data),im.width,im.height)?.data||""}';
-const paymentServer=['PaymentProof','Statements','Reconcile'].map(name=>read('gas/'+name+'.gs')).join('\n');
-fs.writeFileSync(path.join(out,'Code.gs'),pricing+'\n'+read('gas/Code.gs')+'\n'+paymentServer+'\n'+qrReader+'\nconst ticketQrEncoder_=(function(){\n'+library+'\nreturn qrcode;\n})();\n');
+fs.writeFileSync(path.join(out,'Code.gs'),server.readServerSource('Code')+'\n'+qrReader+'\nconst ticketQrEncoder_=(function(){\n'+library+'\nreturn qrcode;\n})();\n');
 const feather=require('feather-icons');
 const deskIcons=['activity','arrow-right','camera','check-circle','chevron-down','chevron-right','clock','credit-card','grid','inbox','log-out','refresh-cw','search','settings','user','user-plus','users','x'];
 const iconSymbols=deskIcons.map(name=>'<symbol id="desk-i-'+name+'" viewBox="0 0 24 24">'+feather.icons[name].contents+'</symbol>').join('');
 const iconLicense=fs.readFileSync(require.resolve('feather-icons/LICENSE'),'utf8');
 const deskSprite='<!-- Feather Icons\n'+iconLicense+'-->\n<svg xmlns="http://www.w3.org/2000/svg" width="0" height="0" aria-hidden="true" style="position:absolute;overflow:hidden">'+iconSymbols+'</svg>';
 const inlineSources=[library,priceDisplay+'\n'+commonCode,
-  ['payment-admin','staff-views','staff'].map(name=>read('web/'+name+'.js')).join('\n'),
+  ['payment-admin','staff-views','gate-queue','staff'].map(name=>read('web/'+name+'.js')).join('\n'),
   [paymentCode,accountCode,playerCode].join('\n')];
 const [inlineQr,inlineCommon,inlineStaff,inlinePlayer]=await Promise.all(inlineSources.map(async source=>(await minify(source,{ecma:2020})).code));
 const qrNotice=library.slice(0,library.indexOf('var qrcode'));

@@ -2,6 +2,7 @@ import {randomBytes, randomUUID, createHash, createHmac} from 'node:crypto';
 import {readFileSync} from 'node:fs';
 import {gzipSync, gunzipSync} from 'node:zlib';
 import vm from 'node:vm';
+import {sheet} from '../sheet-fixture.cjs';
 
 const read = name => readFileSync(new URL('../../'+name,import.meta.url),'utf8');
 const source = ['Code','Auth','Floor'].map(name=>read('.deploy/'+name+'.gs')).join('\n');
@@ -10,22 +11,6 @@ export const player = {roll:'123456789',email:'player@example.test'};
 export const owner = 'owner@example.test';
 
 // Only the Google service boundaries are substituted. Requests use the deployed Apps Script entry points.
-function sheet(rows,onRead=()=>{}){
-  return {
-    getLastRow:()=>rows.length,getLastColumn:()=>Math.max(0,...rows.map(r=>r.length)),
-    appendRow(values){rows.push(Array.from(values))},
-    insertRowsAfter(row,count){rows.splice(row,0,...Array.from({length:count},()=>[]))},
-    getRange(row,col,height=1,width=1){
-      if(row==='A:A')return {createTextFinder(pattern){return {useRegularExpression(){return this},findAll:()=>rows.flatMap((cells,i)=>new RegExp(pattern).test(String(cells[0]))?[{getRow:()=>i+1}]:[])}}};
-      const values=()=>{onRead(row,height);return Array.from({length:height},(_,i)=>Array.from({length:width},(_,j)=>rows[row-1+i]?.[col-1+j]??''))};
-      return {
-        getValues:values,getDisplayValues:()=>values().map(r=>r.map(String)),
-        setValue(value){this.setValues([[value]]);return this},setNumberFormat(){return this},
-        setValues(data){data.forEach((r,i)=>r.forEach((x,j)=>{(rows[row+i-1]??=[])[col+j-1]=x}));return this}
-      };
-    }
-  };
-}
 function blob(bytes,type,name){
   const buffer=Buffer.from(bytes);
   return {getBytes:()=>[...buffer],getDataAsString:()=>buffer.toString(),getName:()=>name,getContentType:()=>type};

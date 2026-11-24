@@ -4,8 +4,7 @@ const {test} = require('node:test');
 const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
 const vm = require('node:vm');
-const fs = require('node:fs');
-const path = require('node:path');
+const {readServerSource} = require('../tools/server-source.cjs');
 
 // Independent Apps Script executions share only a lock and a Sheet-shaped journal.
 const player = {id:'0123456789abcdef',roll:'123456789',kind:'pre',status:'PAID',wave:0,used:false};
@@ -69,7 +68,7 @@ if(isMainThread){
     SpreadsheetApp:{flush(){assert.ok(holding)}},CacheService:{getScriptCache:()=>({get:()=>null})}
   };
   vm.createContext(ctx);
-  vm.runInContext(fs.readFileSync(path.join(__dirname,'../gas/Code.gs'),'utf8'),ctx);
+  vm.runInContext(readServerSource('Code'),ctx);
   ctx.book_=()=>({getSheetByName:()=>sheet});
   ctx.staff_=()=>({name:workerData.staff,role:'gate'});
   ctx.roster_=()=>({[player.roll]:{name:'Test player'}});

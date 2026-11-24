@@ -77,7 +77,7 @@ function gateResultHtml(result,nextButton){
   const title=valid?'Checked in':used?'Already used':'Invalid ticket';
   return '<section class="gate-result '+(valid?'accepted':'denied')+'" role="status"><div class="result-mark" aria-hidden="true">'+(valid?'✓':'×')+'</div>'+
     '<h2 id="scanResultTitle" tabindex="-1">'+title+'</h2>'+
-    (valid||used?'<p class="gate-player">'+esc(result.player)+'</p><div class="seat-result"><strong>'+seatLabel(result.seat)+'</strong><span>'+seatLocation(result.wave,result.seat)+'</span></div>'+
+    (valid||used?'<p class="gate-player">'+esc(result.player)+'</p><div class="seat-result"><strong>'+esc(seatLabel(result.seat))+'</strong><span>'+esc(seatLocation(result.wave,result.seat))+'</span></div>'+
       (used?'<p>First scan · '+esc(scanTime(result.checkedInAt))+'</p>':''):
       '<p>Ask the player to open their verified entry ticket.</p>')+nextButton+'</section>';
 }
@@ -99,8 +99,8 @@ document.addEventListener('invalid',e=>{
   if(messages[e.target.id]){e.preventDefault();fieldError(e.target.id,messages[e.target.id])}
 },true);
 function board(b){clockEnd=b.deadline;return '<div class="row"><div><p class="tag">'+esc(b.state)+'</p><h2>'+esc(b.title)+'</h2></div><div class="timer" id="clock"></div></div>'+(b.champion?'<p class="note">Winner · '+esc(b.champion)+'</p>':'')+
-  (b.tables.length?'<div class="cols">'+b.tables.map(t=>panel(t.name,'<ol class="board-list">'+t.players.map((p,i)=>'<li'+(t.seats?.[i]?' value="'+t.seats[i]+'"':'')+'>'+esc(p)+'</li>').join('')+'</ol>')).join('')+'</div>':'<p class="sub">No tables published yet.</p>')+
-  (b.leaderboard.length?panel('Chip leaderboard','<ol>'+b.leaderboard.map(x=>'<li>'+esc(x.alias)+' · '+x.chips.toLocaleString('en-IN')+'</li>').join('')+'</ol>'):'');
+  (b.tables.length?'<div class="cols">'+b.tables.map(t=>panel(t.name,'<ol class="board-list">'+t.players.map((p,i)=>'<li'+(t.seats?.[i]?' value="'+esc(t.seats[i])+'"':'')+'>'+esc(p)+'</li>').join('')+'</ol>')).join('')+'</div>':'<p class="sub">No tables published yet.</p>')+
+  (b.leaderboard.length?panel('Chip leaderboard','<ol>'+b.leaderboard.map(x=>'<li>'+esc(x.alias)+' · '+esc(x.chips.toLocaleString('en-IN'))+'</li>').join('')+'</ol>'):'');
 }
 let clockTimer;
 function tick(){

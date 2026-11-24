@@ -198,6 +198,70 @@ test('live floor recovers from a network error and reopens the last published sn
   expect(reads).toBe(1);release();await expect(page.locator('#net')).toBeEmpty();
 });
 
+test('an unreadable saved floor still opens the current board',async({page,site})=>{
+  await page.addInitScript(()=>sessionStorage.setItem('pn26:floor-snapshot',JSON.stringify({
+    data:{title:'Incomplete cached draw',tables:null},received:Date.now()
+  })));
+  await page.goto(site.floor);
+  await expect(page.locator('#clock')).toBeVisible();
+  await expect(page.locator('#content')).toContainText('Awaiting first seating');
+  expect(site.calls.filter(name=>name==='liveFloor')).toHaveLength(1);
+});
+
+test('a revoked staff session returns to sign-in on the next background refresh',async({page,site})=>{
+  await page.clock.install({time:new Date(site.now())});
+  await staffLogin(page,site,'desk');
+  await expect(heading(page,'Payment queue')).toBeVisible();
+  site.rows.Staff.find(row=>row[1]==='desk')[3]='no';
+  await page.clock.fastForward(16000);
+  await expect(page.getByLabel('Private staff key')).toBeVisible();
+  await expect(page.getByLabel('Private staff key')).toBeFocused();
+  await expect(heading(page,'Payment queue')).toHaveCount(0);
+  await expect(page.locator('#msg')).toContainText('staff role');
+  expect(await page.evaluate(()=>Object.keys(sessionStorage).some(key=>
+    key.startsWith('pn26:staff:')&&sessionStorage.getItem(key)))).toBe(false);
+});
+
+test('a gate retry keeps the operation ID and survives a failed local acknowledgement',async({page,site})=>{
+  await staffLogin(page,site,'gate');
+  const ids=[];
+  await page.route('**/test-staff-rpc',async route=>{
+    const {name,args}=route.request().postDataJSON();
+    if(name!=='gateAction')return route.fallback();
+    ids.push(args[3]);
+    if(ids.length===1)return route.fulfill({json:{ok:false,error:'The event desk is busy.'}});
+    return route.fallback();
+  });
+  await gateAction(page,'admit','PN-AAAAAAAAAAAAAAAA');
+  await expect(page.locator('#msg')).toContainText('Wait for server confirmation');
+  await expect(page.locator('#pending')).toContainText('1 unsynced');
+  await page.evaluate(()=>{
+    const remove=Storage.prototype.removeItem;
+    Storage.prototype.removeItem=function(key){
+      if(key.startsWith('pn26:gate-queue-'))throw new DOMException('Storage unavailable','SecurityError');
+      return remove.call(this,key);
+    };
+    window.restoreQueueStorage=()=>{Storage.prototype.removeItem=remove};
+    dispatchEvent(new Event('online'));
+  });
+  await expect(heading(page,'Invalid ticket')).toBeVisible();
+  await expect(page.locator('#msg')).toContainText('could not clear');
+  await page.evaluate(()=>{window.restoreQueueStorage();dispatchEvent(new Event('online'))});
+  await expect(page.locator('#pending')).toBeEmpty();
+  expect(ids).toHaveLength(2);expect(ids[1]).toBe(ids[0]);
+});
+
+test('two offline gate tabs retain both actions and drain the queue once',async({page,context,site})=>{
+  const other=await context.newPage();
+  await staffLogin(page,site,'gate');await staffLogin(other,site,'gate');
+  await context.setOffline(true);
+  await Promise.all([gateAction(page,'admit','PN-AAAAAAAAAAAAAAAA'),gateAction(other,'admit','PN-BBBBBBBBBBBBBBBB')]);
+  for(const tab of [page,other])await expect(tab.locator('#pending')).toContainText('2 unsynced');
+  await context.setOffline(false);
+  for(const tab of [page,other])await expect(tab.locator('#pending')).toBeEmpty();
+  expect(site.calls.filter(name=>name==='gateAction')).toHaveLength(2);
+});
+
 test('lost registration response is retryable and a shared receipt opens only for its owner',async({page,context,site})=>{
   await studentLogin(page,site);await page.getByLabel('Batch',{exact:true}).selectOption('2026-28');let lost=true;
   await page.route(site.endpoint,async route=>{

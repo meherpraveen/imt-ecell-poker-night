@@ -1,24 +1,28 @@
 'use strict';
 const mode=document.body.dataset.mode;
+const assetRequests=new Map();
 function scriptAsset(src){
-  return new Promise((resolve,reject)=>{
+  if(assetRequests.has(src))return assetRequests.get(src);
+  const request=new Promise((resolve,reject)=>{
     const script=document.createElement('script');script.onload=resolve;script.onerror=()=>{script.remove();reject(Error('Part of the event page could not load. Check your connection and try again.'))};
     script.src=src;document.head.append(script);
-  });
+  }).catch(error=>{assetRequests.delete(src);throw error});
+  assetRequests.set(src,request);
+  return request;
 }
 let playerSession=unpack(deviceValue('player-login')),sharedSession=!!durable.get('player-login');
 let challenge=unpack(deviceValue('email-step')), pendingRequest=tabValue('seat-request'),accountInfo,accountLoad;
 let preferredReceipt=incomingReceipt||tabValue('receipt-link')||'';
-let currentReceipt=null,currentPass=null,ticketTimer,checkoutTimer,qrLibrary,paymentLibrary,accountLibrary;
+let currentReceipt=null,currentPass=null,ticketTimer,checkoutTimer;
+// Cached account bundles also use this binding when loading the ticket encoder.
+let qrLibrary;
 function loadAccountTools(){
   if(typeof renderAccount==='function')return Promise.resolve();
-  if(!accountLibrary)accountLibrary=scriptAsset('assets/player-account.js?v=__ACCOUNT_VERSION__').catch(error=>{accountLibrary=null;throw error});
-  return accountLibrary;
+  return scriptAsset('assets/player-account.js?v=__ACCOUNT_VERSION__');
 }
 function loadPaymentForm(){
   if(typeof proofForm==='function')return Promise.resolve();
-  if(!paymentLibrary)paymentLibrary=scriptAsset('assets/payment-form.js?v=__PAYMENT_VERSION__').catch(error=>{paymentLibrary=null;throw error});
-  return paymentLibrary;
+  return scriptAsset('assets/payment-form.js?v=__PAYMENT_VERSION__');
 }
 function warmPaymentForm(){loadPaymentForm().catch(()=>{})}
 if(incomingReceipt)tabValue('receipt-link',incomingReceipt);
@@ -79,7 +83,7 @@ async function playerApi(method,...args){
     if(result?.offer)syncOffer(result.offer);return result;
   }catch(e){
     if(token&&token===playerSession?.token&&String(e.message).includes('Sign in with your registered email')){
-      const hint=accountInfo?.player?.roll||playerSession.roll;clearPlayer();signInPage(false,hint);
+      const hint=accountInfo?.player?.roll||playerSession.roll;clearPlayer();signInPage(false,hint);msg(e.message,true);
     }
     throw e;
   }
@@ -91,6 +95,8 @@ function loadAccount(){
     if(session?.token!==playerSession?.token||syncDeviceSession())return;
     rememberPlayer({...session,expires:info.sessionExpires||session.expires},info.player.roll);
     msg();el('net').textContent='';renderAccount(info);
+  }).catch(error=>{
+    if(session?.token===playerSession?.token)throw error;
   }).finally(()=>{if(accountLoad===request)accountLoad=null});
   accountLoad=request;return request;
 }
@@ -214,7 +220,11 @@ async function launch(){try{
   if(mode==='board'){
     heading('LIVE FLOOR','Tournament floor');
     const cached=unpack(tabValue('floor-snapshot'));
-    if(cached?.data&&Date.now()-cached.received<120000){paintBoard(cached.data,cached.received);el('net').textContent='Updating the live floor…'}
+    const age=Date.now()-cached?.received;
+    if(age>=0&&age<120000){
+      try{paintBoard(cached.data,cached.received);el('net').textContent='Updating the live floor…'}
+      catch{tabValue('floor-snapshot','')}
+    }
     await refreshBoard();return;
   }
   if(mode==='pass'){await renderPass();return}

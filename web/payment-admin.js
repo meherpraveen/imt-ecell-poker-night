@@ -39,7 +39,7 @@ function bankPlanDialog(plan){
 }
 async function dispatchBankPasses(){
   let failed=0,result;
-  do{result=await api('adminDispatchPasses',token);failed+=result.failed}while(result.remaining);
+  do{result=await deskApi('adminDispatchPasses',token);failed+=result.failed}while(result.remaining);
   return failed?failed+' pass email(s) need desk delivery.':'Pass delivery is up to date.';
 }
 function bankReviewDialog(id,query=''){
@@ -49,11 +49,11 @@ function bankReviewDialog(id,query=''){
   reviewPayment=review;opened=id;
   detail('<h2>Review payment</h2><p role="status">Loading payment details…</p>');
   // Read the image alongside the statement lookup. A slow image must never lock the desk.
-  const readImage=()=>api('proofImage',token,id,true).then(value=>({value}),error=>({error}));
+  const readImage=()=>deskApi('proofImage',token,id,true).then(value=>({value}),error=>({error}));
   review.image=previous?.image||readImage();
   const current=()=>reviewPayment===review&&opened===id&&el('dialog').open;
   async function load(){
-    const r=await api('adminPaymentDetail',token,id,query);
+    const r=await deskApi('adminPaymentDetail',token,id,query);
     if(!current())return;
     Object.assign(review,r);
     renderBankReview(r,query);
@@ -106,18 +106,18 @@ async function bankAction(name,id){
   if(name==='bankReceiver'){receiverDialog(id);return}
   if(name==='bankSaveReceiver'){
     const file=el('receiverQr').files[0],r=receiverEdit||{};
-    await api('adminSaveReceiver',token,{id:r.id||'',revision:r.revision||0,name:val('receiverName'),upi:val('receiverUpi'),number:val('receiverNumber'),active:el('receiverActive').checked,qr:file?await picture(file,'receiver'):''});
+    await deskApi('adminSaveReceiver',token,{id:r.id||'',revision:r.revision||0,name:val('receiverName'),upi:val('receiverUpi'),number:val('receiverNumber'),active:el('receiverActive').checked,qr:file?await picture(file,'receiver'):''});
     await finishDeskChange(true);msg('Receiver saved.');return;
   }
   if(name==='bankStatements'){bankStatementsDialog();return}
   if(name==='bankUpload'){
     const file=el('bankFile').files[0];if(!val('bankReceiverId')||!el('bankAccountChecked').checked)throw Error('Choose and confirm the statement’s receiving account.');
     if(!file||file.size>6*1024*1024)throw Error('Choose a statement under 6 MB.');
-    bankPlanDialog(await api('adminImportStatement',token,val('bankReceiverId'),file.name,await bankFileBase64(file)));return;
+    bankPlanDialog(await deskApi('adminImportStatement',token,val('bankReceiverId'),file.name,await bankFileBase64(file)));return;
   }
-  if(name==='bankPreview'){bankPlanDialog(await api('adminStatementPreview',token,id));return}
+  if(name==='bankPreview'){bankPlanDialog(await deskApi('adminStatementPreview',token,id));return}
   if(name==='bankApply'){
-    const plan=statementPreview,result=await api('adminApplyStatement',token,plan.statement.id,plan.version);
+    const plan=statementPreview,result=await deskApi('adminApplyStatement',token,plan.statement.id,plan.version);
     const summary=result.authorized+' authorized · '+result.review+' for review.';
     detail('<h2>Statement applied</h2><p role="status">'+esc(summary)+' Checking pass delivery…</p>');
     let delivery;
@@ -126,7 +126,7 @@ async function bankAction(name,id){
   }
   if(name==='bankDispatch'){const delivery=await dispatchBankPasses();await refresh(false,true);msg(delivery);return}
   if(name==='bankQueue'){
-    const queue=await api('adminNeedsReview',token);
+    const queue=await deskApi('adminNeedsReview',token);
     const payments=queue.payments.map(a=>'<li>'+btn('bankReview',a.roll,'',a.id)+'<small>'+esc(a.reason||'Exact credit available. Refresh its statement preview to authorize.')+'</small></li>').join('');
     const rows=queue.rows.map(r=>'<li><strong>'+esc(r.source+' · '+r.line)+'</strong><small>'+esc([r.utr,r.minor==null?'':formatFee_(r.minor/100),r.reason].filter(Boolean).join(' · '))+'</small><a href="'+esc(r.sourceUrl)+'" target="_blank" rel="noopener">Open original statement</a></li>').join('');
     detail('<h2>Needs Review</h2>'+(payments?'<h3>Student payments</h3><ul class="bank-list">'+payments+'</ul>':'')+(rows?'<h3>Statement rows</h3><ul class="bank-list">'+rows+'</ul>':'')+(!payments&&!rows?'<p>No payments or bank rows need review.</p>':''));return;
@@ -137,7 +137,7 @@ async function bankAction(name,id){
     const review=reviewPayment,button=el('detail').querySelector('[data-do="bankReadReference"]');
     const feedback=document.createElement('p');feedback.setAttribute('role','status');feedback.textContent='Reading the original screenshot…';
     button.replaceWith(feedback);
-    api('adminReadScreenshotReference',token,review.id,review.version).then(result=>{
+    deskApi('adminReadScreenshotReference',token,review.id,review.version).then(result=>{
       if(reviewPayment===review&&el('dialog').open){
         bankReviewDialog(review.id);
         msg(result.found?'Reference found in the screenshot.':'Check the original screenshot for the bank reference.');
@@ -148,16 +148,16 @@ async function bankAction(name,id){
     return;
   }
   if(name==='bankTranscribe'){
-    await api('adminCertifyPdfRow',token,val('bankRow'),{utr:val('pdfUtr'),amount:val('pdfAmount'),date:val('pdfDate'),reason:val('bankReason'),confirmed:!!el('bankVerified')?.checked});
+    await deskApi('adminCertifyPdfRow',token,val('bankRow'),{utr:val('pdfUtr'),amount:val('pdfAmount'),date:val('pdfDate'),reason:val('bankReason'),confirmed:!!el('bankVerified')?.checked});
     await bankReviewDialog(reviewPayment.id);return;
   }
   if(name==='bankApprove'||name==='bankLink'||name==='bankReject'){
     if(name==='bankApprove'&&!reviewPayment.proofVisible)throw Error('Open the readable payment screenshot before approving.');
     if(name==='bankApprove'&&!el('bankVerified')?.checked)throw Error('Confirm the original bank credit and screenshot before approving.');
     const decision={bankApprove:'approve',bankLink:'link',bankReject:'reject'}[name];
-    const result=await api('adminReviewPayment',token,reviewPayment.id,decision,val('bankRow'),val('bankReason'),reviewPayment.version);await finishDeskChange();msg(result.status);return;
+    const result=await deskApi('adminReviewPayment',token,reviewPayment.id,decision,val('bankRow'),val('bankReason'),reviewPayment.version);await finishDeskChange();msg(result.status);return;
   }
   if(name==='bankOpenDesk'){
-    const result=await api('adminOpenDeskPayment',token,val('deskroll'),val('kind'));await finishDeskChange();msg(result.status);return;
+    const result=await deskApi('adminOpenDeskPayment',token,val('deskroll'),val('kind'));await finishDeskChange();msg(result.status);return;
   }
 }

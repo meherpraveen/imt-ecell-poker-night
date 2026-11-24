@@ -2,6 +2,27 @@
 const mem={get(k){try{return sessionStorage.getItem('pn26:'+k)||''}catch{return ''}},set(k,v){try{sessionStorage.setItem('pn26:'+k,v)}catch{}}};
 const invite=document.body.dataset.invite,sessionKey='staff:'+invite;
 let token=mem.get(sessionKey),snapshot,tab='Review',opened,draft,refreshVersion=0,polling=false;
+function staffAccessLost(error){
+  return /sign in to the staff desk again|your staff role cannot perform that action/i.test(error?.message||'');
+}
+function leaveDesk(){
+  token='';mem.set(sessionKey,'');refreshVersion++;
+  snapshot=null;draft=null;opened=null;statementPreview=null;reviewPayment=null;receiverEdit=null;
+  gateResults.length=0;dialogTrigger=null;
+  if(el('dialog').open)closeDetail();
+  el('net').textContent='';msg();login();
+  el('content').querySelector('input,button')?.focus({preventScroll:true});
+}
+async function deskApi(name,...args){
+  const session=token;
+  try{return await api(name,...args)}
+  catch(error){
+    if(session&&session===token&&args[0]===session&&staffAccessLost(error)){
+      leaveDesk();msg(error.message,true);
+    }
+    throw error;
+  }
+}
 function reference(id){return input(id,'Full UPI bank reference','inputmode="numeric" maxlength="12" placeholder="12 digits from the coordinator’s history"')}
 let dialogTrigger;
 document.addEventListener('click',event=>{
@@ -81,7 +102,7 @@ async function refresh(background=false,reloadSettings=false){
   const session=token,version=++refreshVersion;
   if(background)polling=true;
   try{
-    const next=await api('staffSnapshot',session,background&&snapshot?snapshot.revision||'':'');
+    const next=await deskApi('staffSnapshot',session,background&&snapshot?snapshot.revision||'':'');
     if(session!==token||version!==refreshVersion||(background&&(busy||el('dialog').open)))return;
     if(next.unchanged){if(el('net').textContent.startsWith('Connection interrupted'))el('net').textContent='';return}
     const previous=snapshot;snapshot=next;syncOffer(next.offer);el('net').textContent='';
@@ -122,23 +143,6 @@ function deskFee(){
   el('deskFee').dataset.fee=String(fee);
   el('deskFee').textContent=(retry?'Retry fee':'Entry fee')+' '+formatFee_(fee);
 }
-function queueKey(){return 'gate-queue-'+String(token).split('.')[0]}
-function qread(key=queueKey()){try{return JSON.parse(durable.get(key)||'[]')}catch{return []}}
-function qsave(list,key=queueKey()){durable.set(key,JSON.stringify(list))}
-function queueLabel(){el('pending').textContent=qread().length?qread().length+' unsynced gate actions. Wait for confirmation before admitting.':''}
-let gateSync=null;
-const gateResults=[];
-function nextGateResult(){
-  if(!gateResults.length){closeDetail();return}
-  const result=gateResults.shift();
-  detail(gateResultHtml(result,btn('nextGateResult',gateResults.length?'Next result':'Done','primary wide')));
-  el('dialog').classList.add('gate-dialog');el('scanResultTitle').focus();
-}
-function presentGateReply(reply){
-  if(typeof reply==='string'){msg(reply);return}
-  gateResults.push(reply);
-  if(gateResults.length&&!el('dialog').open)nextGateResult();
-}
 el('dialog').addEventListener('close',()=>{
   if(el('dialog').open)return;
   opened=null;reviewPayment=null;
@@ -146,34 +150,6 @@ el('dialog').addEventListener('close',()=>{
   const target=dialogTrigger?.isConnected?dialogTrigger:el('deskMainAction')?.querySelector('button')||el('title');
   target?.focus({preventScroll:true});
 });
-function transient(e){return !navigator.onLine||/network|offline|connection|timeout|timed out|temporar|service unavailable|failed to fetch|server error|lock timeout/i.test(e?.message||'')}
-async function syncGate(){
-  if(!token||!navigator.onLine)return;if(gateSync)return gateSync;
-  const owner=token,key=queueKey();
-  gateSync=(async()=>{
-    while(token===owner){
-    const a=qread(key)[0];if(!a)break;
-    let reply;
-    try{reply=await api('gateAction',owner,a.mode,a.value,a.id)}
-    catch(e){if(transient(e)){msg('Queued on this device. Wait for server confirmation.');break}
-      if(/sign in|staff role/i.test(e.message))throw e;
-      qsave(qread(key).filter(x=>x.id!==a.id),key);throw e}
-    qsave(qread(key).filter(x=>x.id!==a.id),key);if(token===owner)presentGateReply(reply);
-  }})();try{return await gateSync}finally{gateSync=null;if(el('pending'))queueLabel()}
-}
-async function gateOp(){
-  const a={mode:val('gateMode'),value:val('gateValue'),id:crypto.randomUUID()};
-  if(!a.value)return fieldError('gateValue','Enter the ticket code or the player’s roll number.');
-  if(!el('gateID').checked)return fieldError('gateID','Check the college ID or wristband before recording this action.');
-  const queued=qread();if(!queued.some(v=>v.mode===a.mode&&v.value===a.value))qsave([...queued,a]);queueLabel();
-  if(!qread().some(v=>v.mode===a.mode&&v.value===a.value)){
-    if(!navigator.onLine)throw Error('Reconnect to check this ticket. This browser could not save an offline action.');
-    presentGateReply(await api('gateAction',token,a.mode,a.value,a.id));return;
-  }
-  if(!navigator.onLine){msg('Queued on this device. Entry is pending until sync.');return}
-  await syncGate();
-  if(!qread().length)refresh().catch(()=>{el('net').textContent='Attendance will update when the connection returns.'});
-}
 function previewDraw(){
   const options=draft.tables.flat(),qualifier=draft.n<6;
   const tables=draft.tables.map((table,i)=>{
@@ -222,20 +198,20 @@ async function action(name,id){
     const next=snapshot.records.slice().reverse().find(r=>r.status==='REVIEW');
     if(next)await inspect(next.id);return;
   }
-  if(name==='ownerCode'||name==='resendCode'){const reply=await api('requestOwnerCode',invite);mem.set(sessionKey+':code',JSON.stringify({resend:Date.now()+reply.resendAfter*1000,expires:Date.now()+(reply.expiresIn??600)*1000}));ownerCodePage(reply.resendAfter);return}
+  if(name==='ownerCode'||name==='resendCode'){const reply=await deskApi('requestOwnerCode',invite);mem.set(sessionKey+':code',JSON.stringify({resend:Date.now()+reply.resendAfter*1000,expires:Date.now()+(reply.expiresIn??600)*1000}));ownerCodePage(reply.resendAfter);return}
   if(name==='verifyOwner'||name==='login'){
-    const auth=name==='verifyOwner'?await api('verifyOwnerCode',invite,val('loginCode')):await api('staffLogin',val('staffkey'),invite);
+    const auth=name==='verifyOwner'?await deskApi('verifyOwnerCode',invite,val('loginCode')):await deskApi('staffLogin',val('staffkey'),invite);
     await enterDesk(auth);return;
   }
-  if(name==='logout'){const old=token;mem.set(sessionKey,'');token='';snapshot=null;login();await api('staffLogout',old);return}
+  if(name==='logout'){const old=token;leaveDesk();await deskApi('staffLogout',old);return}
   if(name==='refresh'){await openDesk();return}if(name==='inspect'){await inspect(id);return}if(name==='deskform'){deskForm();return}
   if(name==='studentform'){detail('<h2>Verify directory details</h2>'+rollField('newroll')+input('newname','Name on college ID')+input('newmail','Delivery email','type="email"')+input('newphone','WhatsApp number','type="tel"')+checkbox('newid','I verified the college ID and the contact with the student.')+btn('student','Save missing details','primary'));return}
-  if(name==='student'){await api('deskStudent',token,val('newroll'),val('newname'),val('newmail'),val('newphone'),el('newid').checked);await finishDeskChange();msg('Directory details saved.');return}
-  if(name==='image'){const pic=await api('proofImage',token,opened);const im=document.createElement('img');im.className='shot';im.alt='Private payment screenshot';im.src=pic;el('imgslot').replaceChildren(im);return}
+  if(name==='student'){await deskApi('deskStudent',token,val('newroll'),val('newname'),val('newmail'),val('newphone'),el('newid').checked);await finishDeskChange();msg('Directory details saved.');return}
+  if(name==='image'){const pic=await deskApi('proofImage',token,opened);const im=document.createElement('img');im.className='shot';im.alt='Private payment screenshot';im.src=pic;el('imgslot').replaceChildren(im);return}
   if(name==='approve'){
     if(!/^\d{12}$/.test(val('full')))return fieldError('full','Enter the 12 digits from the incoming payment.');
     if(!el('verified').checked)return fieldError('verified','Confirm the credit in the coordinator’s account first.');
-    const r=await api('staffApprove',token,opened,val('full'),true);
+    const r=await deskApi('staffApprove',token,opened,val('full'),true);
     await finishDeskChange();msg('Payment approved. '+r.status);return;
   }
   if(name==='deskpay'){
@@ -246,19 +222,19 @@ async function action(name,id){
     if(!el('deskcheck').checked)return fieldError('deskcheck','Confirm the ID, fee and incoming payment first.');
     const quoted=Number(el('deskFee').dataset.fee);deskFee();
     if(Number(el('deskFee').dataset.fee)!==quoted){el('deskcheck').checked=false;throw Error('The fee has changed. Check the new amount against the incoming payment.')}
-    const r=await api('deskPayment',token,val('deskroll'),val('kind'),val('deskref'),el('deskcheck').checked,quoted,val('deskBatch'),val('deskPhone'));
+    const r=await deskApi('deskPayment',token,val('deskroll'),val('kind'),val('deskref'),el('deskcheck').checked,quoted,val('deskBatch'),val('deskPhone'));
     await finishDeskChange();msg('Attempt verified. '+r.status);return;
   }
-  if(name==='reject'){await api('staffReject',token,opened,val('reason'));await finishDeskChange();msg('Proof rejected. The reason is on the player’s receipt page.');return}
-  if(name==='move'||name==='no-show'){if(name==='no-show'&&!confirm('Mark this paid player as a no-show and release their seat?'))return;await api('releaseSeat',token,opened,name);await finishDeskChange();msg('Seat updated.');return}
+  if(name==='reject'){await deskApi('staffReject',token,opened,val('reason'));await finishDeskChange();msg('Proof rejected. The reason is on the player’s receipt page.');return}
+  if(name==='move'||name==='no-show'){if(name==='no-show'&&!confirm('Mark this paid player as a no-show and release their seat?'))return;await deskApi('releaseSeat',token,opened,name);await finishDeskChange();msg('Seat updated.');return}
   if(name==='pass'||name==='resend'){if(name==='resend'&&!confirm('Email the same code again to the registered address?'))return;
-    const p=await api('staffPass',token,opened,name==='resend');const phone=p.phone.length===10?'91'+p.phone:p.phone;
+    const p=await deskApi('staffPass',token,opened,name==='resend');const phone=p.phone.length===10?'91'+p.phone:p.phone;
     const share='E-Cell Poké Poker Night: your Round 1 wave '+p.wave+' code is '+p.code+'. Bring your college ID.';
     detail('<h2>Player pass</h2><p>'+esc(p.name)+' · Wave '+p.wave+'</p>'+qr(p.code)+'<p><code>'+esc(p.code)+'</code></p><p>'+esc(p.delivery)+'</p>'+btn('resend','Resend email')+(/^\d{10,15}$/.test(phone)?'<a class="button" href="https://wa.me/'+phone+'?text='+encodeURIComponent(share)+'" target="_blank" rel="noopener noreferrer">Send via WhatsApp</a>':'')+'<p class="sub">For in-person delivery, verify the college ID.</p>');return}
   if(name==='gate'){await gateOp();return}if(name==='nextGateResult'){nextGateResult();return}
-  if(name==='preview'){draft=await api('gamePreview',token);previewDraw();return}
+  if(name==='preview'){draft=await deskApi('gamePreview',token);previewDraw();return}
   if(name==='startStage'||name==='skip'){if(!confirm(name==='skip'?'Close this empty wave?':'Lock this draw and start all tables?'))return;
-    if(name==='skip')await api('skipEmptyWave',token,draft.n);else await api('startStage',token,draft.n,draft.n<6?draft.tables:draft.tables.map((t,i)=>t.map((_,j)=>val('s'+i+'-'+j))));await finishDeskChange();return}
+    if(name==='skip')await deskApi('skipEmptyWave',token,draft.n);else await deskApi('startStage',token,draft.n,draft.n<6?draft.tables:draft.tables.map((t,i)=>t.map((_,j)=>val('s'+i+'-'+j))));await finishDeskChange();return}
   if(name==='table'){score(Number(id));return}
   if(name==='score'){
     const h=snapshot.game.active,values={};
@@ -268,21 +244,21 @@ async function action(name,id){
       values[player]=amount;
     }
     if(!el('deskTie').hidden&&!val('tie'))return fieldError('tie','Select the winner of the witnessed tiebreak.');
-    await api('tableResult',token,h.n,opened,values,val('tie'));await finishDeskChange();return;
+    await deskApi('tableResult',token,h.n,opened,values,val('tie'));await finishDeskChange();return;
   }
-  if(name==='finish'){if(!confirm('Close this stage and advance only the winning player at each table?'))return;await api('finishStage',token,snapshot.game.next);await refresh();return}
-  if(name==='showPaymentQr'){const preview=el('qrPreview'),data=await api('adminPaymentQr',token);preview.hidden=!data;if(data)preview.src=data;else preview.removeAttribute('src');return}
+  if(name==='finish'){if(!confirm('Close this stage and advance only the winning player at each table?'))return;await deskApi('finishStage',token,snapshot.game.next);await refresh();return}
+  if(name==='showPaymentQr'){const preview=el('qrPreview'),data=await deskApi('adminPaymentQr',token);preview.hidden=!data;if(data)preview.src=data;else preview.removeAttribute('src');return}
   if(name==='save'){
-    if(snapshot.managed){const s=snapshot.settings;await api('adminSettings',token,s.upi,s.name,el('open').checked,{version:s.version,published:s.published,removeQr:false,qr:''});await refresh(false,true);msg('Registration setting saved.');return}
+    if(snapshot.managed){const s=snapshot.settings;await deskApi('adminSettings',token,s.upi,s.name,el('open').checked,{version:s.version,published:s.published,removeQr:false,qr:''});await refresh(false,true);msg('Registration setting saved.');return}
     const file=el('paymentQr').files[0],removeQr=!!el('removeQr')?.checked;
     if(file&&removeQr)throw Error('Choose a replacement QR or remove the saved QR.');
     const options={version:snapshot.settings.version,published:el('publish').checked,removeQr,qr:file?await picture(file,'receiver'):''};
-    await api('adminSettings',token,val('upi'),val('payname'),el('open').checked,options);
+    await deskApi('adminSettings',token,val('upi'),val('payname'),el('open').checked,options);
     msg('Payment settings saved.');await refresh(false,true);return;
   }
   if(name==='newkey'){
     if(!val('label'))return fieldError('label','Enter the name of the volunteer receiving this invitation.');
-    const access=await api('adminAddStaff',token,val('label'),val('role'),true);
+    const access=await deskApi('adminAddStaff',token,val('label'),val('role'),true);
     detail('<h2>Volunteer invitation</h2><p>Share both items privately with the named volunteer.</p>'+input('inviteUrl','Private desk link','readonly value="'+esc(access.url)+'"')+input('inviteKey','Sign-in key','readonly value="'+esc(access.key)+'"'));
   }
 }
@@ -319,8 +295,7 @@ document.addEventListener('input',e=>{markSettingsEdit(e);
 });
 async function openDesk(){
   try{await refresh()}catch(e){
-    if(/sign in|staff role/i.test(e.message)){mem.set(sessionKey,'');token='';snapshot=null;login()}
-    else if(!snapshot)el('content').innerHTML='<div class="narrow">'+panel('Event desk',btn('refresh','Retry opening desk','primary')+btn('logout','Sign out'))+'</div>';
+    if(token&&!snapshot)el('content').innerHTML='<div class="narrow">'+panel('Event desk',btn('refresh','Retry opening desk','primary')+btn('logout','Sign out'))+'</div>';
     msg(e.message||'The desk could not load. Try again.',true);
   }
 }
@@ -338,7 +313,7 @@ async function launch(){
     try{
       const locationInfo=await new Promise(resolve=>google.script.url.getLocation(resolve));
       const ticket=new URLSearchParams(locationInfo.hash).get('ticket')||'';
-      const auth=await api('completeDeskSignIn',invite,ticket);
+      const auth=await deskApi('completeDeskSignIn',invite,ticket);
       try{google.script.history.replace(null,{view:'staff',invite},'')}catch{}
       await enterDesk(auth);
     }catch(error){
@@ -361,6 +336,6 @@ setInterval(async()=>{
   try{
     if(qread().length)await syncGate();
     else await refresh(true);
-  }catch{el('net').textContent='Connection interrupted. Showing the last update.'}
+  }catch{if(token)el('net').textContent='Connection interrupted. Showing the last update.'}
 },15000);
 launch();

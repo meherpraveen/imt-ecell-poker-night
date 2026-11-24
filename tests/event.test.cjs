@@ -1,7 +1,9 @@
-const {test}=require('node:test'),assert=require('node:assert/strict'),vm=require('node:vm'),fs=require('node:fs'),path=require('node:path'),crypto=require('node:crypto');
+const {test}=require('node:test'),assert=require('node:assert/strict'),vm=require('node:vm'),crypto=require('node:crypto');
+const {readServerSource}=require('../tools/server-source.cjs');
+const {sheet:fixtureSheet}=require('./sheet-fixture.cjs');
+const source=['Code','Floor','Auth'].map(readServerSource).join('\n');
 function fixture(){
   let time=Date.parse('2026-11-25T12:00:00+05:30');class Clock extends Date{static now(){return time}}
-  const source=['Pricing','Code','PaymentProof','Statements','Reconcile','Floor','Auth'].map(n=>fs.readFileSync(path.join(__dirname,'../gas',n+'.gs'),'utf8')).join('\n');
   const sent=[],loginMail=[],people={'123456789':{name:'Sample Player',email:'sample@example.test',phone:'9999999999'},'987654321':{name:'Second Player',email:'second@example.test',phone:''}};
   const properties=new Map([['KEY','fixture-only'],['FOLDER','folder']]);
   const ctx={Date:Clock,console,ticketQrEncoder_:require('qrcode-generator'),CLUB_RESOURCES:{owner:'owner@example.test'},Utilities:{getUuid:crypto.randomUUID,base64Decode:s=>Array.from(Buffer.from(s,'base64')),newBlob:(bytes,type,name)=>({bytes,type,name}),computeHmacSha256Signature:(message,key)=>[...crypto.createHmac('sha256',key).update(message).digest()]},
@@ -9,7 +11,9 @@ function fixture(){
   vm.createContext(ctx);vm.runInContext(source,ctx);const st=ctx.fresh_(),audit=[];
   ctx.ledger_=()=>st;ctx.locked_=fn=>fn();ctx.commit_=(s,kind,actor,p)=>{audit.push([kind,actor,p]);ctx.apply_(s,JSON.parse(JSON.stringify(p)))};
   const readSettings=ctx.settings_;
-  ctx.roster_=()=>people;ctx.directoryPlayer_=roll=>people[roll];ctx.settings_=()=>({upi:'club@example',name:'Example Club',open:true,published:true,qrFile:''});
+  ctx.book_=()=>({getSheetByName:()=>fixtureSheet([['Roll','Name','Email','Phone'],
+    ...Object.entries(people).map(([roll,p])=>[roll,p.name||'',p.email||'',p.phone||''])])});
+  ctx.roster_=()=>people;ctx.settings_=()=>({upi:'club@example',name:'Example Club',open:true,published:true,qrFile:''});
   ctx.mac_=x=>crypto.createHmac('sha256','synthetic-only').update(x).digest('base64url');
   ctx.hash_=x=>crypto.createHash('sha256').update(x).digest('base64url');
   ctx.props_=()=>({getProperty:k=>properties.get(k)||null,getProperties:()=>Object.fromEntries(properties),setProperties:values=>Object.entries(values).forEach(([k,v])=>properties.set(k,v)),setProperty:(k,v)=>properties.set(k,v),deleteProperty:k=>properties.delete(k)});
@@ -118,6 +122,8 @@ test('the Pages transport returns public results, validates input, and excludes 
   ctx.ensureStaffLinks_=()=>{};
   ctx.hash_=value=>crypto.createHash('sha256').update(value).digest('hex');
   const post=(action,args)=>ctx.doPost({postData:{contents:JSON.stringify({action,args})}});
+  const malformed=ctx.doPost({postData:{contents:'{'}});
+  assert.equal(malformed.validation,true);assert.equal(malformed.retryable,false);
   assert.equal(post('publicInfo',[]).value.open,true);
   assert.equal(post('liveFloor',[]).value.state,'Awaiting first seating');
   assert.equal(post('staffSnapshot',['admin']).ok,false);
@@ -126,6 +132,7 @@ test('the Pages transport returns public results, validates input, and excludes 
   assert.equal(post('playerStart',[]).ok,false);
   const session=sessionFor(),request=crypto.randomUUID(),args=[session,'',request,details({people:{}},'123456789')];
   const first=post('playerStart',args);
+  assert.equal(post('playerSaveDetails',[session,first.value.ticket,'null']).validation,true);
   assert.ok(first.ok);assert.equal(post('playerStart',args).value.ticket,first.value.ticket);
   assert.equal(post('playerStatus',[session,first.value.ticket]).value.id,first.value.id);
   assert.equal(Object.keys(st.attempts).length,1);

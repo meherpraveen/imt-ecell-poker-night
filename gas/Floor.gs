@@ -1,3 +1,5 @@
+function stageName_(n){return n<6?'Round 1 · Wave '+(n+1):n===6?'Round 2 · Semifinals':'Round 3 · Final'}
+
 const TABLES=['Ember','Tide','Grove','Volt','Frost','Dusk'];
 function alias_(id){return 'Trainer '+id.slice(0,5).toUpperCase()}
 function seated_(st,n){
@@ -56,8 +58,8 @@ function liveFloor(){
 function gamePreview(token){staff_(token,['floor']);const st=ledger_(),n=st.game.next;must_(n<8&&!st.game.active,'Finish the current stage first.');const ids=seated_(st,n),people=roster_(),tables=layout_(st,n,ids);return {n,title:stageName_(n),tables,tableNumbers:tableNumbers_(st,n,tables),seats:Object.fromEntries(ids.map(id=>[id,st.attempts[id].seat||null])),names:Object.fromEntries(ids.map(id=>[id,people[st.attempts[id].roll]?.name||alias_(id)]))}}
 function startStage(token,n,tables){
   const staff=staff_(token,['floor']);return locked_(()=>{const st=ledger_(),g=st.game;must_(n===g.next&&n<8&&!g.active,'The floor has changed. Refresh the draw.');
-    const ids=seated_(st,n),all=tables.flat();
     must_(Array.isArray(tables)&&tables.length>=1&&tables.length<=(n===7?1:6)&&tables.every(t=>Array.isArray(t)&&t.length>=1&&t.length<=6),'Use 1–6 seats at each active table.');
+    const ids=seated_(st,n),all=tables.flat();
     must_(all.length===ids.length&&new Set(all).size===all.length&&ids.every(id=>all.includes(id)),'Use each eligible, checked-in player exactly once. Refresh the draw after a gate change.');
     if(n<WAVES)must_(JSON.stringify(tables)===JSON.stringify(layout_(st,n,ids)),'Gate seats have changed. Refresh the draw.');
     const now=Date.now(),active={n,tables,tableNumbers:tableNumbers_(st,n,tables),started:now,deadline:now+(n===7?60:30)*60000,chips:{},winners:[]};
@@ -70,7 +72,7 @@ function skipEmptyWave(token,n){const s=staff_(token,['floor']);return locked_((
   commit_(st,'Empty wave closed',s.name,{attempts:affected,game:{...g,next:n+1,history:[...g.history,{n,tables:[],winners:[],chips:{}}]},note:stageName_(n)});return true})}
 function tableResult(token,n,index,counts,tieWinner){
   const s=staff_(token,['floor']);return locked_(()=>{const st=ledger_(),g=st.game,h=g.active;must_(h&&h.n===n,'This stage has already closed.');
-    const ids=h.tables[index];must_(ids&&counts&&Object.keys(counts).length===ids.length,'Enter every stack at this table.');
+    const ids=h.tables[index];must_(Array.isArray(ids)&&counts&&typeof counts==='object'&&!Array.isArray(counts)&&Object.keys(counts).length===ids.length,'Enter every stack at this table.');
     ids.forEach(id=>must_(Number.isSafeInteger(counts[id])&&counts[id]>=0,'Enter whole, non-negative chip counts.'));
     must_(ids.reduce((sum,id)=>sum+counts[id],0)===10000*ids.length,'The table total must equal 10,000 starting chips per player.');
     const high=Math.max(...ids.map(id=>counts[id])),leaders=ids.filter(id=>counts[id]===high);
@@ -87,111 +89,5 @@ function finishStage(token,n){
     if(n<6){for(const a of Object.values(st.attempts))if(a.wave===n&&a.status==='PAID'&&!seats.includes(a.id))changed.push({...a,status:'NO_SHOW'})}
     else{for(const a of Object.values(st.attempts))if(a.status==='QUALIFIED'&&!seats.includes(a.id))changed.push({...a,status:'NO_SHOW'})}
     commit_(st,'Stage closed',s.name,{attempts:changed,game:{next:n+1,active:null,history:[...g.history,h]},note:stageName_(n)});return true;
-  });
-}
-function staffSnapshot(token,knownRevision){
-  const staff=staff_(token,['desk','gate','floor']);
-  if(staff.role==='admin')loadInitialReceivers_();
-  const journal=book_().getSheetByName('Journal'),end=journal.getLastRow(),now=Date.now(),offer=entryOffer_(now);
-  const settings=staff.role==='admin'?adminSettingsView_(settings_()):null;
-  // A periodic full read also picks up direct directory edits and expiring mail-delivery statuses.
-  const revision=JSON.stringify([end,staff.role,staff.name,settings?.version||'',offer.amount,Math.floor(now/60000)]);
-  if(knownRevision===revision)return {unchanged:true};
-  const st=ledger_(journal,end),as=Object.values(st.attempts),places=Object.values(st.venue);
-  const finance=['admin','desk'].includes(staff.role),floor=['admin','floor'].includes(staff.role);
-  const students=as.some(a=>!a.details)?roster_():{},digestHits={},suffixHits={},latestByRoll=new Map();
-  for(const a of as){
-    const latest=latestByRoll.get(a.roll);if(!latest||a.created>=latest.created)latestByRoll.set(a.roll,a);
-    if(a.digest)digestHits[a.digest]=(digestHits[a.digest]||0)+1}
-  for(const a of as){if(!a.suffix)continue;const end=a.suffix.slice(-4);suffixHits[end]=(suffixHits[end]||0)+1}
-  const managed=usesBankVerification_(st);
-  const records=as.slice().reverse().filter(a=>finance||issued_(a)).map(a=>{
-    const r={id:a.id,roll:a.roll,name:a.details?.fullName||students[a.roll]?.name||'',kind:a.kind,status:a.status==='HOLD'&&latestByRoll.get(a.roll).id!==a.id?'RELEASED':a.status,wave:a.status==='HOLD'?0:a.wave+1,used:a.used,seat:a.seat||null,where:st.venue[a.roll]?.where||'NEVER'};
-    if(finance||staff.role==='gate')r.phone=a.details?a.details.contact.replace(/\D/g,''):students[a.roll]?.phone||'';
-    if(finance)Object.assign(r,{batch:a.details?.batch||'',fee:quotedFee_(a,now),suffix:a.suffix||'',utr:a.utr||a.claim?.utr||a.ocr?.utr||'',managed:!!a.receiver||managed&&!!a.file,issue:a.reviewReason||a.reason||'',image:!!a.file,sameImage:!!(a.digest&&digestHits[a.digest]>1),sameTail:!!(a.suffix&&suffixHits[a.suffix.slice(-4)]>1),delivery:a.mailUntil>now?'Sending email':a.delivery||''});
-    return r;
-  });
-  return {revision,role:staff.role,label:staff.name,records,managed,stats:{checked:places.length,inside:places.filter(v=>v.where==='IN').length,out:places.filter(v=>v.where==='OUT').length,
-    noShow:new Set(as.filter(a=>a.status==='NO_SHOW').map(a=>a.roll)).size,pending:as.filter(a=>a.status==='REVIEW').length},
-    scannerUrl:finance||staff.role==='gate'?scannerLink_(token):'',offer,retryFee:ENTRY_PRICING.retry,
-    board:publicFloor_(st),game:floor?{next:st.game.next,active:st.game.active}:null,
-    settings:settings?{...settings,receivers:receivers_(st).map(receiverView_),statements:Object.values(st.statements).map(statementView_).reverse(),unsent:as.filter(a=>a.bankRow&&a.delivery==='Pending delivery').length}:null,audit:staff.role==='admin'?st.audit.slice().reverse():[]};
-}
-function adminSettingsView_(s){
-  const version=mac_('payment-settings:'+JSON.stringify([s.upi,s.name,s.open,s.qrFile,s.published]));
-  return {upi:s.upi,name:s.name,open:s.open,hasQr:!!s.qrFile,published:s.published,version};
-}
-function paymentQrFile_(id){
-  const file=DriveApp.getFileById(id);
-  must_(/^event-payment-qr-[a-f0-9]{32}\.(png|jpg)$/.test(file.getName()),'The payment QR is unavailable.');
-  const folderId=props_().getProperty('FOLDER'),parents=file.getParents();
-  while(parents.hasNext()){if(parents.next().getId()===folderId)return file}
-  throw Error('The payment QR is outside the club folder.');
-}
-function paymentQrData_(id){
-  const blob=paymentQrFile_(id).getBlob(),mime=blob.getContentType();
-  must_(mime==='image/png'||mime==='image/jpeg','The payment QR is unavailable.');
-  return 'data:'+mime+';base64,'+Utilities.base64Encode(blob.getBytes());
-}
-function adminPaymentQr(token){
-  staff_(token,[]);
-  return locked_(()=>{const id=settings_().qrFile;return id?paymentQrData_(id):''});
-}
-function adminSettings(token,upi,name,open,options){
-  const admin=staff_(token,[]);upi=String(upi||'').trim().toLowerCase();name=String(name||'').trim();
-  must_(!upi||/^[a-z0-9][a-z0-9._-]{1,127}@[a-z][a-z0-9.-]{1,63}$/.test(upi),'Check the receiving UPI ID.');
-  must_(typeof open==='boolean'&&name.length<=100&&!/^[=+@-]/.test(name),'Check the recipient name and registration setting.');
-  const change=options||{};
-  must_(!options||(typeof change.published==='boolean'&&typeof change.version==='string'),'Refresh payment settings before saving.');
-  must_(!change.qr||(typeof change.qr==='string'&&change.qr.length<=720000&&!change.removeQr),'Choose one payment QR image under 525 KB.');
-  let qrBlob;
-  if(change.qr){
-    const image=imageBytes_(change.qr);
-    qrBlob=Utilities.newBlob(image.bytes,image.mime,'event-payment-qr-'+rand_()+'.'+image.ext);
-    verifyReceiverBlob_(qrBlob,upi);
-  }
-  return locked_(()=>{
-    const old=settings_();
-    must_(!usesBankVerification_(ledger_())||upi===old.upi&&name===old.name&&!change.qr&&!change.removeQr&&change.published===old.published,'Use receiver settings to change the active payment accounts.');
-    must_(!options||change.version===adminSettingsView_(old).version,'Payment settings changed. Refresh before saving.');
-    const published=options?change.published:!!(open&&name&&(upi||old.qrFile));
-    const keep=change.removeQr?'':old.qrFile;
-    must_(!published||(name&&(upi||keep||change.qr)),'To publish payments, enter the recipient name and add a UPI ID or payment QR.');
-    must_(!open||Object.keys(roster_()).length,'Import the student directory before opening.');
-    let added;
-    if(qrBlob)added=DriveApp.getFolderById(props_().getProperty('FOLDER')).createFile(qrBlob);
-    const next={upi,name,open,published,qrFile:added?added.getId():keep};
-    try{writeSettings_(next);SpreadsheetApp.flush()}
-    catch(error){if(added&&settings_().qrFile!==added.getId())added.setTrashed(true);throw error}
-    if(old.qrFile&&old.qrFile!==next.qrFile){
-      try{paymentQrFile_(old.qrFile).setTrashed(true)}catch{console.warn('Could not archive a superseded payment QR.')}
-    }
-    commit_(ledger_(),'Payment settings updated',admin.name,{note:published?'Payment details published':'Payments paused'});
-    return true;
-  });
-}
-function adminAddStaff(token,label,role,includeLink){
-  const s=staff_(token,[]);label=String(label||'').trim();must_(/^[\p{L}\p{N}][\p{L}\p{N} ._-]{1,60}$/u.test(label)&&['desk','gate','floor'].includes(role),'Choose a desk, gate or floor role for the volunteer.');
-  return locked_(()=>{
-    const base=deskBaseUrl_();
-    must_(base,'Publish the web app before inviting staff.');
-    const key=rand_()+rand_().slice(0,8),sheet=book_().getSheetByName('Staff');
-    sheet.appendRow([label,role,key,'yes']);
-    syncStaffLinks_(sheet);
-    commit_(ledger_(),'Staff key issued',s.name,{note:role});
-    return includeLink===true?{key,url:staffDeskLink_(base,key)}:key;
-  });
-}
-function deskStudent(token,roll,name,email,phone,checked){
-  const staff=staff_(token,['desk']);roll=roll_(roll);name=String(name||'').trim();email=String(email||'').trim().toLowerCase();phone=String(phone||'').replace(/[ +()-]/g,'');
-  must_(checked===true&&name&&name.length<=100&&!/^[=+@-]/.test(name),'Check the college ID and enter the student’s name.');
-  must_((!email||/^[a-z0-9][a-z0-9._+%-]*@[a-z0-9.-]+\.[a-z]{2,}$/.test(email))&&(!phone||/^\d{10,15}$/.test(phone))&&(email||phone),'Enter a valid delivery email or mobile number.');
-  return locked_(()=>{const sheet=book_().getSheetByName('Students'),count=sheet.getLastRow()-1;
-    const data=count?sheet.getRange(2,1,count,4).getDisplayValues():[],i=data.findIndex(r=>r[0].trim()===roll);
-    const existing=i>=0?data[i]:null;
-    if(existing)must_((!existing[2]||!email||existing[2].toLowerCase()===email)&&(!existing[3]||!phone||existing[3].replace(/\D/g,'')===phone),'An existing contact differs. The coordinator must resolve it in the private directory.');
-    const row=i>=0?i+2:sheet.getLastRow()+1;
-    sheet.getRange(row,1,1,4).setNumberFormat('@').setValues([[roll,existing?.[1]||name,existing?.[2]||email,existing?.[3]||phone]]);
-    commit_(ledger_(),'Directory contact verified',staff.name,{note:roll});return true;
   });
 }

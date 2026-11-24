@@ -21,12 +21,8 @@ function playerIdentity_(identifier) {
   const input = String(identifier || '').trim();
   const byRoll = /^\d{9}$/.test(input);
   must_(byRoll || emailAddress_(input), 'Enter your nine-digit roll number or your registered email address.');
-  const people = roster_();
-  const email = emailAddress_(byRoll ? people[input]?.email : input);
-  if (!email) return null;
-  const matches = Object.keys(people).filter(roll => emailAddress_(people[roll].email) === email);
-  if (matches.length !== 1) return null;
-  return {scope:'player', id:matches[0], email, person:people[matches[0]]};
+  const record = directoryRecord_(input);
+  return record ? {scope:'player', id:record.roll, email:record.email, person:record.person} : null;
 }
 
 function ownerIdentity_(invite) {

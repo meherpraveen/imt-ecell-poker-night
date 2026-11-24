@@ -59,6 +59,8 @@ Keep the Google files restricted to the club. Share individual staff keys throug
 
 ## Testing
 
+The architecture summary, change log, verification results and remaining risks are recorded in the [engineering audit](ENGINEERING-AUDIT.md).
+
 Edit the scripts, styles and shared sponsor section in `web/`. The optimized event and sponsor artwork lives in `docs/assets/`. Run `npm run build` to regenerate the public styles, scripts, sponsor sections and Apps Script package.
 
 The homepage and event desk use the organizers’ Poké Poker Night wordmark and E-Cell crest. The chip icon comes from the spade in the supplied wordmark. Both interfaces share the yellow, blue and red palette in `web/base.css`. [IMT Ghaziabad E-Cell](https://www.youtube.com/channel/UCY31HTa4tP6vbMFoO5TAk6g)

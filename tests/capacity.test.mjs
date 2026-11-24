@@ -98,7 +98,23 @@ test('50 simultaneous clients register, submit proof, reconcile and check in thr
   assert.equal(new Set(attempts.map(a=>a.wave+'/'+a.seat)).size,50);assert.equal(attempts.filter(a=>a.wave===0).length,36);
   assert.equal(event.rows.Journal.filter(r=>r[1]==='Gate admit').length,50);
   assert.equal(peak,30);assert.ok(limited>=20);assert.equal(compactUploads,50);
-  t.diagnostic('50 players, 50 authorizations, 50 distinct seats. All 50 repeated scans returned the original admission.');
+  const draw=admin.rpc('gamePreview',admin.admin);
+  admin.rpc('startStage',admin.admin,draw.n,draw.tables);
+  for(const [index,table] of draw.tables.entries()){
+    const chips=Object.fromEntries(table.map((id,i)=>[id,i===0?10000*table.length:0]));
+    admin.rpc('tableResult',admin.admin,draw.n,index,chips,'');
+  }
+  admin.rpc('finishStage',admin.admin,draw.n);
+  event.cache.clear();
+  const closed=admin.rpc('ledger_'),winners=new Set(draw.tables.map(table=>table[0]));
+  for(const a of attempts){
+    const status=a.wave===0?(winners.has(a.id)?'QUALIFIED':'ELIMINATED'):a.status;
+    assert.deepEqual({...closed.attempts[a.id]},{...a,status});
+  }
+  assert.equal(closed.game.next,1);
+  assert.equal(closed.audit.filter(entry=>entry.action==='Stage closed').length,1);
+  assert.ok(event.rows.Journal.slice(1).every(row=>row[3].length<49000));
+  t.diagnostic('50 authorizations and distinct seats, 50 repeat scans, one full wave closed and replayed.');
 });
 
 test('an overlapping proof upload and gate scan during pass email preserve the evidence and admission',()=>{
@@ -151,6 +167,31 @@ test('private cached proof is scoped to its registration and eviction falls back
   assert.equal(send(p,image).proofVersion,1);
 });
 
+test('manual review releases the gate lock for Drive and rechecks evidence and staff access',()=>{
+  let duringRead;
+  const event=createEvent({onFileRead:info=>duringRead?.(info)}),api=club(event);
+  const receiver=api.makeReceiver(),p=api.student();
+  api.apply(api.statement(receiver));
+  event.ocr(null);
+  const proof=api.publicRpc('playerSubmitScreenshot',p.token,p.hold.ticket,image,'0');
+  const row=api.rpc('adminPaymentDetail',api.admin,proof.id).rows[0].key;
+  const approve=()=>api.rpc('adminReviewPayment',api.admin,proof.id,'approve',row,'Compared original credit',proof.proofVersion);
+  duringRead=({name,locked})=>{
+    if(!name?.startsWith('bank-rows-'))return;
+    duringRead=null;assert.equal(locked,false);
+    const bankCorrection={key:row,values:{issue:'Incoming credit disputed'}};
+    event.rows.Journal.push([event.now(),'Correction','Fixture',JSON.stringify({bankCorrection})]);
+  };
+  assert.throws(approve,/evidence changed/i);
+  assert.throws(approve,/Incoming credit disputed/);
+  duringRead=({name,locked})=>{
+    if(!name?.startsWith('bank-rows-'))return;
+    duringRead=null;assert.equal(locked,false);event.rows.Staff.find(r=>r[1]==='admin')[3]='no';
+  };
+  assert.throws(approve,/staff role/);
+  assert.equal(p.status().paymentStatus,'PENDING');
+});
+
 test('warm journal reads use just the new rows and replay correctly after partial cache eviction',()=>{
   const reads=[],event=createEvent({onSheetRead:(name,row,height)=>{if(name==='Journal')reads.push({row,height})}});
   function append(i,note=''){
@@ -163,7 +204,7 @@ test('warm journal reads use just the new rows and replay correctly after partia
   assert.deepEqual(reads.splice(0),[{row:502,height:1}]);assert.equal(current.audit.length,35);
   assert.equal(event.staff('ledger_',[]).audit.at(-1).target,'row 500');assert.equal(reads.length,0);
   for(let i=501;i<580;i++)append(i,randomBytes(1450).toString('hex'));
-  const full=event.staff('ledger_',[]),chunk=[...event.cache.keys()].find(k=>k.startsWith('event-journal-prefix-v1:'));
+  const full=event.staff('ledger_',[]),chunk=[...event.cache.keys()].find(k=>k.startsWith('event-journal-prefix-v2:'));
   assert.ok(chunk);event.cache.delete(chunk);reads.length=0;
   assert.deepEqual(event.staff('ledger_',[]),full);assert.deepEqual(reads,[{row:2,height:580}]);
 });
@@ -177,4 +218,22 @@ test('sessions revalidate a single directory row and follow a moved player witho
   data.push([p.hold.beneficiary,'Duplicate','another@example.test','']);assert.throws(()=>p.status(),/Sign in/);data.pop();
   data[2][2]='reassigned@example.test';
   assert.throws(()=>p.status(),/Sign in/);
+});
+
+test('sign-in, active sessions and pass delivery require one unambiguous directory identity',()=>{
+  const event=createEvent();event.at('2026-11-27T19:30:00+05:30');
+  const api=club(event);
+  const roll='123456789',email='student+one@example.test';
+  event.rows.Students[1][2]='  '+email.toUpperCase()+' ';
+  const p=api.student(roll,email);
+  const initialMail=event.mail.length;
+  event.rows.Students.push([roll,'Duplicate roll','other@example.test','']);
+  for(const identifier of [roll,email,'other@example.test'])api.publicRpc('requestEventCode',identifier);
+  assert.equal(event.mail.length,initialMail);
+  event.rows.Students.pop();
+  event.rows.Students.push(['323456789','Shared email',email,'']);
+  assert.throws(()=>p.status(),/Sign in/);
+  const purchase=api.rpc('deskPayment',api.admin,roll,'walk','123456789012',true,199,'2026-28','9876501234');
+  assert.equal(purchase.status,'Desk delivery needed');
+  assert.equal(event.mail.length,initialMail);
 });
