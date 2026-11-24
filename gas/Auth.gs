@@ -1,6 +1,7 @@
 const CODE_LIFETIME = 10 * 60000;
 const CODE_RESEND = 60000;
 const AUTH_DAY = 24 * 3600000;
+const STUDENT_SESSION_LIFETIME = 30 * AUTH_DAY;
 const PLAYER_SIGN_IN = 'Sign in with your registered email to continue.';
 const STAFF_SIGN_IN = 'Sign in to the staff desk again.';
 const CODE_ERROR = 'That code is incorrect or has expired. Check the latest email or request a new code.';
@@ -163,19 +164,20 @@ function sendLoginCode_(identity, owner, confirmed=false) {
 // Call while holding the script lock, including creation of the verified session.
 function consumeLoginCode_(identity, code) {
   must_(typeof code === 'string' && /^\d{6}$/.test(code) && identity, CODE_ERROR);
-  const key = challengeKey_(identity), properties = props_(), now = Date.now();
-  const state = JSON.parse(properties.getProperty(key) || 'null');
-  must_(state && state.verifier && state.codeUntil > now && state.failures < 5, CODE_ERROR);
+  const key=challengeKey_(identity),state=JSON.parse(props_().getProperty(key)||'null');
+  verifyCodeState_(key,state,code);props_().setProperty(key,JSON.stringify(state));
+}
+function verifyCodeState_(key,state,code){
+  must_(state && state.verifier && state.codeUntil > Date.now() && state.failures < 5, CODE_ERROR);
   const supplied = mac_('login-check:' + key + ':' + state.nonce + ':' + code);
   if (!equalDigest_(state.verifier, supplied)) {
     state.failures++;
-    properties.setProperty(key, JSON.stringify(state));
+    props_().setProperty(key, JSON.stringify(state));
     must_(false, CODE_ERROR);
   }
   delete state.verifier;
   delete state.nonce;
   state.codeUntil = 0;
-  properties.setProperty(key, JSON.stringify(state));
 }
 
 function newSession_(type, prefix, claims, lifetime) {
@@ -214,10 +216,24 @@ function requestMatchedPlayerCode(roll,email) {
   must_(identity && emailAddress_(email)===identity.email,'That roll and email do not match one student record. E-Cell can check the registered address against your college ID.');
   return sendLoginCode_(identity,false,true);
 }
-function authenticatePlayer_(identity,code) {
-  return locked_(() => {
-    consumeLoginCode_(identity, code);
-    return newSession_('player', 'p', {roll:identity.id, emailTag:mac_('mail:' + identity.email)}, 7 * AUTH_DAY);
+function authenticatePlayer_(identity,code,requestId=''){
+  must_(identity&&typeof code==='string'&&/^\d{6}$/.test(code),CODE_ERROR);
+  must_(!requestId||/^[\da-f]{8}-[\da-f]{4}-4[\da-f]{3}-[89ab][\da-f]{3}-[\da-f]{12}$/i.test(requestId),'Request a new sign-in code.');
+  const key=challengeKey_(identity),properties=props_();
+  const proof=requestId?mac_('student-verification:'+key+':'+requestId+':'+code):'';
+  const token='p.'+mac_('student-session:'+(proof||rand_()+rand_()));
+  return locked_(()=>{
+    const state=JSON.parse(properties.getProperty(key)||'null'),now=Date.now();
+    if(proof&&state?.verifiedRequest===proof&&state.retryUntil>now){
+      const active=authSession_(token,'player');must_(active,CODE_ERROR);
+      return {token,expires:active.expires};
+    }
+    verifyCodeState_(key,state,code);
+    state.verifiedRequest=proof;state.retryUntil=proof?now+CODE_LIFETIME:0;
+    const expires=now+STUDENT_SESSION_LIFETIME;
+    const session={roll:identity.id,emailTag:mac_('mail:'+identity.email),remembered:true,type:'player',expires};
+    properties.setProperties({[key]:JSON.stringify(state),['AUTH_SESSION_'+hash_(token)]:JSON.stringify(session)});
+    return {token,expires};
   },false);
 }
 function verifyPlayerCode(identifier, code) {
@@ -226,16 +242,16 @@ function verifyPlayerCode(identifier, code) {
 function signInPlayer(identifier,code,preferred) {
   return signedInPlayer_(playerIdentity_(identifier),code,preferred);
 }
-function signedInPlayer_(identity,code,preferred) {
-  const session=authenticatePlayer_(identity,code);
+function signedInPlayer_(identity,code,preferred,requestId) {
+  const session=authenticatePlayer_(identity,code,requestId);
   // A temporary checkout read failure must never consume the student's sign-in without returning the session.
   try { return {session,account:accountForRoll_(identity.id,preferred,identity.person)} }
   catch { return {session,account:null} }
 }
 
-function signInEvent(identifier,code,preferred) {
+function signInEvent(identifier,code,preferred,requestId) {
   const identity = eventIdentity_(identifier);
-  if (identity?.scope !== 'owner-entry') return signedInPlayer_(identity,code,preferred);
+  if (identity?.scope !== 'owner-entry') return signedInPlayer_(identity,code,preferred,requestId);
   const base = deskBaseUrl_();
   must_(base, 'The desk link is unavailable. Open the Staff tab in the club Sheet.');
   return locked_(() => {
@@ -260,11 +276,23 @@ function playerDirectory_(token) {
   const session=authSession_(token,'player');must_(session,PLAYER_SIGN_IN);
   const person=directoryPlayer_(session.roll);
   const email=emailAddress_(person?.email);must_(email&&session.emailTag===mac_('mail:'+email),PLAYER_SIGN_IN);
-  return {roll:session.roll,person};
+  return {roll:session.roll,person,session};
 }
 function playerRoll_(token){return playerDirectory_(token).roll}
 
-function playerLogout(token) { return endSession_(token, 'player'); }
+function rememberedExpiry_(token,session){
+  if(session.remembered)return session.expires;
+  // Upgrade a still-valid older tab on its first return. Sign-out uses the same lock.
+  return locked_(()=>{
+    const current=authSession_(token,'player');must_(current,PLAYER_SIGN_IN);
+    if(!current.remembered){
+      current.remembered=true;current.expires=Date.now()+STUDENT_SESSION_LIFETIME;
+      props_().setProperty('AUTH_SESSION_'+hash_(token),JSON.stringify(current));
+    }
+    return current.expires;
+  },false);
+}
+function playerLogout(token){return locked_(()=>endSession_(token,'player'),false)}
 
 function requestOwnerCode(invite) { return sendLoginCode_(ownerIdentity_(invite), true); }
 

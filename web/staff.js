@@ -102,13 +102,16 @@ async function inspect(id){
   if(r.status==='PAID'&&!r.used)s+='<p>'+esc(r.delivery)+'</p>'+btn('pass','View code and delivery options','primary')+btn('no-show','Mark no-show');
   detail(s);
 }
-function deskForm(){if(snapshot.managed){detail('<h2>Open a payment</h2>'+rollField('deskroll')+'<label for="kind">Purchase</label><select id="kind"><option value="walk">Event entry</option><option value="retry">Round 1 retry</option></select><p>The player signs in to pay their chosen receiver and upload proof.</p>'+btn('bankOpenDesk','Open player checkout','primary'));return}detail('<h2>Verify a desk payment</h2>'+rollField('deskroll')+'<label for="kind">Purchase</label><select id="kind"><option value="walk">Event entry</option><option value="retry">Round 1 retry</option></select><div id="deskBatchField">'+batchField('deskBatch')+'</div><p id="deskFee" role="status"></p>'+reference('deskref')+checkbox('deskcheck','I checked the college ID, the exact fee and the full incoming payment.')+btn('deskpay','Approve and send code','primary'));deskFee()}
+function deskForm(){if(snapshot.managed){detail('<h2>Open a payment</h2>'+rollField('deskroll')+'<label for="kind">Purchase</label><select id="kind"><option value="walk">Event entry</option><option value="retry">Round 1 retry</option></select><p>The player signs in to pay their chosen receiver and upload proof.</p>'+btn('bankOpenDesk','Open player checkout','primary'));return}detail('<h2>Verify a desk payment</h2>'+rollField('deskroll')+'<label for="kind">Purchase</label><select id="kind"><option value="walk">Event entry</option><option value="retry">Round 1 retry</option></select><div id="deskBatchField">'+batchField('deskBatch')+'</div><div id="deskPhoneField">'+phoneField('deskPhone')+'</div><p id="deskFee" role="status"></p>'+reference('deskref')+checkbox('deskcheck','I checked the college ID, the exact fee and the full incoming payment.')+btn('deskpay','Approve and send code','primary'));deskFee()}
 function deskFee(){
   if(!el('deskFee'))return;
   const retry=val('kind')==='retry',fee=retry?snapshot.retryFee:snapshot.offer.amount;
   const roll=val('deskroll'),group=el('deskBatchField'),known=snapshot.records.find(r=>r.roll===roll&&r.batch);
   if(group.dataset.roll!==roll){el('deskBatch').value=known?.batch||'';group.dataset.roll=roll}
   group.hidden=roll.length!==9||!!known;
+  const phone=snapshot.records.find(r=>r.roll===roll&&validPhone(r.phone))?.phone||'',phoneGroup=el('deskPhoneField');
+  if(phoneGroup.dataset.roll!==roll){el('deskPhone').value=phone;phoneGroup.dataset.roll=roll}
+  phoneGroup.hidden=roll.length!==9||!!phone;
   el('deskFee').dataset.fee=String(fee);
   el('deskFee').textContent=(retry?'Retry fee':'Entry fee')+' '+formatFee_(fee);
 }
@@ -231,11 +234,12 @@ async function action(name,id){
   if(name==='deskpay'){
     if(!/^\d{9}$/.test(val('deskroll')))return fieldError('deskroll','Enter the nine-digit college roll number.');
     if(!el('deskBatchField').hidden&&!val('deskBatch'))return fieldError('deskBatch','Choose the player’s batch.');
+    if(!validPhone(val('deskPhone')))return fieldError('deskPhone','Enter the player’s phone number with 7–15 digits.');
     if(!/^\d{12}$/.test(val('deskref')))return fieldError('deskref','Enter the 12 digits from the incoming payment.');
     if(!el('deskcheck').checked)return fieldError('deskcheck','Confirm the ID, fee and incoming payment first.');
     const quoted=Number(el('deskFee').dataset.fee);deskFee();
     if(Number(el('deskFee').dataset.fee)!==quoted){el('deskcheck').checked=false;throw Error('The fee has changed. Check the new amount against the incoming payment.')}
-    const r=await api('deskPayment',token,val('deskroll'),val('kind'),val('deskref'),el('deskcheck').checked,quoted,val('deskBatch'));
+    const r=await api('deskPayment',token,val('deskroll'),val('kind'),val('deskref'),el('deskcheck').checked,quoted,val('deskBatch'),val('deskPhone'));
     closeDetail();msg('Attempt verified. '+r.status);await refresh();return;
   }
   if(name==='reject'){await api('staffReject',token,opened,val('reason'));closeDetail();msg('Proof rejected. The reason is on the player’s receipt page.');await refresh();return}

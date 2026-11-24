@@ -168,12 +168,12 @@ test('a staged reversal invalidates an earlier exact preview before it can consu
   assert.throws(()=>f.rpc('adminReviewPayment',f.admin,f.p.hold.id,'approve',reviewed.matches[0].row,'Check original evidence',1),/conflicting/);
 });
 
-test('form fields are stored against verified PGP ID, with optional contact and a required batch',()=>{
+test('form fields are stored against verified PGP ID, with a required phone number and batch',()=>{
   const event=createEvent(),f=club(event),r=f.makeReceiver();
   f.publicRpc('requestEventCode','123456789');
   const token=f.publicRpc('signInEvent','123456789',event.code('player@example.test'),'').session.token;
   const valid={pgpId:'123456789',fullName:'Sample Full Name',contact:'+91 98765 43210',batch:'2026-28'};
-  for(const overrides of [{pgpId:'223456789'},{fullName:'  '},{contact:'call me'},{batch:'2024-26'},{batch:''},{batch:undefined}]){
+  for(const overrides of [{pgpId:'223456789'},{fullName:'  '},{contact:'call me'},{contact:''},{contact:undefined},{contact:'123'},{contact:'+'.padEnd(20,'9')},{batch:'2024-26'},{batch:''},{batch:undefined}]){
     assert.throws(()=>f.publicRpc('playerStart',token,'',randomUUID(),JSON.stringify({...valid,...overrides})));
   }
   const saved=f.publicRpc('playerStart',token,'',randomUUID(),JSON.stringify(valid));
@@ -276,7 +276,8 @@ test('old and new details edits are owner-bound, versioned and preserve proof, p
   const missing=f.statement(receiver);assert.match(missing.matches[0].reason,/batch/);
   const saved=edit(changed,0);assert.equal(saved.paymentStatus,'PENDING');assert.equal(saved.proofVersion,pending.proofVersion);
   const exact=f.statement(receiver);assert.equal(f.apply(exact).authorized,1);
-  const ticket=p.status(),after=edit({...changed,contact:''},1);
+  assert.throws(()=>edit({...changed,contact:''},1),/phone/);
+  const ticket=p.status(),after=edit({...changed,contact:'9876501288'},1);
   assert.equal(after.entryCode,ticket.entryCode);assert.equal(after.paymentStatus,'AUTHORIZED');
   const scan=f.rpc('gateAction',f.admin,'admit',ticket.entryCode,randomUUID());
   assert.equal(scan.player,changed.fullName);
@@ -298,4 +299,23 @@ test('payment screenshot accepts exactly 10 MB and rejects larger or unsupported
   assert.equal(event.staff('proofImageBytes_',[prefix+bytes.toString('base64')]).bytes.length,bytes.length);
   assert.throws(()=>event.staff('proofImageBytes_',[prefix+Buffer.concat([bytes,Buffer.alloc(1)]).toString('base64')]),/10 MB/);
   assert.throws(()=>event.staff('proofImageBytes_',['data:text/plain;base64,QUJD']),/screenshot/);
+});
+
+test('legacy receipts require a phone for new submissions and honor proof already accepted for review',()=>{
+  const f=start(),{p,event,receiver}=f,s=f.submission(p);
+  const oldDetails=()=>{
+    const existing=event.staff('ledger_',[]).attempts[p.hold.id];
+    event.rows.Journal.push([event.now(),'Earlier release','Fixture',JSON.stringify({attempts:[{...existing,details:{...existing.details,contact:''}}]})]);
+  };
+  oldDetails();
+  assert.equal(p.status().checkoutReceivers.length,0);
+  assert.throws(()=>f.publicRpc('playerSelectReceiver',p.token,p.hold.ticket,receiver.id),/phone number/);
+  assert.throws(()=>f.submit(p,s),/phone number/);
+  f.publicRpc('playerSaveDetails',p.token,p.hold.ticket,JSON.stringify({...p.hold.details,revision:p.status().detailsRevision}));
+  f.submit(p,s);oldDetails();
+  assert.equal(p.status().proofVersion,1);
+  assert.equal(f.apply(f.statement(receiver)).authorized,1);
+  const ticket=p.status();assert.equal(ticket.ticket,p.hold.ticket);
+  assert.equal(f.rpc('gateAction',f.admin,'admit',ticket.entryCode,randomUUID()).status,'admitted');
+  assert.ok(p.status().seat);
 });

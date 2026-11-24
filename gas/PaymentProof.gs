@@ -3,13 +3,22 @@ const FAIR_PLAY_VERSION='imt-ecell-2026-v2';
 const FAIR_PLAY_DECLARATION='I agree to play fair, respect the rules, and accept all decisions made by E-Cell, IMT Ghaziabad.';
 const PROOF_MAX_BYTES=10*1024*1024;
 function validBatch_(batch){return ['2025-27','2026-28'].includes(batch)}
+function validContact_(value){return typeof value==='string'&&/^\+?[\d ()-]{7,24}$/.test(value)&&/^\d{7,15}$/.test(value.replace(/\D/g,''))}
+function missingDetail_(details){
+  if(!validContact_(details?.contact))return 'phone number';
+  return validBatch_(details?.batch)?'':'batch';
+}
+function requirePlayerDetails_(details){
+  const missing=missingDetail_(details);must_(!missing,'Complete your '+missing+' in registration details to continue.');
+}
 function registrationDetails_(roll,value){
   const v=typeof value==='string'?JSON.parse(value):value||{};
   must_(v&&typeof v==='object'&&!Array.isArray(v),'Check your registration details.');
   const fullName=String(v.fullName||'').trim(),contact=String(v.contact||'').trim(),batch=String(v.batch||'');
   must_(fullName&&fullName.length<=100&&!/[\x00-\x1f]/.test(fullName),'Enter your full name.');
   must_(roll_(v.pgpId)===roll,'Use the PGP ID verified at sign-in.');
-  must_(!contact||/^\+?[\d ()-]{7,24}$/.test(contact)&&/^\d{7,15}$/.test(contact.replace(/\D/g,'')),'Check your contact number or leave it blank.');
+  must_(contact,'Enter your phone number.');
+  must_(validContact_(contact),'Enter a phone number with 7–15 digits, including your country code if needed.');
   must_(validBatch_(batch),'Choose your batch to continue.');
   return {fullName,pgpId:roll,contact,batch};
 }
@@ -150,7 +159,7 @@ function playerSelectReceiver(session,ticket,id,expectedVersion){
   const result=locked_(()=>{
     const st=ledger_(),a=ownReceipt_(st,ticket,roll),receiver=st.receivers[id];
     must_(a.status==='HOLD'&&a.receiver&&!a.file&&!a.legacyReceiver&&currentRegistration_(st,a).id===a.id,'Open your current checkout to select a receiver.');
-    must_(validBatch_(a.details?.batch),'Choose your batch before paying.');
+    requirePlayerDetails_(a.details);
     must_(Date.now()<EVENT_END&&waveFor_(st,roll,Date.now())>=0,'Payments have closed or the event is full. If you already paid, submit your screenshot.');
     if(compact&&Object.hasOwn(st.receivers,id)&&!receiver.active)return {unavailable:true};
     must_(Object.hasOwn(st.receivers,id)&&receiver.active,"This receiver is unavailable. Refresh to choose an active account.");
@@ -313,7 +322,7 @@ function playerSubmitPayment(session,ticket,data,json){
       must_(!hasMultiple||a.receiverSelectedAt,'Choose your payment receiver before submitting proof.');
       must_(form.receiverChoiceVersion===undefined||form.receiverChoiceVersion===(a.receiverChoiceVersion||0),'The receiver changed in another window. Check your selection before submitting.');
     }
-    must_(validBatch_(a.details?.batch),'Choose your batch in registration details before submitting proof.');
+    requirePlayerDetails_(a.details);
     const paid=st.receivers[form.paidReceiver];must_(Object.hasOwn(st.receivers,form.paidReceiver)&&paid,'Confirm the recipient who received this payment.');
     claim.paidReceiver=a.claim?.paidReceiver?.id===paid.id?a.claim.paidReceiver:{id:paid.id,name:paid.name,upi:paid.upi};
     const o=form.ocr||{},trusted=o.seal&&o.seal===proofSeal_(a.id,digest,o)?{utr:o.utr,amount:o.amount,time:o.time,payee:o.payee||'',uncertain:!!o.uncertain}:null;

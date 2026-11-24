@@ -43,10 +43,12 @@ test('published navigation, mobile startup, live floor and backend validation @d
   for(const message of guarded)expect(message).toContain('Sign in with your registered email');
   await page.getByLabel('Roll number or registered email').fill('invalid');
   await page.getByRole('button',{name:'Send code',exact:true}).click();await expect(page.locator('#identifierError')).toContainText('nine-digit');
-  // Resume the public code-entry screen with local test state. This checks the live UI without sending mail.
-  await page.evaluate(()=>sessionStorage.setItem('pn26:email-step',JSON.stringify({identifier:'preview@example.invalid',resendAt:Date.now()+60000,expires:Date.now()+600000})));
+  await page.reload();await expect(page.getByLabel('Roll number or registered email')).toHaveValue('invalid');
+  // Resume the public code-entry screen with device state. This checks the live UI without sending mail.
+  await page.evaluate(()=>localStorage.setItem('pn26:email-step',JSON.stringify({identifier:'preview@example.invalid',resendAt:Date.now()+60000,expires:Date.now()+600000})));
   await page.reload();const junk=page.getByRole('link',{name:'Open Outlook Junk Email'});
   await expect(junk).toBeVisible();await expect(junk).toHaveAttribute('href','https://outlook.office.com/mail/junkemail');
+  await expect(page.getByText('Student sign-in is saved on this device for 30 days.')).toBeVisible();
   await page.goto(site+'event.html?view=board');await expect(page.locator('#clock')).toBeVisible({timeout:35000});
   await expect(page.getByRole('region',{name:'Sponsored by'})).toBeVisible();
   await expect(page.locator('#content h2').first()).toBeVisible();

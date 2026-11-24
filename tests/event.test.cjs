@@ -22,7 +22,7 @@ function fixture(){
   return {ctx,st,sent,loginMail,properties,audit,people,actualStaff,readSettings,sessionFor,at:s=>time=Date.parse(s)};
 }
 function mailDigits(messages){return messages.at(-1)[2].match(/\b\d{6}\b/)[0]}
-function details(f,roll){return JSON.stringify({fullName:f.people[roll]?.name||'Test Player',pgpId:roll,contact:'',batch:'2026-28'})}
+function details(f,roll){return JSON.stringify({fullName:f.people[roll]?.name||'Test Player',pgpId:roll,contact:f.people[roll]?.phone||'9876501234',batch:'2026-28'})}
 function hold(f,roll='123456789'){return f.ctx.playerStart(f.sessionFor(roll),'',crypto.randomUUID(),details(f,roll))}
 function sessionForReceipt(f,ticket){return f.sessionFor(f.st.attempts[ticket.split('.')[0]].roll)}
 function status(f,ticket){return f.ctx.playerStatus(sessionForReceipt(f,ticket),ticket)}
@@ -213,9 +213,26 @@ test('receipts and approved gate codes require the matching verified player acro
   ctx.playerLogout(a);assert.throws(()=>ctx.playerHome(a,''),/Sign in/);
   f.people['987654321'].email='updated@example.test';assert.throws(()=>ctx.playerHome(b,''),/Sign in/);
 });
-test('remembered player sessions expire server-side after seven days',()=>{
-  const f=fixture(),session=f.sessionFor();f.at('2026-12-02T12:00:00+05:30');
+test('a student can remain signed in without activity for 30 days',()=>{
+  const f=fixture(),session=f.sessionFor();f.at('2026-12-24T12:00:00+05:30');
+  assert.equal(f.ctx.playerHome(session,'').player.roll,'123456789');f.at('2026-12-25T12:00:00+05:30');
   assert.throws(()=>f.ctx.playerHome(session,''),/Sign in/);
+});
+test('a lost verification response resumes only the same verified request and never restores a signed-out session',()=>{
+  const f=fixture(),{ctx}=f,request=crypto.randomUUID();ctx.requestEventCode('123456789');
+  const code=mailDigits(f.loginMail),first=ctx.signInEvent('123456789',code,'',request);
+  assert.equal(ctx.signInEvent('123456789',code,'',request).session.token,first.session.token);
+  assert.throws(()=>ctx.signInEvent('123456789',code,'',crypto.randomUUID()),/incorrect/);
+  ctx.playerLogout(first.session.token);assert.throws(()=>ctx.signInEvent('123456789',code,'',request),/incorrect/);
+});
+test('an existing valid seven-day session is upgraded once while expired and revoked sessions stay closed',()=>{
+  const f=fixture(),token=f.sessionFor(),key='AUTH_SESSION_'+f.ctx.hash_(token);
+  const old=JSON.parse(f.properties.get(key));delete old.remembered;old.expires=f.ctx.Date.now()+1000;
+  f.properties.set(key,JSON.stringify(old));const resumed=f.ctx.playerHome(token,'');
+  assert.equal(resumed.sessionExpires,f.ctx.Date.now()+30*86400000);
+  f.at('2026-12-03T12:00:00+05:30');assert.equal(f.ctx.playerHome(token,'').sessionExpires,resumed.sessionExpires);
+  f.properties.set(key,JSON.stringify(old));assert.throws(()=>f.ctx.playerHome(token,''),/Sign in/);
+  assert.equal(f.properties.has(key),false);
 });
 test('only the designated inbox can open admin settings; its private key alone is insufficient',()=>{
   const f=staffFixture(),{ctx,rows,loginMail}=f;

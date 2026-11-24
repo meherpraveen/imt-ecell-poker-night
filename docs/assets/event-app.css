@@ -155,6 +155,7 @@ html[data-entry=register] [data-shell=register],html[data-entry=account] [data-s
 .progress [aria-current=step] {color: var(--ink); font-weight: 700}
 .progress [aria-current=step] span {background: var(--accent); color: var(--accent-ink); border-color: var(--accent)}
 .progress .done span {background: var(--accent-soft); border-color: var(--accent-soft); color: var(--accent)}
+.draft-note:empty{display:none}
 .registration-editor {margin: 0 0 1rem; padding: 0; border: 0}
 .registration-editor summary {width: fit-content}
 #detailsSaved:not(:empty) {margin-left: .65rem; font-size: .82rem; color: var(--muted); font-weight: 500}

@@ -42,7 +42,7 @@ test('50 simultaneous clients register, submit proof, reconcile and check in thr
   await burst(u=>u.api('requestEventCode',u.roll));
   await burst(async u=>{u.token=(await u.api('signInEvent',u.roll,event.code(u.email),'')).session.token});
   await burst(async u=>{
-    const d={pgpId:u.roll,fullName:u.name,batch:'2026-28',contact:''};
+    const d={pgpId:u.roll,fullName:u.name,batch:'2026-28',contact:'9876501234'};
     u.registration=await u.api('playerStart',u.token,'',randomUUID(),JSON.stringify(d));
   });
   await burst(async u=>{

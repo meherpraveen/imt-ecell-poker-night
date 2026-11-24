@@ -42,7 +42,7 @@ export function createEvent({freshInstall=false,onSheetRead,onFileCreate,onFileR
   const convertedSheet={getSheets:()=>excelSheets.map(grid=>({getName:()=>grid.name,getDataRange:()=>({getDisplayValues:()=>grid.cells.map(row=>row.slice()),getFormulas:()=>grid.formulas||grid.cells.map(row=>row.map(()=>'')),getNumRows:()=>grid.cells.length,getNumColumns:()=>Math.max(...grid.cells.map(row=>row.length))})}))};
   const team=Object.fromEntries(['admin','desk','gate','floor'].map(role=>[role,randomBytes(20).toString('hex')]));
   const rows={
-    Students:[['Roll Number','Name','Mail ID','Number'],[player.roll,'Sample Student',player.email,''],['223456789','Second Student','second@example.test','']],
+    Students:[['Roll Number','Name','Mail ID','Number'],[player.roll,'Sample Student',player.email,'9876501234'],['223456789','Second Student','second@example.test','9876501235']],
     Staff:[['Label','Role','Private sign-in key','Active'],...Object.entries(team).map(([role,key])=>[role==='admin'?owner:'Sample '+role,role,key,'yes'])],
     Settings:[['Setting','Value'],['Receiving UPI ID',''],['Recipient name',''],['Registration open','yes'],['Payment QR file',''],['Payment details published','no']],
     Journal:[['Time','Action','Staff or player','Change JSON']]

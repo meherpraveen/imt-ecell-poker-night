@@ -87,7 +87,7 @@ function doPost(event){
     const method=request&&methods.get(request.action);
     must_(method&&Array.isArray(request.args)&&request.args.every(arg=>typeof arg==='string'),'Invalid event request.');
     must_(body.length<=2410000||['playerReadProof','playerSubmitPayment'].includes(request.action),'This request is too large.');
-    must_(request.args.length===method[1]||['playerStart','playerSelectReceiver'].includes(request.action)&&request.args.length===4, 'Refresh the event page and sign in to continue.');
+    must_(request.args.length===method[1]||['playerStart','playerSelectReceiver','signInEvent'].includes(request.action)&&request.args.length===4, 'Refresh the event page and sign in to continue.');
     result={ok:true,value:method[0](...request.args)};
   }catch(error){
     const validation=error.name==='EventValidationError';
@@ -321,7 +321,8 @@ function publicInfo(){
   return signupInfo_(settings,Date.now());
 }
 function playerHome(session,preferred){
-  const {roll,person}=playerDirectory_(session);return accountForRoll_(roll,preferred,person);
+  const player=playerDirectory_(session),expires=rememberedExpiry_(session,player.session);
+  return {...accountForRoll_(player.roll,preferred,player.person),sessionExpires:expires};
 }
 function accountForRoll_(roll,preferred,verifiedPerson){
   loadInitialReceivers_();
@@ -368,7 +369,7 @@ function receipt_(a,set,st){
   const now=Date.now(),offer=entryOffer_(now,a.kind),ready=paymentReadyFor_(set,st),managed=usesBankVerification_(st),selected=a.receiver;
   const checkout=a.status==='HOLD',ended=now>=EVENT_END;
   const full=checkout&&!ended&&waveFor_(st,a.roll,now)<0;
-  const open=checkout&&!ended&&!full&&validBatch_(a.details?.batch)&&currentRegistration_(st,a).id===a.id;
+  const open=checkout&&!ended&&!full&&!missingDetail_(a.details)&&currentRegistration_(st,a).id===a.id;
   const payable=open&&(managed?!!selected&&st.receivers[selected.id]?.active&&st.receivers[selected.id]?.upi===selected.upi:ready);
   const payee=selected||set;
   const checkoutReceivers=open&&selected?checkoutOptions_(a,st):[];
@@ -387,7 +388,7 @@ function receipt_(a,set,st){
     seat:a.seat||null,checkedInAt:a.checkedInAt||null,entryCode:ticketActive_(a,st,now)?pass_(a.id):''};
 }
 function canResumeCheckout_(a,set,st,now){
-  if(!['REGISTERED','WAITLIST'].includes(a.status)||!validBatch_(a.details?.batch)||now>=EVENT_END||!paymentReadyFor_(set,st))return false;
+  if(!['REGISTERED','WAITLIST'].includes(a.status)||missingDetail_(a.details)||now>=EVENT_END||!paymentReadyFor_(set,st))return false;
   return a.status==='REGISTERED'||waveFor_(st,a.roll,now)>=0;
 }
 function openSavedCheckout_(a,set,st,now){
@@ -425,7 +426,7 @@ function playerUpload(session,ticket,suffix,data){
     must_(!usesBankVerification_(st),'Refresh the event page to submit the full payment details.');
     if(a.status==='REVIEW'||issued_(a))return null;
     must_(a.status==='HOLD'&&currentRegistration_(st,a).id===a.id,'Open your current registration to submit proof.');
-    must_(validBatch_(a.details?.batch),'Choose your batch in registration details before submitting proof.');
+    requirePlayerDetails_(a.details);
     const now=Date.now();
     return {status:'REVIEW',wave:proofWave_(st,a,now),fee:quotedFee_(a,now),digest,suffix,submitted:now};
   });
@@ -543,7 +544,7 @@ function staffApprove(token,id,fullRef,confirmed){
   return {status:deliverPass_(id,staff.name)};
 }
 function staffReject(token,id,why){const s=staff_(token,['desk']);why=String(why||'').trim().slice(0,180);must_(why,'Add a short reason for the player.');return locked_(()=>{const st=ledger_(),a=st.attempts[id];must_(!usesBankVerification_(st),'Use the admin statement review to reject this proof.');must_(a&&a.status==='REVIEW','Only pending proofs can be rejected.');commit_(st,'Proof rejected',s.name,{attempts:[{...a,status:'REJECTED',reason:why}],note:id});return true})}
-function deskPayment(token,roll,kind,full,confirmed,verifiedFee,batch){
+function deskPayment(token,roll,kind,full,confirmed,verifiedFee,batch,phone){
   const s=staff_(token,['desk']);roll=roll_(roll);full=ref_(full);must_(['walk','retry'].includes(kind)&&full&&confirmed===true,'Check college ID and receiving-account credit, then enter the full UPI reference.');
   const id=locked_(()=>{const st=ledger_(),people=roster_(),now=Date.now();must_(!usesBankVerification_(st),'Open a desk payment and have the player upload proof.');must_(people[roll],'This roll is missing from the private directory.');
     const used=Object.values(st.attempts).find(a=>a.utr===full);
@@ -557,7 +558,7 @@ function deskPayment(token,roll,kind,full,confirmed,verifiedFee,batch){
     eligibility_(st,roll,kind,now,existing?.id);
     const wave=waveFor_(st,roll,now);must_(wave>=0,'No later Round 1 seat is available. Do not collect a payment.');
     const saved=existing?.details||latestRegistration_(st,roll)?.details;
-    const details=registrationDetails_(roll,{fullName:saved?.fullName||people[roll].name,pgpId:roll,contact:saved?.contact||'',batch:validBatch_(saved?.batch)?saved.batch:batch});
+    const details=registrationDetails_(roll,{fullName:saved?.fullName||people[roll].name,pgpId:roll,contact:validContact_(saved?.contact)?saved.contact:phone||people[roll].phone,batch:validBatch_(saved?.batch)?saved.batch:batch});
     const a={...(existing||newAttempt_(roll,kind,wave,now)),details,detailsRevision:existing?.detailsRevision||1,fee,wave,status:'PAID',utr:full,verified:now,delivery:'Pending delivery'};
     const oldWait=Object.values(st.attempts).filter(v=>v.roll===roll&&v.id!==a.id&&v.status==='WAITLIST').map(v=>({...v,status:'RELEASED'}));
     commit_(st,'Desk payment verified',s.name,{attempts:[...oldWait,a],note:a.id});return a.id;

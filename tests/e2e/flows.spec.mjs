@@ -65,7 +65,7 @@ test('club email at the public sign-in opens the private admin desk with one cod
   await expect(page.getByLabel('Six-digit code')).toBeVisible();
   await expect(page.locator('#content')).toContainText(owner.toUpperCase());
   expect(site.mail.map(({to,subject})=>[to,subject])).toEqual([[owner,'Poké Poker Night 2026 admin sign-in code']]);
-  await page.getByLabel('Remember my student sign-in for 7 days').check();
+  await expect(page.getByText('Student sign-in is saved on this device for 30 days.')).toBeVisible();
   await enterCode(page,site.code(owner),'Verify and continue');
   await expect(button(page,'Settings')).toBeVisible();
   const privateUrl=new URL(page.url());
@@ -158,6 +158,7 @@ test('walk-in, a paid retry and offline gate sync honor the verified fee and hea
     await button(page,'Walk-in or paid retry').click();
     await page.getByLabel('College roll number').fill(player.roll);await page.getByLabel('Purchase').selectOption(kind);
     if(await page.locator('#deskBatch').isVisible())await page.getByLabel('Batch',{exact:true}).selectOption('2026-28');
+    if(await page.locator('#deskPhone').isVisible())await page.getByLabel('Phone number',{exact:true}).fill('9876501234');
     await page.getByLabel('Full UPI bank reference').fill(ref);await page.getByLabel('I checked the college ID, the exact fee',{exact:false}).check();
     await button(page,'Approve and send code').click();
   }
@@ -197,11 +198,13 @@ test('lost registration response is retryable and a shared receipt opens only fo
   await button(page,'Save my registration').click();await expect(heading(page,'Registration saved')).toBeVisible();
   expect(site.rows.Journal.filter(r=>r[1]==='Registration saved')).toHaveLength(1);
   const receipt=await page.evaluate(()=>localStorage.getItem('pn26:receipt'));
+  const remembered=await context.newPage();await remembered.goto(site.register);await expect(heading(remembered,'Registration saved')).toBeVisible();
+  await button(remembered,'Sign out').click();await expect(page.getByLabel('Roll number or registered email')).toBeVisible();
   const another=await context.newPage();await another.goto(site.register+'#receipt='+encodeURIComponent(receipt));
   await another.getByLabel('Roll number or registered email').fill('second@example.test');await button(another,'Send code').click();
   await expect(another.getByLabel('Six-digit code')).toBeVisible();await enterCode(another,site.code('second@example.test'),'Verify and continue');
   await expect(button(another,'Save my registration')).toBeVisible();await expect(heading(another,'Registration saved')).toHaveCount(0);
-  site.advance(65000);const recovered=await context.newPage();await studentLogin(recovered,site);await expect(heading(recovered,'Registration saved')).toBeVisible();
+  await button(another,'Sign out').click();site.advance(65000);const recovered=await context.newPage();await studentLogin(recovered,site);await expect(heading(recovered,'Registration saved')).toBeVisible();
 });
 
 test('a no-show frees a seat and the payment desk can offer it to a waitlisted player',async({page,context,site})=>{

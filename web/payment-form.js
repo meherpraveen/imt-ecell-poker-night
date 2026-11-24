@@ -71,7 +71,7 @@ function proofForm(r){
   const recipients=(r.paymentRecipients||[]).map(x=>'<option value="'+esc(x.id)+'">'+esc(x.name)+'</option>').join('');
   return panel(r.proofVersion?'Replace payment proof':'Payment proof','<form data-action="submitPayment" novalidate>'+
     '<label for="shot">Payment screenshot</label><input id="shot" type="file" accept="image/jpeg,image/png,image/webp" required aria-describedby="proofLimit proofHint"><p id="proofLimit" class="sub">One JPEG, PNG or WebP image, up to 10 MB.</p><p id="proofHint" class="sub">Keep the UTR / UPI Transaction ID visible in your screenshot.</p>'+
-    '<p id="ocrFeedback" class="sub" role="status">Choose a screenshot to read its payment details.</p>'+
+    '<p class="sub draft-note" id="proofDraftNote"></p><p id="ocrFeedback" class="sub" role="status">Choose a screenshot to read its payment details.</p>'+
     '<div id="proofFields" hidden>'+input('paymentUtr','UTR / UPI Transaction ID','inputmode="numeric" maxlength="12" required value="'+esc(c.utr||'')+'"')+
     input('paymentAmount','Amount paid (₹)','inputmode="decimal" required value="'+esc(c.amount?(c.amount/100).toFixed(2):'')+'"')+
     input('paymentTime','Payment time (IST)','type="datetime-local" required value="'+esc(c.time||'')+'"')+
@@ -80,6 +80,62 @@ function proofForm(r){
     '<p class="sub">If you paid for a friend, they can submit your screenshot from their own registration.</p>'+
     checkbox('fairPlay',r.fairPlay)+'</div>'+
     '<button class="primary wide" type="submit">Submit for verification</button></form>');
+}
+const paymentFields=['paymentUtr','paymentAmount','paymentTime','paidReceiver','paymentPayer','fairPlay','tail','consent'];
+function rememberPaymentFields(form){
+  const state=form?.proofDraft;
+  if(!state||!form.isConnected||draftValue(form.dataset.proofKey)?.marker!==state.marker)return;
+  for(const id of paymentFields){
+    const field=el(id);if(field)state.fields[id]=field.type==='checkbox'?field.checked:field.value;
+  }
+  state.edited=['paymentUtr','paymentAmount','paymentTime'].filter(id=>el(id)?.dataset.edited);
+  saveDeviceValue(form.dataset.proofKey,JSON.stringify(state));
+}
+function stageDraftFile(input,file){
+  const form=input.form,key=form.dataset.proofKey,old=form.proofDraft;
+  form.savedFile=null;form.proofDraft=null;
+  if(!file||!['image/jpeg','image/png','image/webp'].includes(file.type)||!file.size||file.size>10*1024*1024){
+    if(old)removeProofDraft(key,old.marker);return;
+  }
+  const owner=currentReceipt.beneficiary;
+  const state={marker:crypto.randomUUID(),revision:currentReceipt.proofVersion||0,agreement:currentReceipt.fairPlayVersion,name:file.name,size:file.size,type:file.type,fields:{},edited:[]};
+  form.proofDraft=state;saveDeviceValue(key,JSON.stringify(state));rememberPaymentFields(form);
+  proofStore('readwrite',store=>{
+    if(draftValue(key)?.marker===state.marker)return store.put({key,owner,marker:state.marker,file});
+  }).then(savedKey=>{
+    if(!form.isConnected||form.proofDraft!==state)return;
+    el('proofDraftNote').textContent=savedKey===key&&unpack(durable.get(key))?.marker===state.marker?'Screenshot saved on this device.':'Keep the original screenshot. This browser could not save a copy for your return.';
+  }).catch(()=>{
+    if(form.isConnected&&form.proofDraft===state)el('proofDraftNote').textContent='Keep the original screenshot. This browser could not save a copy for your return.';
+  });
+}
+async function mountPaymentDraft(r){
+  const key=draftKey('proof',r.beneficiary,r.id),saved=draftValue(key),input=el('shot');
+  if(saved&&(saved.revision!==(r.proofVersion||0)||saved.agreement!==r.fairPlayVersion||!input)){
+    removeProofDraft(key,saved.marker);return;
+  }
+  if(!input)return;
+  const form=input.form;form.dataset.proofKey=key;
+  if(!saved){openProofDatabase().catch(()=>{});return}
+  form.proofDraft=saved;
+  const disclosure=input.closest('details');if(disclosure)disclosure.open=true;
+  for(const [id,value] of Object.entries(saved.fields||{})){
+    const field=paymentFields.includes(id)&&el(id);if(!field)continue;
+    if(field.type==='checkbox')field.checked=value===true;else field.value=value;
+    if(saved.edited?.includes(id))field.dataset.edited='yes';
+  }
+  if(el('proofFields'))el('proofFields').hidden=false;
+  const note=el('proofDraftNote');note.textContent='Restoring your screenshot…';
+  let record;try{record=await proofStore('readonly',store=>store.get(key))}catch{}
+  if(!form.isConnected||form.proofDraft!==saved||input.files?.length)return;
+  if(!record?.file||record.marker!==saved.marker){
+    form.needsFile=true;note.textContent='Your payment details are restored. Attach your screenshot to submit them.';return;
+  }
+  const file=record.file instanceof File?record.file:new File([record.file],saved.name,{type:record.file.type});
+  form.savedFile=file;
+  try{const transfer=new DataTransfer();transfer.items.add(file);input.files=transfer.files}catch{}
+  note.textContent='Restored screenshot · '+file.name;
+  if(el('proofFields'))await readSelectedProof(input,true);
 }
 function originalScreenshot(file){
   if(!file||!['image/png','image/jpeg','image/webp'].includes(file.type)||file.size<1||file.size>10*1024*1024)throw Error('Choose one JPEG, PNG or WebP screenshot up to 10 MB.');
@@ -90,12 +146,18 @@ function originalScreenshot(file){
     reader.readAsDataURL(file);
   });
 }
-async function readSelectedProof(input){
-  const file=input.files[0],generation=++readGeneration,ticket=currentReceipt?.ticket;
+async function readSelectedProof(input,restoring=false){
+  const form=input.form,file=input.files[0]||(restoring?form.savedFile:null),generation=++readGeneration,ticket=currentReceipt?.ticket;
   const feedback=el('ocrFeedback'),fields=el('proofFields'),submit=input.form.querySelector('button[type=submit]');
   const readFields={utr:el('paymentUtr'),amount:el('paymentAmount'),time:el('paymentTime')};
-  for(const field of Object.values(readFields)){field.value='';delete field.dataset.edited}
-  proofRead=null;fields.hidden=true;submit.disabled=false;
+  if(!restoring){
+    const saved=form.proofDraft,reattached=form.needsFile&&file&&file.name===saved?.name&&file.size===saved.size&&file.type===saved.type;
+    if(!reattached)for(const field of Object.values(readFields)){field.value='';delete field.dataset.edited}
+    form.needsFile=false;
+    el('proofDraftNote').textContent='';stageDraftFile(input,file);
+  }
+  const draft=form.proofDraft;
+  proofRead=null;fields.hidden=!restoring;submit.disabled=false;
   if(!file){feedback.textContent='Choose a screenshot to read its payment details.';return}
   submit.disabled=true;feedback.textContent='Reading your screenshot… You can fill in the payment details now.';
   const current=()=>generation===readGeneration&&input.isConnected;
@@ -104,26 +166,32 @@ async function readSelectedProof(input){
     if(!current())return;
     fields.hidden=false;
     let ocr;
-    try{ocr=await playerApi('playerReadProof',ticket,data)}
+    try{ocr=restoring&&draft?.ocr?draft.ocr:await playerApi('playerReadProof',ticket,data)}
     catch(error){ocr={message:'Enter the details for manual review. '+error.message}}
     if(!current())return;
     proofRead={data,ocr,ticket,file};
     for(const [key,field] of Object.entries(readFields))if(!field.dataset.edited)field.value=ocr[key]||'';
     feedback.textContent=ocr.message;
+    if(draft){if(ocr.seal)draft.ocr=ocr;rememberPaymentFields(form)}
   }catch(error){if(current()){feedback.textContent=error.message;fieldError('shot',error.message)}}
   finally{if(current())submit.disabled=false}
 }
 document.addEventListener('input',e=>{
   if(['paymentUtr','paymentAmount','paymentTime'].includes(e.target.id))e.target.dataset.edited='yes';
+  if(paymentFields.includes(e.target.id))rememberPaymentFields(e.target.form);
 });
-document.addEventListener('change',e=>{if(e.target.id==='shot'&&el('proofFields'))readSelectedProof(e.target)});
+document.addEventListener('change',e=>{
+  if(e.target.id==='shot'){
+    if(el('proofFields'))readSelectedProof(e.target);else{el('proofDraftNote').textContent='';stageDraftFile(e.target,e.target.files[0])}
+  }else if(paymentFields.includes(e.target.id))rememberPaymentFields(e.target.form);
+});
 async function submitPaymentProof(){
   const r=currentReceipt,shot=el('shot'),choices=el('receiverChoices');
   if(choices&&!el('checkoutPayment')?.hidden&&choices.querySelector('input:enabled')&&(!r.chosenReceiverId||choices.pendingChoice)){
     el('receiverFeedback').textContent=choices.pendingChoice?'Saving your choice. Submit after it is confirmed.':'Choose the receiver you paid before submitting.';
     choices.querySelector('input:enabled').focus();return;
   }
-  if(!shot?.files[0]||proofRead?.file!==shot.files[0]||proofRead.ticket!==r.ticket){fieldError('shot','Choose a screenshot and wait for it to be read.');return}
+  if(!proofRead||proofRead.file!==(shot?.files[0]||shot?.form.savedFile)||proofRead.ticket!==r.ticket){fieldError('shot','Choose a screenshot and wait for it to be read.');return}
   const fields=[['paymentUtr',/^\d{12}$/,'Enter the full 12-digit bank UTR.'],['paymentAmount',/^\d+(?:\.\d{1,2})?$/,'Enter the amount shown on the receipt.'],['paymentTime',/.+/,'Enter the date and time from the receipt.'],['paidReceiver',/.+/,'Select the person who received your payment.'],['paymentPayer',/^.{2,90}$/,'Enter the name of the person who paid.'],['beneficiary',/.+/,'Choose the player this payment was for.']];
   for(const [id,pattern,message] of fields)if(!pattern.test(val(id))){fieldError(id,message);return}
   if(!el('fairPlay').checked){fieldError('fairPlay','Confirm the fair-play declaration to continue.');return}
@@ -133,7 +201,7 @@ async function submitPaymentProof(){
   try{
     let saved=await playerApi('playerSubmitPayment',r.ticket,proof.ocr.uploadRef||proof.data,details);
     if(saved.uploadRequired)saved=await playerApi('playerSubmitPayment',r.ticket,proof.data,details);
-    if(currentReceipt===r)showReceipt(saved);
+    if(currentReceipt===r){removeProofDraft(shot.form.dataset.proofKey,shot.form.proofDraft?.marker);showReceipt(saved)}
   }
   finally{if(choices?.isConnected)choices.disabled=false}
 }

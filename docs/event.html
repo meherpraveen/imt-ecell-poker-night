@@ -15,9 +15,9 @@
       if(!['register','board','pass','scan'].includes(entry))entry='unavailable';
       try{
         if(entry==='register'){
-          const saved=JSON.parse(sessionStorage.getItem('pn26:player-login')||localStorage.getItem('pn26:player-login')||'null');
-          const step=JSON.parse(sessionStorage.getItem('pn26:email-step')||'null');
-          if(saved?.expires>Date.now())entry='account';else if(step?.expires>Date.now())entry='code';
+          const saved=JSON.parse(localStorage.getItem('pn26:player-login')||sessionStorage.getItem('pn26:player-login')||'null');
+          const step=JSON.parse(localStorage.getItem('pn26:email-step')||sessionStorage.getItem('pn26:email-step')||'null');
+          if(saved?.token)entry='account';else if(step?.identifier)entry='code';
         }
       }catch{}
       document.documentElement.dataset.entry=entry;
@@ -31,8 +31,8 @@
   </script>
   <link rel="preconnect" href="https://script.google.com" crossorigin>
   <link rel="preconnect" href="https://script.googleusercontent.com" crossorigin>
-  <link rel="stylesheet" href="assets/event-app.css?v=2dca62fd5478">
-  <script defer src="assets/event-app.js?v=77b49213357a"></script>
+  <link rel="stylesheet" href="assets/event-app.css?v=3d6357351320">
+  <script defer src="assets/event-app.js?v=01c4ac7e938d"></script>
 </head>
 <body data-host="pages">
   <header class="top">

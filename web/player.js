@@ -8,8 +8,8 @@ function tabValue(key,value){
   return '';
 }
 function unpack(value){try{return JSON.parse(value)}catch{return null}}
-let playerSession=unpack(tabValue('player-login')||durable.get('player-login'));
-let challenge=unpack(tabValue('email-step')), pendingRequest=tabValue('seat-request'), accountInfo;
+let playerSession=unpack(deviceValue('player-login')),sharedSession=!!durable.get('player-login');
+let challenge=unpack(deviceValue('email-step')), pendingRequest=tabValue('seat-request'),accountInfo,accountLoad;
 let preferredReceipt=incomingReceipt||tabValue('receipt-link')||'';
 let currentReceipt=null,currentPass=null,ticketTimer,qrLibrary,proofRead=null,paymentLibrary;
 function loadPaymentForm(){
@@ -19,35 +19,67 @@ function loadPaymentForm(){
 }
 function warmPaymentForm(){loadPaymentForm().catch(()=>{})}
 if(incomingReceipt)tabValue('receipt-link',incomingReceipt);
-function signInPage(keepForm=false){
-  challenge=null;tabValue('email-step','');heading('','Event registration');
-  if(keepForm&&el('identifier')&&document.documentElement.dataset.entry==='register')return;
+function signInPage(keepForm=false,hint=deviceValue('email-hint')){
+  challenge=null;saveDeviceValue('email-step','');heading('','Event registration');
+  if(keepForm&&el('identifier')&&document.documentElement.dataset.entry==='register'){
+    if(!el('identifier').value)el('identifier').value=hint||'';return;
+  }
   const entry=signInForm('requestCode','<p>Use your roll number or account email to receive a six-digit code.</p>'+
-    input('identifier','Roll number or registered email','type="text" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="254" required placeholder="Nine-digit roll number or email"'),'Send code');
+    input('identifier','Roll number or registered email','type="text" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="254" required placeholder="Nine-digit roll number or email" value="'+esc(hint)+'"'),'Send code');
   el('content').innerHTML='<div class="narrow login-card">'+panel('Email sign-in','<div data-entry-price class="offer"></div>'+entry)+'</div>';
   updatePrices();
 }
 function codePage(){
   heading('','Check your email');
   const mailbox=/^\d{9}$/.test(challenge.identifier)?'the email on your student record':'<strong>'+esc(challenge.identifier)+'</strong>';
+  if(challenge.expires<=Date.now()){
+    clearInterval(resendTimer);
+    el('content').innerHTML='<div class="narrow login-card">'+panel('Get a new sign-in code','<p>Your previous code expired. Send a new one to '+mailbox+' to continue.</p>'+btn('resendCode','Send a new code','primary wide')+btn('changeLogin','Change roll number or email'))+'</div>';return;
+  }
   const form=signInForm('verifyCode','<p>Check '+mailbox+' for a six-digit code from <strong>Poké Poker Night 2026</strong>. Enter it here within 10 minutes.</p>'+
     '<p class="mail-folder"><a href="https://outlook.office.com/mail/junkemail" target="_blank" rel="noopener noreferrer">Open Outlook Junk Email</a> if the code is missing from your inbox. In Gmail, check Spam. You can use the code straight from either folder.</p>'+
-    codeInput()+checkbox('remember','Remember my student sign-in for 7 days'),'Verify and continue');
+    codeInput()+'<p class="sub">Student sign-in is saved on this device for 30 days.</p>','Verify and continue');
   const help='<details><summary>Email hasn’t arrived?</summary><p>Check that your roll number matches the email on your student record. A resend keeps the same active code.</p>'+
     signInForm('matchMail',rollField('matchRoll')+input('matchEmail','Email on your student record','type="email" autocomplete="email" required maxlength="254"'),'Check details and send code')+'</details>';
   el('content').innerHTML='<div class="narrow login-card">'+panel('Enter your sign-in code',form+btn('resendCode','Resend code')+btn('changeLogin','Change roll number or email')+help)+'</div>';
   if(/^\d{9}$/.test(challenge.identifier))el('matchRoll').value=challenge.identifier;else el('matchEmail').value=challenge.identifier;
   startResendTimer(challenge.resendAt);el('loginCode').focus({preventScroll:true});
 }
-function clearPlayer(){
-  clearTimeout(ticketTimer);clearTimeout(checkoutTimer);proofRead=null;currentReceipt=null;
-  playerSession=null;challenge=null;pendingRequest='';preferredReceipt='';accountInfo=null;
+function resetPlayerView(){
+  clearTimeout(ticketTimer);clearTimeout(checkoutTimer);clearInterval(resendTimer);
+  proofRead=null;currentReceipt=null;playerSession=null;challenge=null;pendingRequest='';preferredReceipt='';accountInfo=null;accountLoad=null;
   for(const key of ['player-login','seat-request','email-step','receipt-link'])tabValue(key,'');
-  for(const key of ['player-login','receipt','pending-seat'])durable.set(key,'');
+}
+function clearPlayer(forgetDrafts=false){
+  const roll=accountInfo?.player?.roll||playerSession?.roll,shared=unpack(durable.get('player-login'));
+  const other=shared?.token&&playerSession?.token&&shared.token!==playerSession.token;
+  if(forgetDrafts)dropAccountDrafts(roll);
+  resetPlayerView();sharedSession=false;
+  if(!other)for(const key of ['player-login','receipt','pending-seat','email-step','email-hint'])saveDeviceValue(key,'');
+}
+function rememberPlayer(session,roll){
+  playerSession={...session,roll:roll||session.roll||''};
+  const value=JSON.stringify(playerSession);
+  sharedSession=durable.get('player-login')===value||saveDeviceValue('player-login',value);
+}
+function syncDeviceSession(){
+  let saved;try{saved=unpack(localStorage.getItem('pn26:player-login'))}catch{return false}
+  if((!saved?.token&&!sharedSession)||saved?.token===playerSession?.token)return false;
+  resetPlayerView();playerSession=saved;sharedSession=!!saved?.token;
+  if(sharedSession)launch();else signInPage();return true;
 }
 async function playerApi(method,...args){
-  try{const result=await api(method,playerSession?.token||'',...args);if(result?.offer)syncOffer(result.offer);return result}
-  catch(e){if(String(e.message).includes('Sign in with your registered email')){clearPlayer();signInPage()}throw e}
+  const token=playerSession?.token;
+  try{
+    const result=await api(method,token||'',...args);
+    if(token!==playerSession?.token)throw Error('The signed-in account changed.');
+    if(result?.offer)syncOffer(result.offer);return result;
+  }catch(e){
+    if(token&&token===playerSession?.token&&String(e.message).includes('Sign in with your registered email')){
+      const hint=accountInfo?.player?.roll||playerSession.roll;clearPlayer();signInPage(false,hint);
+    }
+    throw e;
+  }
 }
 function progress(step){
   return '<ol class="progress" aria-label="Registration progress">'+['Details','Pay','Ticket'].map((label,i)=>
@@ -55,7 +87,8 @@ function progress(step){
 }
 function accountScreen(step,body){
   el('content').innerHTML='<div class="narrow">'+progress(step)+(step&&currentReceipt?detailsEditor(currentReceipt):'')+body+'<div class="account-actions">'+btn('logout','Sign out','quiet')+'</div></div>';
-  updatePrices();
+  mountDetailsDraft();updatePrices();
+  if(playerSession&&!sharedSession)el('net').textContent='This browser is blocking saved sign-in. Keep this tab open to stay signed in.';
   if(busy){const title=el('title');title.tabIndex=-1;title.focus({preventScroll:true});title.scrollIntoView({block:'nearest'})}
 }
 function registrationForm(person,action,label,fee,next){
@@ -63,10 +96,10 @@ function registrationForm(person,action,label,fee,next){
     input('regName','Full Name','autocomplete="name" required maxlength="100" value="'+esc(person.fullName??person.name??'')+'"')+
     input('regPgp','PGP ID','readonly required aria-describedby="pgpHint" value="'+esc(person.pgpId||person.roll||'')+'"')+
     '<p class="sub" id="pgpHint">Your PGP ID was verified at sign-in.</p>'+
-    input('regContact','Contact No. (optional)','type="tel" autocomplete="tel" maxlength="24" value="'+esc(person.contact??person.phone??'')+'"')+
+    phoneField('regContact',person.contact||person.phone||'')+
     batchField('regBatch',person.batch)+
     (fee?'<div data-entry-price class="offer"></div>':'')+(next?'<p class="sub">'+esc(next)+'</p>':'')+
-    '<button class="primary wide" type="submit">'+esc(label)+'</button></form>';
+    '<button class="primary wide" type="submit">'+esc(label)+'</button><p class="sub draft-note" id="detailDraftNote"></p></form>';
 }
 function registrationPerson(r){return {...(accountInfo?.player||{}),...r.details,pgpId:r.beneficiary}}
 function detailsEditor(r){
@@ -76,7 +109,7 @@ function detailsEditor(r){
 function enteredDetails(){
   const fullName=val('regName'),contact=val('regContact');
   if(!fullName){fieldError('regName','Enter your full name.');return}
-  if(contact&&(!/^\+?[\d ()-]{7,24}$/.test(contact)||!/^\d{7,15}$/.test(contact.replace(/\D/g,'')))){fieldError('regContact','Check your contact number or leave it blank.');return}
+  if(!validPhone(contact)){fieldError('regContact',contact?'Enter a phone number with 7–15 digits.':'Enter your phone number.');return}
   const batch=val('regBatch');if(!batch){fieldError('regBatch','Choose your batch to continue.');return}
   return {fullName,pgpId:val('regPgp'),contact,batch};
 }
@@ -87,8 +120,15 @@ function registrationPage(){
   const form=registrationForm(person,'start',info.paymentsReady?'Continue to payment':'Save my registration',true,next);
   accountScreen(0,panel(info.open?'Entry details':'Registration closed',info.open?form:'<p>'+esc(info.message)+'</p>'));
 }
-async function loadAccount(){
-  renderAccount(await playerApi('playerHome',preferredReceipt||''));
+function loadAccount(){
+  if(accountLoad)return accountLoad;
+  const session=playerSession;
+  const request=playerApi('playerHome',preferredReceipt||'').then(info=>{
+    if(session?.token!==playerSession?.token||syncDeviceSession())return;
+    rememberPlayer({...session,expires:info.sessionExpires||session.expires},info.player.roll);
+    msg();el('net').textContent='';renderAccount(info);
+  }).finally(()=>{if(accountLoad===request)accountLoad=null});
+  accountLoad=request;return request;
 }
 function renderAccount(info){
   accountInfo=info;syncOffer(info.offer);
@@ -117,12 +157,16 @@ function checkoutPanel(r){
 }
 function showReceipt(r){
   proofRead=null;currentReceipt=r;clearTimeout(checkoutTimer);preferredReceipt=r.ticket;durable.set('receipt',r.ticket);
-  if(!r.details?.batch&&['REGISTERED','WAITLIST','HOLD','REVIEW','REJECTED'].includes(r.status)){
+  adoptInitialDetailsDraft(r);
+  const proofKey=draftKey('proof',r.beneficiary,r.id),priorProof=draftValue(proofKey);
+  if(priorProof&&(priorProof.revision!==(r.proofVersion||0)||!['HOLD','REVIEW','REJECTED'].includes(r.status)))removeProofDraft(proofKey,priorProof.marker);
+  const needsDetails=!r.details?.batch||!validPhone(r.details?.contact);
+  if(needsDetails&&['REGISTERED','WAITLIST','HOLD','REVIEW','REJECTED'].includes(r.status)){
     heading('Poké Poker Night','Your registration');
-    const note=r.status==='REVIEW'?'Your payment proof is saved. Choose your batch to complete your registration.':'';
+    const note=r.status==='REVIEW'?'Your payment proof is saved. Complete your details here.':'';
     accountScreen(0,panel('Registration details',registrationForm(registrationPerson(r),'saveDetails','Save and continue',false,note)));return;
   }
-  if(typeof proofForm!=='function'&&(r.receiver||r.identifyReceivers?.length)&&['HOLD','REVIEW','REJECTED'].includes(r.status)){
+  if(typeof proofForm!=='function'&&(r.status==='HOLD'||(r.receiver||r.identifyReceivers?.length)&&['REVIEW','REJECTED'].includes(r.status))){
     el('content').innerHTML=skeleton('Opening payment details');
     loadPaymentForm().then(()=>{if(currentReceipt===r)showReceipt(r)}).catch(()=>{
       if(currentReceipt===r)accountScreen(1,panel('Payment details unavailable','<p>Check your connection and try again.</p>'+btn('receipt','Retry opening payment','primary wide')));
@@ -139,7 +183,7 @@ function showReceipt(r){
       btn('copyReceipt','Copy private receipt link','quiet')+'<div id="copyReceiptFallback"></div>');
   }else if(r.status==='HOLD'){
     body='<div id="checkoutPayment">'+checkoutPanel(r)+'</div><div id="checkoutUpdate" class="sub" role="status" hidden></div>';
-    body+=r.receiver?proofForm(r):panel('Upload payment proof','<form data-action="upload" novalidate><label for="shot">Payment screenshot</label><input id="shot" type="file" accept="image/jpeg,image/png,image/webp">'+input('tail','Visible final digits of the UPI reference (optional)','inputmode="numeric" maxlength="12" placeholder="Last 4–12 digits"')+'<p class="sub">Keep the amount, recipient and reference visible.</p>'+checkbox('consent','I agree to share this proof with the E-Cell payment desk for verification.')+'<button class="primary wide" type="submit">Submit for review</button></form>');
+    body+=r.receiver?proofForm(r):panel('Upload payment proof','<form data-action="upload" novalidate><label for="shot">Payment screenshot</label><input id="shot" type="file" accept="image/jpeg,image/png,image/webp" required><p class="sub draft-note" id="proofDraftNote"></p>'+input('tail','Visible final digits of the UPI reference (optional)','inputmode="numeric" maxlength="12" placeholder="Last 4–12 digits"')+'<p class="sub">Keep the amount, recipient and reference visible.</p>'+checkbox('consent','I agree to share this proof with the E-Cell payment desk for verification.')+'<button class="primary wide" type="submit">Submit for review</button></form>');
   }else if(r.receiver&&['REVIEW','REJECTED'].includes(r.status)){
     const issue=r.issue||'Your screenshot is saved. Your pass will appear when the bank credit is authorized.';
     body=panel(r.status==='REJECTED'?'Proof needs attention':'Payment pending','<p>'+esc(issue)+'</p><p class="sub">Receiver · '+esc(r.receiver.name)+'</p>'+btn('receipt','Refresh status'));
@@ -154,6 +198,7 @@ function showReceipt(r){
       (renew?btn('renew','Request another seat','primary wide'):btn('receipt','Refresh status','primary wide')));
   }
   accountScreen(ticket||['PAID','NO_SHOW','QUALIFIED','ELIMINATED','WINNER'].includes(r.status)?2:1,body);
+  if(typeof mountPaymentDraft==='function')mountPaymentDraft(r);
   if(r.entryCode)fillTicketQr(r.entryCode,r.wave);
   scheduleTicketUpdate();scheduleCheckoutUpdate();
   if(document.body.dataset.host!=='pages'){
@@ -169,24 +214,41 @@ async function action(name){
   if(name==='identifyReceiver'){if(!val('originalReceiver'))return fieldError('originalReceiver','Choose the receiver you paid.');showReceipt(await playerApi('playerIdentifyReceiver',currentReceipt.ticket,val('originalReceiver')));return}
   if(mode==='scan')return name==='reloadScanner'?launch():scannerAction(name);
   if(name==='reloadPass'){await renderPass();return}
-  if(name==='changeLogin'){signInPage();el('identifier').focus();return}
+  if(name==='changeLogin'){saveDeviceValue('email-hint','');signInPage(false,'');el('identifier').focus();return}
   if(name==='requestCode'||name==='resendCode'||name==='matchMail'){
     const identifier=name==='resendCode'?challenge.identifier:name==='matchMail'?val('matchRoll'):val('identifier');
     if(!/^\d{9}$/.test(identifier)&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(identifier)){
       const message='Enter your nine-digit roll number or your registered email address.';
       fieldError(name==='matchMail'?'matchRoll':'identifier',message);return;
     }
-    const reply=name==='matchMail'?await api('requestMatchedPlayerCode',identifier,val('matchEmail')):await api('requestEventCode',identifier);
-    challenge={identifier,resendAt:Date.now()+reply.resendAfter*1000,expires:Date.now()+(reply.expiresIn??600)*1000};
-    tabValue('email-step',JSON.stringify(challenge));codePage();
+    saveDeviceValue('email-hint',identifier);
+    // Mail can arrive before the browser receives the response, especially when switching apps.
+    const waiting=name==='requestCode'?{identifier,resendAt:0,expires:Date.now()+600000,requestId:crypto.randomUUID()}:null;
+    if(waiting)saveDeviceValue('email-step',JSON.stringify(waiting));
+    let reply;
+    try{reply=name==='matchMail'?await api('requestMatchedPlayerCode',identifier,val('matchEmail')):await api('requestEventCode',identifier)}
+    catch(error){
+      if(waiting&&!playerSession){
+        if(error.message.includes('Could not reach')){
+          challenge=waiting;codePage();msg('If your email arrived, enter its code. You can also resend it here.');return;
+        }
+        if(unpack(deviceValue('email-step'))?.requestId===waiting.requestId)saveDeviceValue('email-step','');
+      }
+      throw error;
+    }
+    if(playerSession)return;
+    const requestId=waiting?.requestId||(challenge?.identifier===identifier&&challenge.expires>Date.now()&&challenge.requestId)||crypto.randomUUID();
+    challenge={identifier,resendAt:Date.now()+reply.resendAfter*1000,expires:Date.now()+(reply.expiresIn??600)*1000,requestId};
+    saveDeviceValue('email-step',JSON.stringify(challenge));codePage();
     if(name==='matchMail')msg(reply.delivery==='accepted'?'Your details match. Google accepted the email for delivery.':reply.delivery==='existing'?'Your details match. Your existing email code is still active.':'Your details match. A send is already in progress.');
     return;
   }
   if(name==='verifyCode'){
-    const remember=el('remember').checked;
-    let signed;
-    try{signed=await api('signInEvent',challenge.identifier,val('loginCode'),preferredReceipt||'')}
+    if(!challenge.requestId){challenge.requestId=crypto.randomUUID();saveDeviceValue('email-step',JSON.stringify(challenge))}
+    const step=challenge;let signed;
+    try{signed=await api('signInEvent',step.identifier,val('loginCode'),preferredReceipt||'',step.requestId)}
     catch(e){if(/incorrect or has expired/.test(e.message)){fieldError('loginCode',e.message);return}throw e}
+    if(challenge!==step)return;
     if(signed.continueUrl){
       const next=new URL(signed.continueUrl);
       if(next.origin!=='https://script.google.com' || !next.pathname.endsWith('/exec') ||
@@ -196,10 +258,8 @@ async function action(name){
       if(window===window.top)location.replace(next.href);
       return;
     }
-    playerSession=signed.session;
-    durable.set('player-login','');tabValue('player-login','');
-    (remember?durable.set:tabValue)('player-login',JSON.stringify(playerSession));
-    tabValue('email-step','');challenge=null;
+    rememberPlayer(signed.session,signed.account?.player?.roll);
+    saveDeviceValue('email-step','');saveDeviceValue('email-hint','');challenge=null;
     if(signed.account){renderAccount(signed.account);return}
     heading('PLAYER REGISTRATION','Signed in');
     el('content').innerHTML='<div class="narrow">'+panel('Your account',btn('account','Open registration','primary')+btn('logout','Sign out'))+'</div>';
@@ -207,7 +267,7 @@ async function action(name){
   }
   if(name==='account'){await loadAccount();return}
   if(name==='refreshBoard'){await refreshBoard();return}
-  if(name==='logout'){const token=playerSession?.token;clearPlayer();signInPage();if(token)await api('playerLogout',token);return}
+  if(name==='logout'){const token=playerSession?.token;clearPlayer(true);signInPage();if(token)await api('playerLogout',token);return}
   if(name==='renew'){preferredReceipt='';pendingRequest='';tabValue('seat-request','');durable.set('receipt','');registrationPage();return}
   if(name==='refreshQuote'){await refreshCheckoutQuote();return}
   if(name==='saveDetails'){
@@ -220,11 +280,13 @@ async function action(name){
       const text='Another tab saved '+[saved.details.fullName,saved.details.batch,saved.details.contact].filter(Boolean).join(' · ')+'. Check your changes and save again.';
       if(editor)el('detailsFeedback').textContent=text;else msg(text,true);return;
     }
+    finishDetailsDraft(el('regName').form,saved);
     if(!editor||r.status!==saved.status){showReceipt(saved);return}
     if(el('paymentPayer')&&el('paymentPayer').value===previousName)el('paymentPayer').value=d.fullName;
     if(el('beneficiaryName'))el('beneficiaryName').value=d.fullName+' · '+r.beneficiary;
     const walletName=document.querySelector('.wallet-player');if(walletName)walletName.textContent=d.fullName;
-    editor.open=false;editor.querySelector('summary').focus({preventScroll:true});
+    editor.open=!!draftValue(el('regName').form.dataset.draftKey);
+    if(!editor.open)editor.querySelector('summary').focus({preventScroll:true});
     el('detailsFeedback').textContent='';el('detailsSaved').textContent='Saved';el('ticketAnnouncement').textContent='Registration details saved.';
     return;
   }
@@ -232,7 +294,8 @@ async function action(name){
     const details=enteredDetails();if(!details)return;
     if(accountInfo.paymentsReady)warmPaymentForm();
     if(!pendingRequest){pendingRequest=globalThis.crypto?.randomUUID?.()||'';tabValue('seat-request',pendingRequest)}
-    showReceipt(await playerApi('playerStart',preferredReceipt||'',pendingRequest,JSON.stringify(details)));
+    const form=el('regName').form,saved=await playerApi('playerStart',preferredReceipt||'',pendingRequest,JSON.stringify(details));
+    finishDetailsDraft(form,saved);showReceipt(saved);
     pendingRequest='';tabValue('seat-request','');return;
   }
   if(name==='receipt'){showReceipt(await playerApi('playerStatus',preferredReceipt));return}
@@ -246,12 +309,13 @@ async function action(name){
     return;
   }
   if(name==='upload'){
-    const file=el('shot').files[0],tail=val('tail');
+    const shot=el('shot'),file=shot.files[0]||shot.form.savedFile,tail=val('tail');
     if(!file){fieldError('shot','Choose a screenshot of your payment.');return}
     if(tail&&!/^\d{4,12}$/.test(tail)){fieldError('tail','Enter the last 4–12 digits, or leave this blank.');return}
     if(!el('consent').checked){fieldError('consent','Confirm that the desk may review your screenshot.');return}
     let data;try{data=await picture(file)}catch(e){fieldError('shot',e.message);return}
-    showReceipt(await playerApi('playerUpload',preferredReceipt,tail,data));
+    const saved=await playerApi('playerUpload',preferredReceipt,tail,data);
+    removeProofDraft(shot.form.dataset.proofKey,shot.form.proofDraft?.marker);showReceipt(saved);
   }
 }
 function pollDelay(base,failures){return Math.min(90000,base*2**Math.min(failures,3))*(1+Math.random()*.3)}
@@ -308,13 +372,13 @@ async function launch(){try{
     await refreshBoard();return;
   }
   if(mode==='pass'){await renderPass();return}
-  if(playerSession?.expires>Date.now()){
+  if(playerSession?.token){
     if(preferredReceipt)warmPaymentForm();
     heading('Poké Poker Night','Your registration');
     el('content').innerHTML=skeleton('Opening your registration');
     try{await loadAccount()}catch(e){if(playerSession)el('content').innerHTML='<div class="narrow">'+panel('Your account',btn('account','Open registration','primary')+btn('logout','Sign out'))+'</div>';throw e}return;
   }
-  if(challenge?.expires>Date.now()){codePage();return}
+  if(challenge?.identifier){codePage();return}
   signInPage(true);
   if(window.pendingPokerSignIn){
     window.pendingPokerSignIn=false;
@@ -325,6 +389,16 @@ async function launch(){try{
 addEventListener('online',()=>{el('net').textContent='';if(mode==='board')refreshBoard()});
 addEventListener('offline',()=>{el('net').textContent='Offline. Reconnect for updates.'});
 if(mode==='board')document.addEventListener('visibilitychange',()=>{if(document.hidden)clearTimeout(boardTimer);else if(navigator.onLine)refreshBoard()});
+if(mode==='register'){
+  document.addEventListener('input',e=>{if(e.target.id==='identifier')saveDeviceValue('email-hint',e.target.value)});
+  addEventListener('storage',e=>{if(e.key==='pn26:player-login'||e.key===null)syncDeviceSession()});
+  const resume=()=>{
+    if(document.hidden||syncDeviceSession())return;
+    if(playerSession&&!accountInfo&&navigator.onLine)loadAccount().catch(e=>msg(e.message,true));
+    else if(!playerSession&&challenge?.expires<=Date.now()&&el('loginCode'))codePage();
+  };
+  addEventListener('online',resume);addEventListener('pageshow',resume);document.addEventListener('visibilitychange',resume);
+}
 if(mode==='register'||mode==='pass'){
   document.addEventListener('click',e=>{if(e.target.closest('#checkoutPayment a')&&checkoutNeedsUpdate()){e.preventDefault();refreshCheckoutQuote()}},true);
   document.addEventListener('visibilitychange',()=>{if(document.hidden)clearTimeout(ticketTimer);else{checkCheckoutTime();updateTicket()}});

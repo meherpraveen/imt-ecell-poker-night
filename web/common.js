@@ -2,11 +2,13 @@
 const el=id=>document.getElementById(id);
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const val=id=>el(id)?.value.trim()||'';
-const durable={get(k){try{return localStorage.getItem('pn26:'+k)||''}catch{return ''}},set(k,v){try{localStorage.setItem('pn26:'+k,v)}catch{}}};
+const durable={get(k){try{return localStorage.getItem('pn26:'+k)||''}catch{return ''}},set(k,v){try{if(v)localStorage.setItem('pn26:'+k,v);else localStorage.removeItem('pn26:'+k);return true}catch{return false}}};
 let clockEnd=0,busy=false;
 function msg(t='',bad=false){el('msg').textContent=t;el('msg').className='note'+(bad?' error':'')}
 function btn(action,label,cls='',id=''){return '<button type="button" data-do="'+action+'" data-id="'+esc(id)+'" class="'+cls+'">'+esc(label)+'</button>'}
 function input(id,label,extra=''){return '<label for="'+id+'">'+label+'</label><input id="'+id+'" '+extra+'>'}
+function validPhone(value){return typeof value==='string'&&/^\+?[\d ()-]{7,24}$/.test(value)&&/^\d{7,15}$/.test(value.replace(/\D/g,''))}
+function phoneField(id,value=''){return input(id,'Phone number','type="tel" autocomplete="tel" required maxlength="24" value="'+esc(value)+'"')}
 function batchField(id,value=''){
   return '<label for="'+id+'">Batch</label><select id="'+id+'" required><option value="">Choose your batch</option>'+
     ['2025-27','2026-28'].map(batch=>'<option'+(value===batch?' selected':'')+'>'+batch+'</option>').join('')+'</select>';

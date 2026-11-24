@@ -52,7 +52,7 @@ export const test=base.extend({
     });
     await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
     const origin='http://127.0.0.1:'+server.address().port;
-    await context.route('**/*',async route=>{
+    const attach=target=>target.route('**/*',async route=>{
       const url=route.request().url();
       if(url.startsWith(origin+'/'))return route.continue();
       if(url.startsWith(testEndpoint+'?')&&route.request().isNavigationRequest())return route.fulfill({contentType:'text/html; charset=utf-8',body:staffPage(new URL(url))});
@@ -60,8 +60,9 @@ export const test=base.extend({
       if(url===testEndpoint)return route.fulfill({json:event.post(route.request().postDataJSON()),headers:{'Access-Control-Allow-Origin':'*'}});
       return route.abort();
     });
+    await attach(context);
     const staffUrl=role=>origin+'/club?view=staff&invite='+event.invite(role);
-    try{await use({...event,origin,staffUrl,register:origin+'/event.html?view=register',floor:origin+'/event.html?view=board',endpoint:testEndpoint})}
+    try{await use({...event,origin,staffUrl,attach,register:origin+'/event.html?view=register',floor:origin+'/event.html?view=board',endpoint:testEndpoint})}
     finally{server.closeAllConnections();await new Promise(resolve=>server.close(resolve))}
   }
 });

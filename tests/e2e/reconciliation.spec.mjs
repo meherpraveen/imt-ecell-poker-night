@@ -8,7 +8,7 @@ async function register(page,site){
   await page.goto(site.register);await page.getByLabel('Roll number or registered email').fill(player.roll);
   await button(page,'Send code').click();await expect(page.getByLabel('Six-digit code')).toBeVisible();
   await page.getByLabel('Six-digit code').fill(site.code(player.email));await button(page,'Verify and continue').click();
-  await expect(page.getByLabel('Full Name')).toHaveValue('Sample Student');await expect(page.getByLabel('PGP ID',{exact:true})).toHaveValue(player.roll);await page.getByLabel('Batch',{exact:true}).selectOption('2026-28');await page.getByLabel('Contact No. (optional)').fill('9876543210');await button(page,'Continue to payment').click();
+  await expect(page.getByLabel('Full Name')).toHaveValue('Sample Student');await expect(page.getByLabel('PGP ID',{exact:true})).toHaveValue(player.roll);await page.getByLabel('Batch',{exact:true}).selectOption('2026-28');await page.getByLabel('Phone number').fill('9876543210');await button(page,'Continue to payment').click();
 }
 async function addReceiver(admin,site){
   await admin.goto(site.staffUrl('admin'));await button(admin,'Send code to club email').click();

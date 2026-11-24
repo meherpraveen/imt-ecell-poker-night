@@ -138,7 +138,7 @@ test('editing registration keeps the receiver, screenshot, OCR and verified PGP 
   await expect(editor.getByLabel('PGP ID')).toHaveAttribute('readonly','');
   await expect(editor.getByLabel('Batch')).toHaveValue('2026-28');
   await editor.getByLabel('Full Name').fill('Edited Student');
-  await editor.getByLabel('Contact No. (optional)').fill('9876543210');
+  await editor.getByLabel('Phone number').fill('9876543210');
   await editor.getByLabel('Batch').selectOption('');await editor.getByRole('button',{name:'Save changes'}).click();
   await expect(editor.locator('#regBatchError')).toHaveText('Choose your batch to continue.');
   await editor.getByLabel('Batch').selectOption('2025-27');await editor.getByRole('button',{name:'Save changes'}).click();
@@ -149,7 +149,7 @@ test('editing registration keeps the receiver, screenshot, OCR and verified PGP 
   await expect(page.getByLabel('Who was the payment for?')).toHaveValue('Edited Student · '+player.hold.beneficiary);
   const saved=player.status();expect(saved.ticket).toBe(player.hold.ticket);expect(saved.details.batch).toBe('2025-27');
   await page.reload();await page.locator('#registrationEditor summary').click();
-  await expect(page.getByLabel('Full Name')).toHaveValue('Edited Student');await expect(page.getByLabel('Contact No. (optional)')).toHaveValue('9876543210');
+  await expect(page.getByLabel('Full Name')).toHaveValue('Edited Student');await expect(page.getByLabel('Phone number')).toHaveValue('9876543210');
   expect(site.calls.filter(action=>action==='playerStart')).toHaveLength(1);
 });
 
