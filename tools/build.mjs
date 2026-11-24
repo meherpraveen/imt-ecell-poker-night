@@ -21,7 +21,17 @@ const playerCode=read('web/player-storage.js')+'\n'+read('web/player.js')
   .replace('__ACCOUNT_VERSION__',accountVersion).replace('__SCANNER_VERSION__',scannerVersion).replace('__PAYMENT_VERSION__',paymentVersion);
 const pricing=read('gas/Pricing.gs');
 const publishedPrices=runInNewContext(pricing+'\nENTRY_PRICING');
-const priceDisplay=read('web/prices.js').replace('__PUBLISHED_PRICES__',JSON.stringify(publishedPrices));
+const money=new Intl.NumberFormat('en-IN',{style:'currency',currency:publishedPrices.currency,maximumFractionDigits:0});
+const fees={label:'Entry fees',entry:money.format(publishedPrices.earlyBird)+'–'+money.format(publishedPrices.standard),
+  standard:money.format(publishedPrices.standard),retry:money.format(publishedPrices.retry)};
+const deadline=new Date(publishedPrices.earlyBirdEndsAt).toLocaleString('en-IN',{day:'numeric',month:'short',hour:'numeric',minute:'2-digit',timeZone:'Asia/Kolkata'})+' IST';
+const feeMarkup='<div class="price-label">Published entry fees</div><div class="price-values"><strong>'+fees.entry+'</strong></div>'+
+  '<p class="price-time">Early Bird ends '+deadline+'</p>';
+const priceDisplay=read('web/prices.js').replace('__PUBLISHED_SCHEDULE__',()=>JSON.stringify({fees,markup:feeMarkup}));
+function withPublishedFees(html){
+  return html.replace(/<!-- FEES:START -->[\s\S]*?<!-- FEES:END -->/g,()=>'<!-- FEES:START -->'+feeMarkup+'<!-- FEES:END -->')
+    .replace(/(<(?:span|strong|dd) data-home-fee="(label|entry|standard|retry)">)[^<]*/g,(_,tag,key)=>tag+fees[key]);
+}
 const sponsorMarkup=read('web/sponsors.html').trim();
 function withSponsors(html) {
   const slot=/<!-- SPONSORS:START -->[\s\S]*?<!-- SPONSORS:END -->/;
@@ -32,8 +42,12 @@ async function publicScript(parts){
   const compiled=await minify(parts.join('\n;\n'),{ecma:2020});
   return read('web/config.js').trim()+'\n'+compiled.code+'\n';
 }
+// Pages can serve a cached HTML document with newer bytes at an old script URL.
+// Either entry point can install the transport. A normal visit shares one request map.
+const transport=await publicScript([read('web/transport.js')]);
+const installTransport="'use strict';\nif(typeof window.api!=='function'){(()=>{"+transport+"window.api=api;})();}\n";
 const bundles={
-  js:(await minify([read('web/public-api.js'),priceDisplay,commonCode,playerCode].join('\n;\n'),{ecma:2020})).code+'\n',
+  js:installTransport+(await minify([read('web/public-api.js'),priceDisplay,commonCode,playerCode].join('\n;\n'),{ecma:2020})).code+'\n',
   css:[baseStyles,eventStyles].join('\n')
 };
 function writeAsset(filename, content) {
@@ -42,16 +56,22 @@ function writeAsset(filename, content) {
   fs.writeFileSync(path.join(root,assets+filename),normalized);
   return createHash('sha256').update(normalized).digest('hex').slice(0,12);
 }
-const homeVersion=writeAsset('site.css',baseStyles+'\n'+read('web/home.css'));
+const homeStyles=baseStyles+'\n'+read('web/home.css');
+writeAsset('site.css',homeStyles);
 const priceVersion=writeAsset('entry-prices.js',await publicScript([read('web/transport.js'),priceDisplay,read('web/home-navigation.js')]));
-const homepage=withSponsors(read('docs/index.html')).replace(/site\.css\?v=[a-z0-9]+/,'site.css?v='+homeVersion)
+const homeSource=withPublishedFees(withSponsors(read('docs/index.html')));
+const hero=homeSource.match(/<img class="hero-wordmark"[^>]+>/)[0];
+const avifSet=hero.match(/srcset="([^"]+)"/)[1].replace(/\.webp/g,'.avif'),heroSizes=hero.match(/sizes="([^"]+)"/)[1];
+const preload='<link rel="preload" as="image" type="image/avif" fetchpriority="high" imagesrcset="'+avifSet+'" imagesizes="'+heroSizes+'">';
+const homepage=homeSource.replace(/<!-- HOME-STYLES:START -->[\s\S]*?<!-- HOME-STYLES:END -->/,
+  ()=>'<!-- HOME-STYLES:START -->\n  '+preload+'\n  <style>'+homeStyles.trim()+'</style>\n  <!-- HOME-STYLES:END -->')
+  .replace(/<source type="image\/avif"[^>]*>/,()=>'<source type="image/avif" srcset="'+avifSet+'" sizes="'+heroSizes+'">')
   .replace(/entry-prices\.js\?v=[a-z0-9]+/,'entry-prices.js?v='+priceVersion);
 fs.writeFileSync(path.join(root,'docs/index.html'),homepage);
-let publicPage=withSponsors(read('docs/event.html'));
-const transport=await publicScript([read('web/transport.js')]);
+let publicPage=withPublishedFees(withSponsors(read('docs/event.html')));
 const floorStart="if(document.documentElement.dataset.entry==='board'&&!document.hidden){window.firstFloorRead=api('liveFloor');window.firstFloorRead.catch(()=>{});}";
 publicPage=publicPage.replace(/<!-- EVENT-DATA:START -->[\s\S]*?<!-- EVENT-DATA:END -->/,
-  ()=>'<!-- EVENT-DATA:START -->\n  <script>'+transport+floorStart+'</script>\n  <!-- EVENT-DATA:END -->');
+  ()=>'<!-- EVENT-DATA:START -->\n  <script>'+installTransport+floorStart+'</script>\n  <!-- EVENT-DATA:END -->');
 for(const [extension,content] of Object.entries(bundles)){
   const version=writeAsset('event-app.'+extension,content);
   publicPage=publicPage.replace(new RegExp('event-app\\.'+extension+'\\?v=[a-z0-9]+'),'event-app.'+extension+'?v='+version);

@@ -4,6 +4,26 @@ import {createHash} from 'node:crypto';
 
 const domain=readFileSync(new URL('../../docs/CNAME',import.meta.url),'utf8').trim();
 const site=process.env.POKER_PUBLIC_SITE||'https://'+domain+'/';
+test('the published Apps Script registration renders inside the Google host @deployed',async({page})=>{
+  test.setTimeout(90000);
+  const config=readFileSync(new URL('../../web/config.js',import.meta.url),'utf8');
+  const url=new URL(config.match(/https:\/\/script\.google\.com\/[^'"]+\/exec/)[0]);
+  url.searchParams.set('view','register');
+  await page.goto(url.href,{waitUntil:'domcontentloaded'});
+  let app;
+  await expect.poll(async()=>{
+    for(const frame of page.frames()){
+      if(await frame.locator('body[data-mode="register"]').count()){app=frame;return true}
+    }
+    return false;
+  },{timeout:40000}).toBe(true);
+  await expect(app.getByRole('link',{name:'Poké Poker Night home'})).toHaveAttribute('href','https://'+domain+'/');
+  await expect(app.locator('.offer .price-values strong')).toHaveText(/^₹[\d,]+$/,{timeout:40000});
+  await app.getByLabel('Roll number or registered email').fill('invalid');
+  await app.getByRole('button',{name:'Send code',exact:true}).click();
+  await expect(app.locator('#identifierError')).toContainText('nine-digit');
+});
+
 test('published navigation, mobile startup, live floor and backend validation @deployed',async({page})=>{
   test.setTimeout(110000);
   const errors=[],actions=[];
@@ -82,7 +102,7 @@ test('published pages, checkout module and camera assets match the release build
     expect(digest(content),file).toBe(digest(read(file)));
     if(version)expect(digest(content).slice(0,12),file).toBe(version);
   }));
-  const imageRefs=new Set([read('index.html'),read('event.html')].flatMap(page=>page.match(/assets\/[\w.-]+\.(?:webp|png)/g)||[]));
+  const imageRefs=new Set([read('index.html'),read('event.html')].flatMap(page=>page.match(/assets\/[\w.-]+\.(?:webp|png|avif)/g)||[]));
   for(const asset of imageRefs){
     const response=await request.get(new URL(asset,site).href);
     expect(response.ok(),asset).toBe(true);

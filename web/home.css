@@ -25,6 +25,7 @@
 .hero-layout {display: grid; grid-template-columns: minmax(0,1.32fr) minmax(0,1fr); align-items: center; gap: clamp(20px,4vw,66px); min-height: clamp(460px,40vw,590px); padding-block: clamp(52px,5.8vw,91px)}
 .hero-copy {min-width: 0}
 .home h1 {margin: 0 0 clamp(22px,2.3vw,32px); line-height: 1}
+.home h1 picture {display:block}
 .hero-wordmark {display: block; width: min(100%,510px); height: auto}
 .event-when {display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 0; margin: 0 0 12px; font-size: clamp(.94rem,1.3vw,1.08rem); line-height: 1.45; letter-spacing: -.012em; font-weight: 580}
 .event-when span::before {content: '·'; color: var(--muted); margin-inline: .63em}

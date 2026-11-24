@@ -4,7 +4,7 @@ import {test as base,expect} from '@playwright/test';
 import {createEvent} from './event-runtime.mjs';
 
 const docs=new URL('../../docs/',import.meta.url);
-const types={html:'text/html',css:'text/css',js:'text/javascript',webp:'image/webp',png:'image/png'};
+const types={html:'text/html',css:'text/css',js:'text/javascript',webp:'image/webp',avif:'image/avif',png:'image/png'};
 const testEndpoint='https://script.google.com/macros/s/test-event/exec';
 const staffTransport=`<script>
 window.google={script:{
@@ -38,7 +38,7 @@ export const test=base.extend({
           res.setHeader('content-type','text/html; charset=utf-8');
           return res.end(staffPage(u));
         }
-        if(['/event.html','/assets/entry-prices.js'].includes(u.pathname)){
+        if(['/event.html','/assets/event-app.js','/assets/entry-prices.js'].includes(u.pathname)){
           const bundle=await readFile(new URL(u.pathname.slice(1),docs),'utf8');
           const config=await readFile(new URL('../../web/config.js',import.meta.url),'utf8');
           res.setHeader('content-type',u.pathname==='/event.html'?'text/html; charset=utf-8':'text/javascript; charset=utf-8');

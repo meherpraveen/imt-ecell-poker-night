@@ -11,13 +11,32 @@ test.describe('cold mobile assets',()=>{
       expect(response.ok()).toBe(true);
       return (await response.body()).length;
     }
+    const wordmarks=[];page.on('request',req=>{if(req.url().includes('/assets/poke-poker-night'))wordmarks.push(req.url())});
     await page.goto(site.origin);
-    expect(await imageSize('.hero-wordmark')).toBeLessThan(58*1024);
+    const wordmarkBytes=await imageSize('.hero-wordmark');
+    expect(wordmarks).toHaveLength(1);
+    expect(wordmarkBytes).toBeLessThan((wordmarks[0].endsWith('.avif')?30:58)*1024);
     await page.getByRole('link',{name:'Sign in to register'}).click();
     expect(await imageSize('.appbar .event-wordmark')).toBeLessThan(14*1024);
     const runtime=await request.get(await page.locator('#event-runtime').evaluate(node=>node.src));
     expect(runtime.ok()).toBe(true);
     expect((await runtime.body()).length).toBeLessThan(32*1024);
+  });
+});
+
+test.describe('published fees before JavaScript',()=>{
+  test.use({javaScriptEnabled:false});
+  test('entry fees and their deadline arrive with both public pages',async({page,site})=>{
+    await page.goto(site.origin);
+    const schedule=page.locator('[data-entry-price]');
+    await expect(schedule).toContainText('Early Bird ends');
+    const range=await schedule.locator('strong').innerText();
+    expect(range).toMatch(/^₹[\d,]+–₹[\d,]+$/);
+    await page.getByRole('link',{name:'Sign in to register'}).click();
+    await expect(schedule.locator('strong')).toHaveText(range);
+    await expect(page.getByRole('note')).toContainText('Enable JavaScript');
+    await expect(page.getByRole('button',{name:'Send code'})).toBeHidden();
+    expect(site.calls).toEqual([]);
   });
 });
 
@@ -39,6 +58,23 @@ test('retrying a failed startup keeps the typed identifier and sends exactly one
   await expect(page.getByLabel('Six-digit code')).toBeVisible();
   expect(site.mail).toHaveLength(1);
   expect(site.calls.filter(action=>action==='requestEventCode')).toHaveLength(1);
+});
+
+test('cached event HTML can use a newly published runtime during a Pages rollout',async({page,site})=>{
+  await page.route('**/event.html?view=register',async route=>{
+    const response=await route.fetch();
+    const cached=(await response.text()).replace(/<!-- EVENT-DATA:START -->[\s\S]*?<!-- EVENT-DATA:END -->/,'')
+      .replace(/event-app\.js\?v=[a-f0-9]+/,'event-app.js?v=9a8e268d30c2');
+    await route.fulfill({response,body:cached});
+  });
+  const errors=[];page.on('pageerror',error=>errors.push(error.message));
+  await page.goto(site.register);
+  await expect.poll(()=>site.calls).toContain('publicPrices');
+  await page.getByLabel('Roll number or registered email').fill(player.email);
+  await page.getByRole('button',{name:'Send code',exact:true}).click();
+  await expect(page.getByLabel('Six-digit code')).toBeVisible();
+  expect(site.mail).toHaveLength(1);
+  expect(errors).toEqual([]);
 });
 
 test('a student can retry the account download after verification without signing in twice',async({page,site})=>{

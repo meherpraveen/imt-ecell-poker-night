@@ -1,7 +1,7 @@
 'use strict';
 let displayedOffer=null,offerReceived=0,offerRequest=null,retryOfferAt=0,expiredOffer='',priceTimer;
 const feeFormats=new Map(),publicQuoteKey='pn26:public-entry-quote';
-const publishedPrices=__PUBLISHED_PRICES__;
+const publishedSchedule=__PUBLISHED_SCHEDULE__;
 function formatFee_(amount,currency='INR'){
   if(!feeFormats.has(currency))feeFormats.set(currency,new Intl.NumberFormat('en-IN',{style:'currency',currency,minimumFractionDigits:0,maximumFractionDigits:2}));
   return feeFormats.get(currency).format(amount);
@@ -32,16 +32,15 @@ function offerDeadline(time){
   return new Date(time).toLocaleString('en-IN',{day:'numeric',month:'short',hour:'numeric',minute:'2-digit',timeZone:'Asia/Kolkata'})+' IST';
 }
 function showPublishedFees(boxes,homeFees){
-  const {earlyBird,standard,retry,currency,earlyBirdEndsAt}=publishedPrices;
-  const range=formatFee_(earlyBird,currency)+'–'+formatFee_(standard,currency);
   for(const box of boxes){
     if(box.dataset.rendered==='schedule')continue;
     box.dataset.rendered='schedule';box.removeAttribute('aria-busy');
-    box.innerHTML='<div class="price-label">Published entry fees</div><div class="price-values"><strong>'+range+'</strong></div>'+
-      '<p class="price-time">Early Bird ends '+offerDeadline(earlyBirdEndsAt)+'</p>';
+    box.innerHTML=publishedSchedule.markup;
   }
-  const values={entry:range,label:'Entry fees',standard:formatFee_(standard,currency),retry:formatFee_(retry,currency)};
-  for(const node of homeFees)node.textContent=values[node.dataset.homeFee];
+  for(const node of homeFees){
+    const value=publishedSchedule.fees[node.dataset.homeFee];
+    if(node.textContent!==value)node.textContent=value;
+  }
   for(const row of document.querySelectorAll('[data-early-only]'))row.hidden=true;
 }
 function loadOffer(){
