@@ -110,8 +110,33 @@ summary {cursor: pointer; align-content: center; color: var(--accent); font-weig
 .qr img {display: block; width: min(100%,212px); height: auto; image-rendering: pixelated}
 code,.mono,.ticket-code {font: 550 .98rem/1.45 var(--mono); overflow-wrap: anywhere}
 .wallet-seat {display: block; font-size: 3rem; letter-spacing: -.06em; color: var(--accent); margin-top: 1rem}
+.receiver-choices {min-width: 0; border: 0; margin: 1.2rem 0 0; padding: 0}
+.receiver-choices legend {padding: 0; font-size: 1.06rem; font-weight: 650}
+.receiver-grid {display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: clamp(.45rem,2vw,.85rem); margin-top: .65rem}
+.receiver-card {min-width: 0; display: flex; flex-direction: column; align-items: stretch; gap: .35rem; margin: 0; padding: clamp(.4rem,1.7vw,.75rem); border: 1px solid var(--field-edge); border-radius: 13px; cursor: pointer; transition: border-color 180ms ease,background-color 180ms ease}
+.receiver-card:has(input:checked) {background: var(--accent-soft); border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent)}
+.receiver-card:has(input:focus-visible) {outline: 3px solid var(--accent); outline-offset: 3px}
+.receiver-card img,.qr-unavailable {width: 100%; max-width: 192px; height: auto; aspect-ratio: 1; align-self: center; background: #fff; border-radius: 5px; image-rendering: pixelated}
+.qr-unavailable {display: grid; place-items: center; text-align: center; background: var(--soft); color: var(--muted)}
+.receiver-name {display: flex; align-items: flex-start; gap: .35rem; line-height: 1.25; margin-top: .2rem; overflow-wrap: anywhere}
+.receiver-name input {appearance: auto; width: 1rem; height: 1rem; min-height: 0; flex: none; margin: .05rem 0 0; padding: 0; accent-color: var(--accent)}
+.receiver-card small {overflow-wrap: anywhere; color: var(--muted); font-size: .75rem; line-height: 1.35; font-weight: 480}
+.panel .receiver-feedback {margin: .75rem 0 .25rem; min-height: 1.5em; font-size: .88rem}
+.receiver-actions {display: flex; align-items: center; flex-wrap: wrap; gap: .75rem; min-height: 48px}
+.receiver-actions .button {margin: 0}
+.payment-tools {width: 100%; min-width: 0}
+.payment-buttons {display: flex; flex-wrap: wrap; gap: .5rem}
+.panel .payment-buttons :is(button,.button) {flex: 1 1 7rem; margin: 0; min-height: 44px; padding-inline: .65rem}
+.panel .payment-feedback {margin: .4rem 0 0; font-size: .875rem}
+.payment-feedback:empty {margin: 0}
+.payment-copy-field {font-family: var(--mono); user-select: all}
+.payment-help {margin-top: .65rem}
+.receiver-card img,.payment-qr img {-webkit-touch-callout: default}
 @media (max-width: 400px) {.offer {min-height: 9.25rem}}
-.payment-preview,.shot {display: block; max-width: min(100%,280px); max-height: 320px; object-fit: contain; background: white; border-radius: 8px}
+@media (max-width: 370px) {.receiver-grid {margin-inline: -.5rem}.receiver-name {font-size: .86rem}}
+.payment-qr {margin: 1rem 0}
+.payment-qr img,.payment-preview,.shot {display: block; max-width: min(100%,280px); max-height: 320px; object-fit: contain; background: white; border-radius: 8px}
+.payment-qr figcaption {font-size: .875rem}
 .shot {max-width: 100%; max-height: 64vh; margin-block: 1rem}
 .skeleton {min-height: 180px; padding-block: 2rem}
 .skeleton i {display: block; height: 14px; width: 70%; border-radius: 8px; margin-bottom: 1rem}

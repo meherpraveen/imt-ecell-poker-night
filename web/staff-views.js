@@ -215,9 +215,9 @@ function settingsView(){
     input('payname','Recipient name shown by the UPI app','value="'+esc(p.name)+'"')+
     input('upi','Coordinator’s UPI ID','placeholder="Optional with a payment QR" value="'+esc(p.upi)+'"')+
     '<label for="paymentQr">Upload payment QR</label><input type="file" id="paymentQr" accept="image/png,image/jpeg,image/webp" aria-describedby="deskQrHelp">'+
-    '<p id="deskQrHelp" class="desk-hint">The saved QR is available to the club desk for verification.</p><img class="payment-preview" id="qrPreview" alt="Payment QR preview" hidden>'+
+    '<p id="deskQrHelp" class="desk-hint">Use a QR that lets the player enter the fee.</p><img class="payment-preview" id="qrPreview" alt="Payment QR preview" hidden>'+
     (p.hasQr?btn('showPaymentQr','Preview saved QR')+checkbox('removeQr','Remove the saved QR when I save'):'')+'</div>'+
-    deskSwitch('publish','Accept proof for this account',p.published)+'<div class="desk-form-actions">'+btn('save','Save payment settings','primary')+'</div>';
+    deskSwitch('publish','Publish payment details to players',p.published)+'<div class="desk-form-actions">'+btn('save','Save payment settings','primary')+'</div>';
   const settings=(snapshot.managed?deskSwitch('open','Accept registrations',p.open)+btn('save','Save registration setting'):'')+receiverSettings(p)+(snapshot.managed?'':legacy);
   const access=input('label','Volunteer name','autocomplete="off"')+'<label for="role">Role</label><select id="role"><option value="desk">Registration desk</option><option value="gate">Gate</option><option value="floor">Floor manager</option></select>'+
     btn('newkey','Create staff invitation')+'<p class="desk-hint">To revoke a key, set Active to no in the private Staff sheet.</p>';

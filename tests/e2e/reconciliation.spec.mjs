@@ -8,7 +8,7 @@ async function register(page,site){
   await page.goto(site.register);await page.getByLabel('Roll number or registered email').fill(player.roll);
   await button(page,'Send code').click();await expect(page.getByLabel('Six-digit code')).toBeVisible();
   await page.getByLabel('Six-digit code').fill(site.code(player.email));await button(page,'Verify and continue').click();
-  await expect(page.getByLabel('Full Name')).toHaveValue('Sample Student');await expect(page.getByLabel('PGP ID',{exact:true})).toHaveValue(player.roll);await page.getByLabel('Batch',{exact:true}).selectOption('2026-28');await page.getByLabel('Phone number').fill('9876543210');await button(page,'Save my registration').click();
+  await expect(page.getByLabel('Full Name')).toHaveValue('Sample Student');await expect(page.getByLabel('PGP ID',{exact:true})).toHaveValue(player.roll);await page.getByLabel('Batch',{exact:true}).selectOption('2026-28');await page.getByLabel('Phone number').fill('9876543210');await button(page,'Continue to payment').click();
 }
 async function addReceiver(admin,site){
   await admin.goto(site.staffUrl('admin'));await button(admin,'Send code to club email').click();
@@ -39,8 +39,16 @@ for(const manual of [false,true]){
       await admin.getByLabel('Payment QR image').setInputFiles({...screenshot,buffer:jpegQr('second@samplebank')});await button(admin,'Save receiver').click();await expect(admin.locator('dialog')).not.toBeVisible();
     }
     await register(page,site);
-    await expect(page.getByRole('heading',{name:'Online UPI payments paused'})).toBeVisible();
-    await expect(page.locator('#checkoutPayment a, #checkoutPayment img')).toHaveCount(0);
+    if(manual){
+      await expect(page.getByRole('img',{name:/UPI payment QR for/})).toHaveCount(2);
+      await expect(page.getByRole('button',{name:/Copy UPI ID/})).toHaveCount(0);
+      await page.getByRole('radio',{name:'Sample Treasurer',exact:true}).check();
+      await expect(page.getByRole('button',{name:/Copy UPI ID/})).toHaveAttribute('data-value',testUpi);
+    }
+    await expect(page.getByRole('img',{name:'UPI payment QR for Sample Treasurer'})).toBeVisible();
+    await expect(page.getByRole('link',{name:'Save QR for Sample Treasurer'})).toBeVisible();
+    await expect(page.getByRole('button',{name:/Copy number/})).toHaveCount(0);
+    await expect(page.locator('.payment-help')).toContainText('Enter ₹149');
     await proof(page,site,manual);
     await button(admin,'Payments').click();await button(admin,'Bank statements').click();
     const receiver=admin.getByLabel('Receiving account on the statement');

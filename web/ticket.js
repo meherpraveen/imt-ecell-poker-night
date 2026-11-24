@@ -112,12 +112,17 @@ async function refreshCheckoutQuote(){
   if(!r||!slot||checkingCheckout===r)return;
   checkingCheckout=r;slot.hidden=true;note.hidden=false;note.textContent='Checking the current entry fee…';
   try{
-
+    const choice=el('receiverChoices')?.pendingChoice;
+    if(choice)await choice;
+    if(currentReceipt!==r||!slot.isConnected)return;
     const next=await playerApi('playerStatus',r.ticket);
     if(currentReceipt!==r||!slot.isConnected)return;
     if(next.id!==r.id||next.status!==r.status){showReceipt(next);return}
     // Keep the file input, OCR corrections and open details editor mounted.
-    for(const key of ['fee','offer','paymentsCloseAt','checkoutEnded','full'])r[key]=next[key];
+    for(const key of ['fee','offer','paymentsCloseAt','checkoutEnded','full','upi','name','paymentQr','checkoutReceivers'])r[key]=next[key];
+    if(next.receiverChoiceVersion>=r.receiverChoiceVersion){
+      r.receiver=next.receiver;r.chosenReceiverId=next.chosenReceiverId;r.receiverChoiceVersion=next.receiverChoiceVersion;
+    }
     slot.innerHTML=checkoutPanel(r);slot.hidden=false;note.hidden=true;
     updatePrices();scheduleCheckoutUpdate();
   }catch(error){
@@ -128,7 +133,7 @@ async function refreshCheckoutQuote(){
   }finally{if(checkingCheckout===r)checkingCheckout=null}
 }
 if(['register','pass'].includes(document.body.dataset.mode)){
-
+  document.addEventListener('click',e=>{if(e.target.closest('#checkoutPayment a')&&checkoutNeedsUpdate()){e.preventDefault();refreshCheckoutQuote()}},true);
   document.addEventListener('visibilitychange',()=>{if(document.hidden)clearTimeout(ticketTimer);else{checkCheckoutTime();updateTicket()}});
   addEventListener('online',()=>{checkCheckoutTime();updateTicket()});
   addEventListener('pageshow',()=>{checkCheckoutTime();if(currentPass||currentReceipt)updateTicket()});

@@ -61,7 +61,7 @@ test('registration opens on 23 November even before payments and on-site pricing
   settings.open=false;assert.equal(f.ctx.publicInfo().open,false);
   f.at('2026-11-27T23:00:00+05:30');settings.open=true;
   assert.equal(f.ctx.publicInfo().open,false);assert.equal(status(f,walk.ticket).checkoutEnded,false);
-  assert.equal(checkout(f,walk.ticket).upi,'');
+  assert.equal(checkout(f,walk.ticket).upi,'club@example');
   f.at('2026-11-28T04:00:00+05:30');assert.equal(status(f,walk.ticket).checkoutEnded,true);assert.equal(checkout(f,walk.ticket).upi,'');
 });
 test('an unpaid registration goes to the waitlist when all 216 qualifier places have proof',()=>{
@@ -69,7 +69,7 @@ test('an unpaid registration goes to the waitlist when all 216 qualifier places 
   f.ctx.settings_=()=>s;const saved=hold(f);
   Object.assign(s,{upi:'club@example',name:'Club',published:true});
   for(let i=0;i<216;i++){const roll=String(400000000+i);f.people[roll]={email:roll+'@example.test'};pending(f,roll)}
-  const r=status(f,saved.ticket);assert.equal(r.status,'WAITLIST');assert.equal(r.canReportPayment,true);assert.equal(r.upi,'');assert.equal(r.paymentQr,'');
+  const r=checkout(f,saved.ticket);assert.equal(r.status,'WAITLIST');assert.equal(r.upi,'');assert.equal(r.paymentQr,'');
   assert.equal(checkout(f,saved.ticket).id,saved.id);
 });
 test('an on-site verification reuses a saved pre-registration and checks the quoted fee',()=>{
@@ -104,9 +104,9 @@ test('only admins can upload, publish, replace or remove the private payment QR'
   assert.equal(status(f,saved.ticket).paymentQr,'');assert.equal(status(f,saved.ticket).canCheckout,false);
   assert.throws(()=>save('admin',{version:'outdated',qr:png}));assert.equal(files.size,1);
   save('admin');const active=checkout(f,saved.ticket);
-  assert.equal(active.paymentQr,'');assert.equal(active.upi,'');assert.equal(active.name,'');assert.equal(c.adminPaymentQr('admin'),png);
+  assert.equal(active.paymentQr,png);assert.equal(active.upi,'');assert.equal(active.name,'Example Club');
   assert.ok(!JSON.stringify(active).includes('asset1'));assert.equal(c.adminSettingsView_(s).hasQr,true);
-  save('admin',{qr:png},'club@example');assert.ok(files.get('asset1').trashed);assert.equal(status(f,saved.ticket).upi,'');
+  save('admin',{qr:png},'club@example');assert.ok(files.get('asset1').trashed);assert.equal(status(f,saved.ticket).upi,'club@example');
   save('admin',{removeQr:true},'club@example');assert.ok(files.get('asset2').trashed);assert.equal(status(f,saved.ticket).paymentQr,'');
   save('admin',{published:false},'club@example');assert.equal(status(f,saved.ticket).upi,'');
 });
@@ -369,7 +369,7 @@ test('the Early Bird cutoff reprices an open registration in place and preserves
   f.st.attempts[early.id].expires=early.offer.endsAt; // An older journal row.
   f.at('2026-11-27T19:00:00+05:30');
   const current=status(f,early.ticket);
-  assert.equal(current.status,'HOLD');assert.equal(current.upi,'');assert.equal(current.fee,199);
+  assert.equal(current.status,'HOLD');assert.equal(current.upi,'club@example');assert.equal(current.fee,199);
   assert.equal(current.ticket,early.ticket);assert.equal(current.offer.early,false);
   c.staffApprove('admin',other.id,'000000004444',true);assert.equal(status(f,other.ticket).fee,149);
 });
@@ -458,7 +458,7 @@ test('the one-time staff link migration can be retried and returns only public r
   ctx.syncStaffLinks_=sheet=>{assert.equal(sheet,staff);return ++runs>1};
   for(let n=0;n<3;n++){
     const info=ctx.publicInfo(),offer=ctx.entryOffer_(ctx.Date.now());
-    assert.equal(JSON.stringify(info),JSON.stringify({open:true,paymentsReady:false,proofReady:true,offer,fee:offer.amount}));
+    assert.equal(JSON.stringify(info),JSON.stringify({open:true,paymentsReady:true,offer,fee:offer.amount}));
   }
   assert.equal(runs,2);
 });

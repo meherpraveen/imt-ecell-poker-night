@@ -119,7 +119,7 @@ function publicPrices(){return {...entryOffer_(Date.now()),retry:ENTRY_PRICING.r
 function signupInfo_(s,now,st){
   const open=s.open&&now>=PRE_OPENS&&now<NEW_CLOSE;
   const offer=entryOffer_(now);
-  const info={open,paymentsReady:false,proofReady:proofDeskReady_(s,st||ledger_()),offer,fee:offer.amount};
+  const info={open,paymentsReady:paymentReadyFor_(s,st||ledger_()),offer,fee:offer.amount};
   if(!open)info.message=now<PRE_OPENS?'Pre-registration starts on 23 November.':now>=NEW_CLOSE?'New registrations have ended.':'The club has paused new registrations.';
   return info;
 }
@@ -140,7 +140,7 @@ function roster_(){
 }
 function stageName_(n){return n<6?'Round 1 · Wave '+(n+1):n===6?'Round 2 · Semifinals':'Round 3 · Final'}
 function usesBankVerification_(st){return receivers_(st).length>0||props_().getProperty('PAYMENT_VERIFICATION_REQUIRED')==='yes'}
-function proofDeskReady_(set,st){return usesBankVerification_(st)?receivers_(st).length>0:paymentsReady_(set)}
+function paymentReadyFor_(set,st){return usesBankVerification_(st)?receivers_(st).some(r=>r.active):paymentsReady_(set)}
 function fresh_(){return {receivers:{},statements:{},bankCorrections:{},attempts:{},venue:{},game:{next:0,active:null,history:[]},audit:[]}}
 function nextSeat_(state,wave){
   const taken=new Set(Object.values(state.attempts).filter(a=>a.wave===wave&&a.used).map(a=>a.seat));
@@ -348,11 +348,11 @@ function playerStart(session,previous,requestId,detailsJson){
     must_(info.open,info.message);
     const kind=now>=DESK_OPENS?'walk':'pre';
     eligibility_(st,roll,kind,now);
-    const a=attachReceiver_(newAttempt_(roll,kind,info.proofReady?waveFor_(st,roll,now):-1,now),st,now);
-    if(!info.proofReady)a.status='REGISTERED';
+    const a=attachReceiver_(newAttempt_(roll,kind,info.paymentsReady?waveFor_(st,roll,now):-1,now),st,now);
+    if(!info.paymentsReady)a.status='REGISTERED';
     a.details=registrationDetails_(roll,detailsJson);a.detailsRevision=1;
     if(startHash)a.startHash=startHash;
-    commit_(st,a.status==='HOLD'?'Payment proof intake opened':'Registration saved','Player',{attempts:[a],note:a.id});return {a,set,st};
+    commit_(st,a.status==='HOLD'?'Checkout opened':'Registration saved','Player',{attempts:[a],note:a.id});return {a,set,st};
   },false);
   return resumeReceipt_(result.a,result.set,result.st);
 }
@@ -366,29 +366,36 @@ function ticketActive_(a,st,now){
   return a.status==='PAID'&&!a.used&&now<EVENT_END&&a.wave>=st.game.next+(st.game.active?1:0)&&a.wave<WAVES;
 }
 function receipt_(a,set,st){
-  const now=Date.now(),offer=entryOffer_(now,a.kind),managed=usesBankVerification_(st),selected=a.receiver;
-  const checkout=a.status==='HOLD',ended=now>=EVENT_END,full=checkout&&!ended&&waveFor_(st,a.roll,now)<0;
-  const claim=a.claim?.paidReceiver?{...a.claim,paidReceiver:proofRecipient_(a.claim.paidReceiver)}:a.claim||null;
+  const now=Date.now(),offer=entryOffer_(now,a.kind),ready=paymentReadyFor_(set,st),managed=usesBankVerification_(st),selected=a.receiver;
+  const checkout=a.status==='HOLD',ended=now>=EVENT_END;
+  const full=checkout&&!ended&&waveFor_(st,a.roll,now)<0;
+  const open=checkout&&!ended&&!full&&!missingDetail_(a.details)&&currentRegistration_(st,a).id===a.id;
+  const payable=open&&(managed?!!selected&&st.receivers[selected.id]?.active&&st.receivers[selected.id]?.upi===selected.upi:ready);
+  const payee=selected||set;
+  const checkoutReceivers=open&&selected?checkoutOptions_(a,st):[];
+  const pinnedQr=checkoutReceivers.find(r=>r.id===selected?.id)?.qr;
+  const paymentQr=payable?(selected?pinnedQr||'':payee.qrFile?paymentQrData_(payee.qrFile):''):'';
   return {ticket:a.id+'.'+mac_('receipt:'+a.id),id:a.id,fee:quotedFee_(a,now),offer,wave:checkout?0:a.wave+1,status:a.status,
-    // Cached clients use these fields to construct payment intents and display personal QRs.
-    paymentsCloseAt:EVENT_END,expires:checkout&&offer.early?Math.min(offer.endsAt,EVENT_END):checkout?EVENT_END:0,full,
-    upi:'',name:'',paymentQr:'',checkoutReceivers:[],chosenReceiverId:'',canChooseReceiver:false,receiverChoiceVersion:a.receiverChoiceVersion||0,
-    managed,details:a.details||null,detailsRevision:a.detailsRevision||0,fairPlay:FAIR_PLAY_DECLARATION,fairPlayVersion:FAIR_PLAY_VERSION,
-    paymentRecipients:selected?receivers_(st).map(proofRecipient_):[],receiver:selected?proofRecipient_(selected):null,
-    identifyReceivers:managed&&!selected&&['HOLD','REVIEW','REJECTED'].includes(a.status)?receivers_(st).map(proofRecipient_):[],
-    paymentStatus:a.paymentStatus||(issued_(a)?'AUTHORIZED':'PENDING'),proofVersion:a.proofVersion||0,claim,needsConfirmation:!!a.claim&&!a.claim.paidReceiver,issue:a.reviewReason||a.reason||(a.claim&&!a.claim.paidReceiver?'Confirm the payment recipient and fair-play declaration below.':''),beneficiary:a.roll,
-    canCheckout:false,canReportPayment:['REGISTERED','WAITLIST'].includes(a.status)&&proofDeskReady_(set,st),checkoutEnded:ended,delivery:a.delivery||'',reason:a.reason||'',
+    // Older clients use expires to discard an outdated UPI amount at the pricing cutoff.
+    paymentsCloseAt:EVENT_END,expires:checkout&&offer.early?Math.min(offer.endsAt,EVENT_END):checkout?EVENT_END:0,full,upi:payable?payee.upi:'',name:payable?payee.name:'',paymentQr,
+    checkoutReceivers,chosenReceiverId:chosenReceiver_(a,checkoutReceivers),receiverChoiceVersion:a.receiverChoiceVersion||0,
+    managed,canChooseReceiver:open&&!!selected&&!a.file&&!a.legacyReceiver,details:a.details||null,detailsRevision:a.detailsRevision||0,fairPlay:FAIR_PLAY_DECLARATION,fairPlayVersion:FAIR_PLAY_VERSION,
+    paymentRecipients:selected?receivers_(st).filter(r=>r.active||r.id===selected.id||r.id===a.claim?.paidReceiver?.id||a.offeredReceivers?.some(option=>option.id===r.id)).map(receiverView_):[],
+    receiver:selected?{id:selected.id,name:selected.name,upi:selected.upi,number:selected.number||''}:null,
+    identifyReceivers:managed&&!selected&&['HOLD','REVIEW','REJECTED'].includes(a.status)?receivers_(st).map(receiverView_):[],
+    paymentStatus:a.paymentStatus||(issued_(a)?'AUTHORIZED':'PENDING'),proofVersion:a.proofVersion||0,claim:a.claim||null,needsConfirmation:!!a.claim&&!a.claim.paidReceiver,issue:a.reviewReason||a.reason||(a.claim&&!a.claim.paidReceiver?'Confirm the payment recipient and fair-play declaration below.':''),beneficiary:a.roll,
+    canCheckout:a.status==='REGISTERED'&&ready&&!ended,checkoutEnded:ended,delivery:a.delivery||'',reason:a.reason||'',
     seat:a.seat||null,checkedInAt:a.checkedInAt||null,entryCode:ticketActive_(a,st,now)?pass_(a.id):''};
 }
 function canResumeCheckout_(a,set,st,now){
-  if(!['REGISTERED','WAITLIST'].includes(a.status)||missingDetail_(a.details)||now>=EVENT_END||!proofDeskReady_(set,st))return false;
+  if(!['REGISTERED','WAITLIST'].includes(a.status)||missingDetail_(a.details)||now>=EVENT_END||!paymentReadyFor_(set,st))return false;
   return a.status==='REGISTERED'||waveFor_(st,a.roll,now)>=0;
 }
 function openSavedCheckout_(a,set,st,now){
   if(!canResumeCheckout_(a,set,st,now))return a;
   const available=waveFor_(st,a.roll,now)>=0;
   const next=attachReceiver_({...a,wave:-1,fee:entryOffer_(now,a.kind).amount,status:available?'HOLD':'WAITLIST'},st,now);
-  commit_(st,available?'Payment proof intake opened':'Added to waitlist','Player',{attempts:[next],note:a.id});
+  commit_(st,available?'Checkout opened':'Added to waitlist','Player',{attempts:[next],note:a.id});
   return next;
 }
 function resumeReceipt_(a,set,st){
@@ -403,20 +410,7 @@ function playerStatus(session,ticket){
   const roll=playerRoll_(session),st=ledger_();
   return resumeReceipt_(currentRegistration_(st,ownReceipt_(st,ticket,roll)),settings_(),st);
 }
-function playerCheckout(session,ticket){
-  const roll=playerRoll_(session);
-  const result=locked_(()=>{
-    const st=ledger_(),set=settings_();
-    let a=currentRegistration_(st,ownReceipt_(st,ticket,roll));
-    if(['REGISTERED','WAITLIST'].includes(a.status)&&proofDeskReady_(set,st)){
-      requirePlayerDetails_(a.details);
-      a=attachReceiver_({...a,wave:-1,status:'HOLD'},st,Date.now());
-      commit_(st,'Payment proof intake opened',roll,{attempts:[a],note:a.id});
-    }
-    return {a,set,st};
-  },false);
-  return receipt_(result.a,result.set,result.st);
-}
+function playerCheckout(session,ticket){return playerStatus(session,ticket)}
 function imageBytes_(data){
   must_(typeof data==='string'&&data.length<=2400000,'Choose an image under 1.7 MB after compression.');
   const m=/^data:image\/(png|jpeg);base64,([A-Za-z0-9+/=]+)$/.exec(data);must_(m,'Upload a JPEG or PNG screenshot.');
@@ -593,7 +587,7 @@ function gateAction(token,action,value,op){
 function releaseSeat(token,id,mode){
   const s=staff_(token,['desk','floor']);return locked_(()=>{const st=ledger_(),a=st.attempts[id];must_(a,'Attempt missing.');
     if(mode==='no-show'){must_(a.status==='PAID'&&!a.used,'Only an unused paid pass can be marked no-show.');commit_(st,'No-show',s.name,{attempts:[{...a,status:'NO_SHOW'}],note:id})}
-    else if(mode==='move'){must_(['REVIEW','WAITLIST'].includes(a.status),'Only a pending or waitlisted attempt can move.');const now=Date.now(),w=waveFor_(st,a.roll,now,a.id);must_(w>=0,'No wave has space.');const moved={...a,wave:a.status==='REVIEW'?w:-1,reservedAfterReview:a.status==='REVIEW'};if(a.status==='WAITLIST'){must_(proofDeskReady_(settings_(),st)&&now<EVENT_END,'Checkout is currently unavailable.');Object.assign(moved,{fee:entryOffer_(now,a.kind).amount,status:'HOLD'})}commit_(st,'Seat offered',s.name,{attempts:[a.status==='WAITLIST'?attachReceiver_(moved,st,now):moved],note:id})}
+    else if(mode==='move'){must_(['REVIEW','WAITLIST'].includes(a.status),'Only a pending or waitlisted attempt can move.');const now=Date.now(),w=waveFor_(st,a.roll,now,a.id);must_(w>=0,'No wave has space.');const moved={...a,wave:a.status==='REVIEW'?w:-1,reservedAfterReview:a.status==='REVIEW'};if(a.status==='WAITLIST'){must_(paymentReadyFor_(settings_(),st)&&now<EVENT_END,'Checkout is currently unavailable.');Object.assign(moved,{fee:entryOffer_(now,a.kind).amount,status:'HOLD'})}commit_(st,'Seat offered',s.name,{attempts:[a.status==='WAITLIST'?attachReceiver_(moved,st,now):moved],note:id})}
     else throw Error('Unknown seat action.');return true;
   });
 }

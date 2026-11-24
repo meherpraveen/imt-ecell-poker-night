@@ -123,13 +123,13 @@ test('mail failure, mismatched details, cooldown and delayed email can all be re
   await enterCode(page,original,'Verify and continue');await expect(button(page,'Save my registration')).toBeVisible();
 });
 
-test('owner keeps a payment QR private, checks proof and issues a single-use pass; gate and floor share the result',async({context,page,site})=>{
+test('owner publishes a payment QR, checks proof and issues a single-use pass; gate and floor share the result',async({context,page,site})=>{
   const admin=await context.newPage();await staffLogin(admin,site,'admin');
   await button(admin,'Settings').click();await admin.getByLabel('Recipient name shown by the UPI app').fill('Example Club');
-  await admin.getByLabel('Upload payment QR').setInputFiles(png);await admin.getByLabel('Accept proof for this account').check();
+  await admin.getByLabel('Upload payment QR').setInputFiles(png);await admin.getByLabel('Publish payment details to players').check();
   await button(admin,'Save payment settings').click();await expect(button(admin,'Preview saved QR')).toBeVisible();
-  await studentLogin(page,site);await page.getByLabel('Batch',{exact:true}).selectOption('2026-28');await button(page,'Save my registration').click();await expect(heading(page,'Online UPI payments paused')).toBeVisible();
-  await expect(page.getByAltText('Coordinator’s UPI payment QR')).toHaveCount(0);
+  await studentLogin(page,site);await page.getByLabel('Batch',{exact:true}).selectOption('2026-28');await button(page,'Continue to payment').click();await expect(heading(page,'Pay ₹149')).toBeVisible();
+  await expect(page.getByAltText('Coordinator’s UPI payment QR')).toBeVisible();
   await page.getByLabel('Payment screenshot').setInputFiles(png);await page.getByLabel('Visible final digits',{exact:false}).fill('6789');
   await page.getByLabel('I agree to share',{exact:false}).check();await button(page,'Submit for review').click();
   await expect(heading(page,'Payment under review')).toBeVisible();
@@ -222,14 +222,14 @@ test('a no-show frees a seat and the payment desk can offer it to a waitlisted p
   site.rows.Settings[1][1]='club@example';site.rows.Settings[2][1]='Sample Club';site.rows.Settings[5][1]='yes';
   const full=Array.from({length:216},(_,i)=>({id:i.toString(16).padStart(16,'0'),roll:String(300000000+i),wave:Math.floor(i/36),kind:'pre',fee:149,created:site.now(),used:false,status:'PAID'}));
   site.rows.Journal.push([site.now(),'Existing paid seats','Fixture',JSON.stringify({attempts:full})]);
-  await studentLogin(page,site);await page.getByLabel('Batch',{exact:true}).selectOption('2026-28');await button(page,'Save my registration').click();await expect(heading(page,'On the waitlist')).toBeVisible();
-  await expect(page.getByRole('link',{name:'Open UPI app'})).toHaveCount(0);
+  await studentLogin(page,site);await page.getByLabel('Batch',{exact:true}).selectOption('2026-28');await button(page,'Continue to payment').click();await expect(heading(page,'On the waitlist')).toBeVisible();
+  await expect(page.locator('[data-save-qr],[data-payment-copy]')).toHaveCount(0);
   const desk=await context.newPage();await staffLogin(desk,site,'desk');desk.on('dialog',d=>d.accept());
   await desk.getByLabel('Payment status',{exact:true}).selectOption('PAID');await desk.getByRole('button',{name:/^Open payment for /}).first().click();
   await button(desk,'Mark no-show').click();await expect(desk.locator('dialog')).not.toBeVisible();
   await desk.getByLabel('Payment status',{exact:true}).selectOption('WAITLIST');await desk.getByRole('button',{name:/^Open payment for /}).click();
   await button(desk,'Offer next available seat').click();await expect(desk.locator('dialog')).not.toBeVisible();
-  await button(page,'Refresh status').click();await expect(heading(page,'Online UPI payments paused')).toBeVisible();
+  await button(page,'Refresh status').click();await expect(heading(page,'Pay ₹149')).toBeVisible();
 });
 
 test('phone, tablet and desktop layouts fit, and a desk poll preserves an unsaved payment edit',async({page,site})=>{

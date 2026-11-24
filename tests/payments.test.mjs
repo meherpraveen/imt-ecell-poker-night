@@ -11,14 +11,14 @@ function start(){
 test('managed checkout pins the server quote and receiver, validates QR and preserves old account revisions',()=>{
   const f=start(),{rpc,admin,p,receiver,event}=f;
   assert.equal(p.hold.fee,149);assert.equal(p.hold.paymentStatus,'PENDING');assert.equal(p.hold.receiver.id,receiver.id);
-  assert.equal(p.hold.paymentQr,'');assert.equal(p.hold.entryCode,'');
+  assert.ok(p.hold.paymentQr.startsWith('data:image/gif;base64,'));assert.equal(p.hold.entryCode,'');
   const change={...receiver,upi:'new@samplebank',active:true};
   assert.throws(()=>rpc('adminSaveReceiver',admin,{...change,qr:image}),/different UPI/);
   assert.throws(()=>event.staff('verifyUpiQr_',[Array.from(jpegQr(testUpi+'=extra')),testUpi]),/different UPI/);
   assert.throws(()=>rpc('adminSaveReceiver',admin,change),/matching QR/);
   const next=rpc('adminSaveReceiver',admin,{...change,qr:'data:image/jpeg;base64,'+jpegQr(change.upi).toString('base64')});
   assert.notEqual(next.id,receiver.id);
-  const old=p.status();assert.equal(old.receiver.id,receiver.id);assert.equal(old.receiver.upi,undefined);assert.equal(old.upi,'');
+  const old=p.status();assert.equal(old.receiver.upi,testUpi);assert.equal(old.upi,'');
   assert.equal(f.student('223456789','second@example.test').hold.receiver.id,next.id);
   assert.throws(()=>rpc('adminSaveReceiver',admin,{...receiver,active:false}),/changed/);
   const snap=rpc('staffSnapshot',admin);
@@ -146,7 +146,7 @@ test('fresh installation requires receiver verification even before the first ac
   assert.equal(f.rpc('staffSnapshot',f.admin).managed,true);
   assert.throws(()=>f.rpc('deskPayment',f.admin,'123456789','walk',utr,true,149),/upload proof/);
   const p=f.student();assert.equal(p.hold.status,'REGISTERED');assert.equal(p.hold.canCheckout,false);
-  f.makeReceiver();assert.equal(p.status().status,'HOLD');assert.equal(p.status().paymentQr,'');assert.equal(f.publicRpc('publicInfo').paymentsReady,false);
+  f.makeReceiver();assert.equal(p.status().status,'HOLD');assert.ok(p.status().paymentQr);
 });
 test('clear PDF columns with explicit incoming direction can authorize; negative text cannot be transcribed as credit',()=>{
   const f=start();f.submit(f.p,f.submission(f.p));
@@ -184,60 +184,65 @@ test('form fields are stored against verified PGP ID, with a required phone numb
 test('both receiver options preserve the quote; a payment sent to a different confirmed account requires review',()=>{
   const f=start(),{p,receiver,admin}=f,next=f.makeReceiver('backup@samplebank','Second Treasurer');
   const first=p.status();assert.deepEqual(Array.from(first.paymentRecipients,r=>r.name).sort(),['Second Treasurer','Test receiver']);
-  const old=f.event.staff('ledger_',[]).attempts[p.hold.id];
-  const prior={...old,proofOnly:false,receiver:next,receiverSelectedAt:old.created,receiverChoiceVersion:1,offeredReceivers:[receiver,next].map(({id,revision})=>({id,revision}))};
-  f.event.rows.Journal.push([old.created,'Earlier release','Fixture',JSON.stringify({attempts:[prior]})]);
-  p.hold=p.status();
-  assert.equal(p.hold.receiver.id,next.id);assert.equal(p.hold.fee,first.fee);assert.equal(p.hold.expires,first.expires);
+  const switched=f.publicRpc('playerSelectReceiver',p.token,p.hold.ticket,next.id);
+  assert.equal(switched.upi,next.upi);assert.equal(switched.fee,first.fee);assert.equal(switched.expires,first.expires);
+  p.hold=switched;
   const proof=f.submission(p,{paidReceiver:receiver.id});
   assert.throws(()=>f.submit(p,{...proof,values:{...proof.values,paidReceiver:''}}),/recipient/);
   assert.throws(()=>f.submit(p,{...proof,values:{...proof.values,agreementVersion:'old'}}),/fair-play/);
   f.submit(p,proof);
-  assert.equal(f.publicRpc('playerSelectReceiver',p.token,p.hold.ticket,receiver.id,'1').unavailable,true);
+  assert.throws(()=>f.publicRpc('playerSelectReceiver',p.token,p.hold.ticket,receiver.id),/current checkout/);
   const plan=f.statement(receiver);assert.match(plan.matches[0].reason,/differs from the receiver shown/);assert.equal(f.apply(plan).authorized,0);
   const v=f.rpc('adminPaymentDetail',admin,p.hold.id,'');assert.equal(v.receiver,next.name);assert.equal(v.confirmedRecipient,receiver.name);
   f.rpc('adminReviewPayment',admin,p.hold.id,'approve',v.rows[0].key,'Verified the confirmed alternate receiver’s original bank credit',1);
   assert.equal(p.status().paymentStatus,'AUTHORIZED');
 });
-test('cached clients cannot obtain a payee, QR or app destination from either receiver-selection API',()=>{
-  const event=createEvent(),api=club(event);
-  const a=api.makeReceiver(),b=api.makeReceiver('other@samplebank','Second receiver'),p=api.student();
-  const other=api.student('223456789','second@example.test');
-  const assertPrivate=r=>{
-    assert.equal(r.upi,'');assert.equal(r.paymentQr,'');assert.equal(r.checkoutReceivers.length,0);
-    assert.doesNotMatch(JSON.stringify(r),/@samplebank|data:image|upi:\/\//);
-  };
-  assertPrivate(p.hold);
-  assertPrivate(api.publicRpc('playerSelectReceiver',p.token,p.hold.ticket,b.id));
-  const count=event.rows.Journal.length;
-  for(const receiver of [a,b])assert.equal(api.publicRpc('playerSelectReceiver',p.token,p.hold.ticket,receiver.id,'0').unavailable,true);
-  assert.equal(event.rows.Journal.length,count);assert.equal(p.status().receiver.id,a.id);
-  assert.throws(()=>api.publicRpc('playerSelectReceiver',other.token,p.hold.ticket,a.id,'0'),/unavailable for your account/);
-  assert.equal(api.publicRpc('publicInfo').paymentsReady,false);
-  api.rpc('adminSaveReceiver',api.admin,{...a,active:false});assertPrivate(p.status());
-  event.advance(p.hold.paymentsCloseAt-event.now()+1);assertPrivate(p.status());
+test('both codes are private to an open hold and receiver choices are audited, small and safe to retry',()=>{
+  const event=createEvent(),clubApi=club(event);
+  const first=clubApi.makeReceiver(),second=clubApi.makeReceiver('other@samplebank','Second receiver');
+  const student=clubApi.student(),{ticket}=student.hold;
+  const select=(id,version)=>clubApi.publicRpc('playerSelectReceiver',student.token,ticket,id,String(version));
+  assert.equal(student.hold.chosenReceiverId,'');
+  assert.deepEqual(Array.from(student.hold.checkoutReceivers,r=>r.id),[first.id,second.id]);
+  assert.ok(student.hold.checkoutReceivers.every(r=>r.qr.startsWith('data:image/gif;base64,')&&r.qr.length<image.length));
+  const journal=()=>event.rows.Journal.filter(row=>row[1]==='Player selected payment receiver');
+  const reservation=event.staff('ledger_',[]).attempts[student.hold.id];
+  assert.deepEqual(Array.from(reservation.offeredReceivers,r=>r.id),[first.id,second.id]);
+  assert.throws(()=>clubApi.submit(student,clubApi.submission(student)),/Choose your payment receiver/);
+  const ack=select(first.id,0);
+  assert.equal(ack.receiverChoiceVersion,1);assert.ok(JSON.stringify(ack).length<512);
+  assert.equal(select(first.id,0).receiverChoiceVersion,1);
+  const stale=select(second.id,0);assert.equal(stale.conflict,true);assert.equal(stale.receiver.id,first.id);
+  assert.equal(journal().length,1);assert.equal(select(second.id,1).receiverChoiceVersion,2);
+  assert.equal(student.status().chosenReceiverId,second.id);assert.equal(journal().length,2);
+  assert.equal(event.post({action:'playerStatus',args:['',ticket]}).ok,false);
+  const other=clubApi.student('223456789','second@example.test');
+  assert.throws(()=>clubApi.publicRpc('playerSelectReceiver',other.token,ticket,first.id,'2'),/unavailable for your account/);
+  assert.ok(!JSON.stringify(clubApi.publicRpc('publicInfo')).includes('samplebank'));
+  clubApi.rpc('adminSaveReceiver',clubApi.admin,{...first,active:false});
+  assert.equal(select(first.id,2).unavailable,true);assert.deepEqual(Array.from(student.status().checkoutReceivers,r=>r.id),[second.id]);
+  event.advance(student.hold.paymentsCloseAt-event.now()+1);
+  const expired=student.status();assert.equal(expired.checkoutEnded,true);assert.equal(expired.checkoutReceivers.length,0);
+  assert.equal(expired.paymentQr,'');assert.throws(()=>select(second.id,2),/closed/);
 });
-
-test('a completed payment to the second receiver can be reported and retried after both accounts were deactivated',()=>{
-  const event=createEvent(),api=club(event),a=api.makeReceiver(),b=api.makeReceiver('second@samplebank','Second receiver');
-  for(const r of [a,b])api.rpc('adminSaveReceiver',api.admin,{...r,active:false});
-  const p=api.student();assert.equal(p.hold.paymentRecipients.length,2);
-  const proof=api.submission(p,{paidReceiver:b.id},image,receiptText(utr,'149.00',b.upi));
-  assert.equal(api.submit(p,proof).claim.paidReceiver.id,b.id);
-  assert.equal(api.submit(p,proof).proofVersion,1);
-  const wrong=api.statement(a,[credit(utr,'149',a.upi)]);
-  assert.equal(wrong.matches.length,0);assert.equal(p.status().entryCode,'');
-  const correct=api.statement(b,[credit(utr,'149',b.upi)]);
-  assert.match(correct.matches[0].reason,/conflicting/);assert.equal(api.apply(correct).authorized,0);
+test('a genuine credit can precede the radio choice when its QR was displayed with the quote',()=>{
+  const event=createEvent(),f=club(event);
+  f.makeReceiver();const second=f.makeReceiver('second@samplebank','Second receiver'),p=f.student();
+  event.advance(3*60000);
+  p.hold=f.publicRpc('playerSelectReceiver',p.token,p.hold.ticket,second.id);
+  const proof=f.submission(p,{},image,receiptText(utr,'149.00',second.upi));
+  f.submit(p,proof);
+  const result=f.statement(second,[credit(utr,'149',second.upi)]);
+  assert.equal(result.matches[0].reason,'');assert.equal(f.apply(result).authorized,1);
 });
-
-test('a receiver record from before QR payloads were stored can still reconcile without fetching its private image',()=>{
-  const f=start(),st=f.event.staff('ledger_',[]),legacy={...st.receivers[f.receiver.id]};
-  delete legacy.qrPayload;
-  f.event.rows.Journal.push([f.event.now(),'Earlier release','Fixture',JSON.stringify({receivers:[legacy]})]);
-  f.event.files.delete(legacy.qrFile);
-  assert.equal(f.p.status().paymentQr,'');assert.equal(f.p.status().receiver.id,f.receiver.id);
-  f.submit(f.p,f.submission(f.p));assert.equal(f.apply(f.statement(f.receiver)).authorized,1);
+test('older receiver records regenerate a compact code from the verified private original',()=>{
+  const f=start(),st=f.event.staff('ledger_',[]),original=st.receivers[f.receiver.id];
+  const legacy={...original};delete legacy.qrPayload;
+  // Store a fresh copy of this fixture image to exercise an uncached, older revision.
+  const file=f.event.staff('privateBlob_',[Array.from(jpegQr()),'image/jpeg','event-payment-qr-'+ 'f'.repeat(32)+'.jpg']);
+  legacy.qrFile=file.getId();
+  assert.equal(f.event.staff('checkoutQr_',[legacy]),f.p.hold.checkoutReceivers[0].qr);
+  assert.throws(()=>f.event.staff('checkoutQr_',[{...legacy,upi:'different@samplebank'}]),/different UPI/);
 });
 test('a later submission uses the transfer-time price and a conflicting bank timestamp blocks the discount',()=>{
   for(const [clock,paid,bankClock,eligible] of [
@@ -285,7 +290,7 @@ test('a saved checkout with no batch reopens on its original receipt after selec
   event.advance(90*60000);const missing=p.status();assert.equal(missing.ticket,p.hold.ticket);assert.equal(missing.checkoutReceivers.length,0);
   assert.throws(()=>f.submit(p,f.submission(p)),/batch/);
   const saved=f.publicRpc('playerSaveDetails',p.token,p.hold.ticket,JSON.stringify({...old.details,batch:'2025-27',revision:0}));
-  assert.equal(saved.id,old.id);assert.equal(saved.receiver.id,old.receiver.id);assert.equal(saved.chosenReceiverId,'');assert.equal(saved.paymentQr,'');
+  assert.equal(saved.id,old.id);assert.equal(saved.chosenReceiverId,old.receiver.id);assert.ok(saved.paymentQr);
   assert.equal(Object.keys(event.staff('ledger_',[]).attempts).length,1);
 });
 test('payment screenshot accepts exactly 10 MB and rejects larger or unsupported uploads',()=>{
@@ -304,7 +309,7 @@ test('legacy receipts require a phone for new submissions and honor proof alread
   };
   oldDetails();
   assert.equal(p.status().checkoutReceivers.length,0);
-  assert.equal(f.publicRpc('playerSelectReceiver',p.token,p.hold.ticket,receiver.id,'0').unavailable,true);
+  assert.throws(()=>f.publicRpc('playerSelectReceiver',p.token,p.hold.ticket,receiver.id),/phone number/);
   assert.throws(()=>f.submit(p,s),/phone number/);
   f.publicRpc('playerSaveDetails',p.token,p.hold.ticket,JSON.stringify({...p.hold.details,revision:p.status().detailsRevision}));
   f.submit(p,s);oldDetails();

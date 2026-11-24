@@ -25,13 +25,13 @@ test('closing the browser resumes details, receiver, screenshot and OCR correcti
     context=await open();page=context.pages()[0]||await context.newPage();await page.goto(site.register);
     await expect(page.getByLabel('Six-digit code')).toBeVisible();await verify(page,site);
     await expect(page.getByLabel('Phone number')).toHaveAttribute('required','');
-    await page.getByLabel('Batch').selectOption('2025-27');await button(page,'Save my registration').click();
+    await page.getByLabel('Batch').selectOption('2025-27');await button(page,'Continue to payment').click();
     await expect(page.locator('#regContactError')).toHaveText('Enter your phone number.');
     await page.getByLabel('Full Name').fill('Returning Student');await page.getByLabel('Phone number').fill('+91 98765 01234');
     await context.close();site.advance(3*3600000);context=await open();page=context.pages()[0]||await context.newPage();await page.goto(site.register);
     await expect(page.getByLabel('Full Name')).toHaveValue('Returning Student');await expect(page.getByLabel('Batch')).toHaveValue('2025-27');
-    await expect(page.getByLabel('Phone number')).toHaveValue('+91 98765 01234');await button(page,'Save my registration').click();
-    await expect(page.getByRole('heading',{name:'Online UPI payments paused'})).toBeVisible();
+    await expect(page.getByLabel('Phone number')).toHaveValue('+91 98765 01234');await button(page,'Continue to payment').click();
+    await page.getByRole('radio',{name:receiver.name}).check();await expect(page.locator('#receiverFeedback')).toContainText('Selected');
     site.ocr(receiptText());await page.getByLabel('Payment screenshot').setInputFiles({name:'bank-receipt.jpg',mimeType:'image/jpeg',buffer:jpegQr()});
     await expect(page.getByLabel('UTR / UPI Transaction ID')).toHaveValue(utr);
     await expect(page.locator('#proofDraftNote')).toContainText('saved on this device');
@@ -41,7 +41,7 @@ test('closing the browser resumes details, receiver, screenshot and OCR correcti
     site.advance(11*60000);for(const key of site.cache.keys())if(key.startsWith('proof-bytes:'))site.cache.delete(key);
     context=await open();page=context.pages()[0]||await context.newPage();await page.goto(site.register);
     await expect(page.getByLabel('Payment screenshot')).toHaveValue(/bank-receipt\.jpg$/);
-    await expect(page.locator('#checkoutPayment a, #checkoutPayment img')).toHaveCount(0);
+    await expect(page.getByRole('radio',{name:receiver.name})).toBeChecked();
     await expect(page.getByLabel('Amount paid (₹)')).toHaveValue('149.0');await expect(page.getByLabel('Who made the payment?')).toHaveValue('My brother');
     await expect(page.getByLabel('Please confirm the recipient of your payment')).toHaveValue(receiver.id);await expect(page.getByLabel(/I agree to play fair/)).toBeChecked();
     await button(page,'Submit for verification').click();await expect(page.getByRole('heading',{name:'Payment pending'})).toBeVisible();
@@ -75,7 +75,7 @@ test('an unfinished checkout from an earlier release asks for a phone once on th
   await page.addInitScript(token=>sessionStorage.setItem('pn26:player-login',JSON.stringify({token,expires:1})),p.token);
   await page.goto(site.register);await button(page,'Save and continue').click();await expect(page.locator('#regContactError')).toHaveText('Enter your phone number.');
   await page.getByLabel('Phone number').fill('9876501234');await button(page,'Save and continue').click();
-  await expect(page.getByRole('heading',{name:'Online UPI payments paused'})).toBeVisible();
+  await expect(page.getByRole('heading',{name:'Pay ₹149'})).toBeVisible();
   expect(p.status().ticket).toBe(p.hold.ticket);expect(p.status().details.contact).toBe('9876501234');
 });
 
@@ -117,10 +117,10 @@ test('reconnecting restores a draft and a lost registration response reopens the
   unavailable=false;await page.evaluate(()=>window.dispatchEvent(new Event('online')));
   await expect(page.getByLabel('Full Name')).toHaveValue('Interrupted Student');
   await expect(page.locator('#msg')).toBeEmpty();
-  await button(page,'Save my registration').click();await expect(page.locator('#msg')).toContainText('Could not reach');
-  await page.reload();await expect(page.getByRole('heading',{name:'Online UPI payments paused'})).toBeVisible();
+  await button(page,'Continue to payment').click();await expect(page.locator('#msg')).toContainText('Could not reach');
+  await page.reload();await expect(page.getByRole('heading',{name:'Pay ₹149'})).toBeVisible();
   expect(site.mail.filter(m=>m.to===player.email)).toHaveLength(1);
-  expect(site.rows.Journal.filter(r=>r[1]==='Payment proof intake opened')).toHaveLength(1);
+  expect(site.rows.Journal.filter(r=>r[1]==='Checkout opened')).toHaveLength(1);
   expect(await page.evaluate(()=>Object.keys(localStorage).filter(k=>k.includes(':draft:')))).toEqual([]);
 });
 

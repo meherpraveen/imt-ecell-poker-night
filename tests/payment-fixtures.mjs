@@ -31,8 +31,8 @@ export function club(event){
     const hold=publicRpc('playerStart',token,'',randomUUID(),JSON.stringify({pgpId:roll,fullName:signed.account.player.name,contact:signed.account.player.phone||'9876501234',batch:'2026-28'}));
     return {token,hold,status:()=>publicRpc('playerStatus',token,hold.ticket)};
   }
-  function makeReceiver(upi=testUpi,name='Test receiver'){
-    return rpc('adminSaveReceiver',admin,{name,upi,active:true,qr:'data:image/jpeg;base64,'+jpegQr(upi).toString('base64')});
+  function makeReceiver(upi=testUpi,name='Test receiver',number=''){
+    return rpc('adminSaveReceiver',admin,{name,upi,number,active:true,qr:'data:image/jpeg;base64,'+jpegQr(upi).toString('base64')});
   }
   function submission(p,edits={},proof=image,raw=receiptText()){
     event.ocr(raw);

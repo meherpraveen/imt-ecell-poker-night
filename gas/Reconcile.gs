@@ -28,16 +28,16 @@ function paymentBlock_(st,a,row,bank){
 function autoReason_(st,a,row,bank){
   const block=paymentBlock_(st,a,row,bank);if(block)return block;
   if(row.ocr)return 'PDF extraction needs visual confirmation against the original statement.';
-  if(!a.proofOnly&&a.claim.paidReceiver.id!==a.receiver.id)return 'Confirmed payment recipient differs from the receiver shown at checkout.';
+  if(a.claim.paidReceiver.id!==a.receiver.id)return 'Confirmed payment recipient differs from the receiver shown at checkout.';
   if(a.legacyReceiver)return 'The receiving account was supplied after the original checkout.';
-  if(a.ocr?.payee&&a.ocr.payee!==a.claim.paidReceiver.upi)return 'Screenshot shows a different receiving UPI ID.';
+  if(a.ocr?.payee&&a.ocr.payee!==a.receiver.upi)return 'Screenshot shows a different receiving UPI ID.';
   if(a.ocr?.uncertain)return 'Screenshot indicates an unsuccessful or pending transfer.';
   if(!a.ocr||!a.ocr.utr||!a.ocr.time||paise_(a.ocr.amount)===null)return 'Screenshot fields could not be independently read.';
   if(a.ocr.utr!==a.claim.utr||a.ocr.time!==a.claim.time||paise_(a.ocr.amount)!==a.claim.amount)return 'Student corrected the extracted payment details.';
   if(a.claim.amount!==row.minor)return 'Screenshot amount differs from the bank credit.';
   if(a.claim.time.slice(0,10)!==row.date)return 'Payment and statement dates differ.';
   const time=Date.parse(a.claim.time+':00+05:30');
-  // Earlier releases displayed both QRs before the player selected a receiver.
+  // A player can scan either displayed QR before saving the matching radio choice.
   const shownAtQuote=a.offeredReceivers?.some(option=>option.id===a.receiver.id);
   const firstShown=Math.max(a.quotedAt||a.created,shownAtQuote?0:a.receiverSelectedAt||0);
   if(time+60000<firstShown||time>=EVENT_END||time>a.submitted+60000)return 'Payment time falls outside this registration or the event.';
@@ -114,7 +114,7 @@ function adminPaymentDetail(token,id,lookup){
   must_(!query||ref_(query),'Search with a full 12-digit UTR.');
   const rows=query?available.filter(r=>rowMentions_(r,query)).slice(0,40):reviewCandidates_(a,available);
   return {version:a.proofVersion||0,linked:a.linkedRow||'',claim:a.claim||null,ocr:a.ocr||null,
-    receiver:a.proofOnly?'No online checkout issued':a.receiver.name,confirmedRecipient:a.claim?.paidReceiver?.name||'',details:a.details||null,reason:paymentMatch_(st,a,bank).reason||'Exact match available.',rows:rows.map(r=>({...r,sourceUrl:'https://drive.google.com/open?id='+encodeURIComponent(st.statements[r.statement].original)}))};
+    receiver:a.receiver.name,confirmedRecipient:a.claim?.paidReceiver?.name||'',details:a.details||null,reason:paymentMatch_(st,a,bank).reason||'Exact match available.',rows:rows.map(r=>({...r,sourceUrl:'https://drive.google.com/open?id='+encodeURIComponent(st.statements[r.statement].original)}))};
 }
 function adminReviewPayment(token,id,action,rowKey,reason,revision){
   const admin=staff_(token,[]);reason=String(reason||'').trim();
@@ -152,7 +152,7 @@ function adminOpenDeskPayment(token,roll,kind){
     const a=attachReceiver_({...newAttempt_(roll,kind,wave,now),...(saved?{id:saved.id}:{}),details,detailsRevision:saved?.detailsRevision||(details?1:0),status:'HOLD'},st,now);
     must_(a.receiver,'Configure a receiving account first.');
     commit_(st,'Desk payment opened',user.name,{attempts:[a],note:a.id});
-    return {id:a.id,status:'The player can sign in to submit proof of a completed payment.'};
+    return {id:a.id,status:'Payment pending. The player can sign in to see their receiver and upload proof.'};
   });
 }
 

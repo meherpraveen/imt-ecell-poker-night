@@ -45,10 +45,13 @@ test('50 simultaneous clients register, submit proof, reconcile and check in thr
     const d={pgpId:u.roll,fullName:u.name,batch:'2026-28',contact:'9876501234'};
     u.registration=await u.api('playerStart',u.token,'',randomUUID(),JSON.stringify(d));
   });
+  await burst(async u=>{
+    u.selection=await u.api('playerSelectReceiver',u.token,u.registration.ticket,u.receiver.id,'0');
+  });
   await burst(async u=>{u.ocr=await u.api('playerReadProof',u.token,u.registration.ticket,u.proof)});
   await burst(async u=>{
-    const r=u.registration,form={utr:u.utr,amount:'149.00',time:paidAt,payer:u.name,beneficiary:u.roll,receiver:r.receiver.id,paidReceiver:u.receiver.id,
-      receiverChoiceVersion:r.receiverChoiceVersion,agreementVersion:r.fairPlayVersion,fairPlay:true,revision:0,ocr:u.ocr};
+    const r=u.registration,form={utr:u.utr,amount:'149.00',time:paidAt,payer:u.name,beneficiary:u.roll,receiver:u.receiver.id,paidReceiver:u.receiver.id,
+      receiverChoiceVersion:u.selection.receiverChoiceVersion,agreementVersion:r.fairPlayVersion,fairPlay:true,revision:0,ocr:u.ocr};
     const saved=await u.api('playerSubmitPayment',u.token,r.ticket,u.ocr.uploadRef,JSON.stringify(form));assert.equal(saved.status,'REVIEW');
   });
   for(const r of receivers){
