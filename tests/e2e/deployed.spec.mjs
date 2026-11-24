@@ -17,12 +17,18 @@ test('published navigation, mobile startup, live floor and backend validation @d
   await expect(page.locator('a[href*="view=staff"]')).toHaveCount(0);
   await page.getByRole('link',{name:'Sign in to register'}).click();
   await expect(page.getByLabel('Roll number or registered email')).toBeVisible();
+  await expect(page.getByRole('heading',{name:'Email sign-in'})).toBeVisible();
   await page.waitForFunction(()=>window.pokerReady===true);
   expect(actions).toEqual([]);
   const metrics=await page.evaluate(()=>({domContentLoadedMs:Math.round(performance.getEntriesByType('navigation')[0].domContentLoadedEventEnd),initialLayoutShift:window.layoutShift,horizontalOverflow:document.documentElement.scrollWidth>innerWidth,
     startupAssets:performance.getEntriesByType('resource').filter(r=>/\/assets\/[^/?]+\.(js|css)(\?|$)/.test(r.name)).length}));
   console.log('Published mobile registration',JSON.stringify(metrics));
   expect(metrics.horizontalOverflow).toBe(false);expect(metrics.initialLayoutShift).toBeLessThan(0.05);expect(metrics.startupAssets).toBe(2);
+  // Empty identifiers validate the deployed account routes before a directory read or an email send.
+  const validation=await page.evaluate(()=>Promise.all([
+    api('requestEventCode','').catch(e=>e.message),api('signInEvent','','','').catch(e=>e.message)
+  ]));
+  for(const message of validation)expect(message).toContain('nine-digit roll number');
   await page.getByLabel('Roll number or registered email').fill('invalid');
   await page.getByRole('button',{name:'Send code',exact:true}).click();await expect(page.locator('#msg')).toContainText('nine-digit');
   // Resume the public code-entry screen with local test state. This checks the live UI without sending mail.
@@ -35,5 +41,5 @@ test('published navigation, mobile startup, live floor and backend validation @d
   const settings=await page.evaluate(()=>api('publicInfo'));expect(typeof settings.open).toBe('boolean');
   await page.goto(site+'event.html?view=pass');await expect(page.locator('#msg')).toContainText('complete pass link');
   await page.goto(site+'event.html?view=staff');await expect(page.getByRole('heading',{name:'Page unavailable'})).toBeVisible();
-  expect(actions.every(a=>['publicInfo','liveFloor'].includes(a))).toBe(true);expect(errors).toEqual([]);
+  expect(actions.every(a=>['publicInfo','liveFloor','requestEventCode','signInEvent'].includes(a))).toBe(true);expect(errors).toEqual([]);
 });

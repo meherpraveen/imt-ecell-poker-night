@@ -57,6 +57,7 @@ function doGet(e){
   const t=HtmlService.createTemplateFromFile('App');
   t.route=route;
   t.ownerLogin=!!staff&&staff[1]==='admin';
+  t.verifiedEntry=t.ownerLogin&&q.entry==='verified'?'yes':'';
   t.ownerEmail=t.ownerLogin?clubOwner_():'';
   t.invite=route==='staff'?q.invite:'';
   t.pass=/^[A-Z0-9-]{12,24}$/.test(q.p||'')?q.p:'';
@@ -70,6 +71,7 @@ function doPost(event){
     const request=JSON.parse(body);
     const methods=new Map([
       ['publicInfo',[publicInfo,0]],['liveFloor',[liveFloor,0]],
+      ['requestEventCode',[requestEventCode,1]],['signInEvent',[signInEvent,3]],
       ['requestPlayerCode',[requestPlayerCode,1]],['verifyPlayerCode',[verifyPlayerCode,2]],['playerLogout',[playerLogout,1]],
       ['requestMatchedPlayerCode',[requestMatchedPlayerCode,2]],['signInPlayer',[signInPlayer,3]],['passInfo',[passInfo,1]],
       ['playerHome',[playerHome,2]],['playerStart',[playerStart,3]],['playerStatus',[playerStatus,2]],

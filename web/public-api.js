@@ -1,7 +1,7 @@
 'use strict';
 const view=new URLSearchParams(location.search).get('view')||'register';
 document.body.dataset.mode=['register','board','pass'].includes(view)?view:'unavailable';
-document.title=view==='board'?'Live floor · Poker Night':view==='pass'?'Entry pass · Poker Night':'Player registration · Poker Night';
+document.title=view==='board'?'Live floor · Poker Night':view==='pass'?'Entry pass · Poker Night':'Event sign-in · Poker Night';
 const fragment=new URLSearchParams(location.hash.slice(1));
 const receipt=fragment.get('receipt')||'';
 const incomingReceipt=/^[a-f0-9]{16}\.[A-Za-z0-9_-]{43}$/.test(receipt)?receipt:'';

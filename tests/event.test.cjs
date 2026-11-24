@@ -118,6 +118,7 @@ test('the Pages transport returns public results, validates input, and excludes 
   assert.equal(post('liveFloor',[]).value.state,'Awaiting first seating');
   assert.equal(post('staffSnapshot',['admin']).ok,false);
   assert.equal(post('adminPaymentQr',['admin']).ok,false);
+  assert.equal(post('completeDeskSignIn',['invite','ticket']).error,'Invalid event request.');
   assert.equal(post('playerStart',[]).ok,false);
   const session=sessionFor(),request=crypto.randomUUID(),args=[session,'',request];
   const first=post('playerStart',args);
@@ -235,6 +236,62 @@ test('only the designated inbox can open admin settings; its private key alone i
   admin[0]='different@example.test';assert.throws(()=>ctx.staff_(signed.token,[]));
   admin[0]='owner@example.test';ctx.staffLogout(signed.token);assert.throws(()=>ctx.staff_(signed.token,[]));
 });
+test('event sign-in issues one private desk transfer only after the configured owner verifies',()=>{
+  const {ctx,rows,loginMail}=staffFixture(),owner=ctx.CLUB_RESOURCES.owner;
+  const admin=[owner,'admin','c'.repeat(40),'yes'];rows.push(admin);
+  const invite=ctx.staffInvite_(admin[2]);
+  ctx.CLUB_RESOURCES.webAppUrl='https://script.google.com/macros/s/test-event/exec';
+  const unknown=ctx.requestEventCode('unlisted@example.test');
+  ctx.requestEventCode('123456789');
+  assert.throws(()=>ctx.signInEvent(owner,mailDigits(loginMail),''),/incorrect/);
+  const reply=ctx.requestEventCode('  '+owner.toUpperCase()+' ');
+  assert.deepEqual(reply,unknown);
+  const [recipient,subject,body,options]=loginMail.at(-1);
+  assert.equal(recipient,owner);assert.equal(subject,'Poker Night 2026 admin sign-in code');
+  assert.match(body,/event sign-in page/);assert.doesNotMatch(body+options.htmlBody,/https?:\/\/|href=/);
+  const code=mailDigits(loginMail);
+  assert.throws(()=>ctx.verifyOwnerCode(invite,code),/incorrect/);
+  assert.throws(()=>ctx.signInPlayer(owner,code,''),/incorrect/);
+  const signed=ctx.signInEvent(owner,code,'');
+  assert.deepEqual(Object.keys(signed),['continueUrl']);
+  const link=new URL(signed.continueUrl),ticket=new URLSearchParams(link.hash.slice(1)).get('ticket');
+  assert.equal(link.searchParams.get('invite'),invite);assert.equal(link.searchParams.get('entry'),'verified');
+  assert.throws(()=>ctx.signInEvent(owner,code,''),/incorrect/);
+  assert.throws(()=>ctx.staff_(ticket,[]));assert.throws(()=>ctx.playerHome(ticket,''));
+  assert.throws(()=>ctx.completeDeskSignIn(ctx.staffInvite_(rows[0][2]),ticket));
+  const session=ctx.completeDeskSignIn(invite,ticket);
+  assert.equal(ctx.staff_(session.token,[]).role,'admin');
+  assert.throws(()=>ctx.completeDeskSignIn(invite,ticket),/already used/);
+});
+
+test('desk transfers expire or revoke with the staff row and public sends preserve private mail capacity',()=>{
+  const {ctx,rows,loginMail,at,people}=staffFixture(),owner=ctx.CLUB_RESOURCES.owner;
+  const row=[owner,'admin','d'.repeat(40),'no'];rows.push(row);
+  ctx.CLUB_RESOURCES.webAppUrl='https://script.google.com/macros/s/test-event/exec';
+  ctx.requestEventCode(owner);assert.equal(loginMail.length,0);
+  row[3]='yes';
+  const invite=ctx.staffInvite_(row[2]);
+  const transfer=()=>{
+    ctx.requestEventCode(owner);
+    const link=new URL(ctx.signInEvent(owner,mailDigits(loginMail),'').continueUrl);
+    return new URLSearchParams(link.hash.slice(1)).get('ticket');
+  };
+  const expired=transfer();
+  at('2026-11-25T12:03:00+05:30');
+  assert.throws(()=>ctx.completeDeskSignIn(invite,expired),/expired/);
+  const revoked=transfer();
+  row[3]='no';assert.throws(()=>ctx.completeDeskSignIn(invite,revoked));row[3]='yes';
+  row[2]='e'.repeat(40);
+  assert.throws(()=>ctx.completeDeskSignIn(ctx.staffInvite_(row[2]),revoked),/expired/);
+  people['123456789'].email=owner;
+  ctx.requestEventCode('123456789');
+  const student=ctx.signInEvent('123456789',mailDigits(loginMail),'');
+  assert.equal(ctx.playerRoll_(student.session.token),'123456789');assert.equal(student.continueUrl,undefined);
+  ctx.MailApp.getRemainingDailyQuota=()=>1;
+  assert.throws(()=>ctx.requestEventCode(owner),/daily limit/);
+  ctx.requestOwnerCode(ctx.staffInvite_(row[2]));assert.equal(loginMail.at(-1)[0],owner);
+});
+
 function pay(f,roll='123456789',ref='123456786789'){const r=pending(f,roll,ref.slice(-4));f.ctx.staffApprove('admin',r.id,ref,true);return f.st.attempts[r.id]}
 test('sign-in and pass emails carry the same club identity and readable Outlook and text versions',()=>{
   const f=fixture(), {ctx,loginMail,sent}=f;
@@ -254,8 +311,8 @@ test('sign-in and pass emails carry the same club identity and readable Outlook 
     const code=plain.match(/\b\d{6}\b|PN-[A-Z0-9]{16}/)[0];
     assert.ok(options.htmlBody.includes(code));assert.ok(!subject.includes(code));
   }
-  for(const [,subject,plain,options] of signIns) {
-    assert.equal(subject,'Poker Night 2026 sign-in code');
+  for(const [to,subject,plain,options] of signIns) {
+    assert.equal(subject,to===admin.ctx.CLUB_RESOURCES.owner?'Poker Night 2026 private desk sign-in code':'Poker Night 2026 sign-in code');
     assert.match(plain,/10 minutes/);assert.match(options.htmlBody,/10 minutes/);
     assert.doesNotMatch([plain,options.htmlBody].join('\n'),/https?:\/\/|href=/i);
   }

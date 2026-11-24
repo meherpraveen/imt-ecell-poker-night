@@ -13,17 +13,18 @@ let challenge=unpack(tabValue('email-step')), pendingRequest=tabValue('seat-requ
 let preferredReceipt=incomingReceipt||tabValue('receipt-link')||'';
 if(incomingReceipt)tabValue('receipt-link',incomingReceipt);
 function signInPage(keepForm=false){
-  challenge=null;tabValue('email-step','');heading('PLAYER REGISTRATION','Sign in to Poker Night');
+  challenge=null;tabValue('email-step','');heading('EVENT ACCESS','Sign in to Poker Night');
   if(keepForm&&el('identifier')&&document.documentElement.dataset.entry==='register')return;
-  const entry=signInForm('requestCode','<p>We’ll send a six-digit code to the email on your student record.</p>'+
+  const entry=signInForm('requestCode','<p>Use your roll number or account email to receive a six-digit code.</p>'+
     input('identifier','Roll number or registered email','type="text" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="254" required placeholder="Nine-digit roll number or email"'),'Send code');
-  el('content').innerHTML='<div class="narrow login-card">'+panel('Student sign-in',entry)+'</div>';
+  el('content').innerHTML='<div class="narrow login-card">'+panel('Email sign-in',entry)+'</div>';
 }
 function codePage(){
-  heading('PLAYER REGISTRATION','Check your email');
-  const form=signInForm('verifyCode','<p>Look for <strong>Poker Night 2026 sign-in code</strong> in your registered mailbox. The code works for 10 minutes.</p>'+
+  heading('EVENT ACCESS','Check your email');
+  const mailbox=/^\d{9}$/.test(challenge.identifier)?'the email on your student record':'<strong>'+esc(challenge.identifier)+'</strong>';
+  const form=signInForm('verifyCode','<p>Check '+mailbox+' for a six-digit code from <strong>Poker Night 2026</strong>. Enter it here within 10 minutes.</p>'+
     '<p class="mail-folder"><a href="https://outlook.office.com/mail/junkemail" target="_blank" rel="noopener noreferrer">Open Outlook Junk Email</a> if the code is missing from your inbox. In Gmail, check Spam. You can use the code straight from either folder.</p>'+
-    codeInput()+checkbox('remember','Remember this device for 7 days'),'Verify and continue');
+    codeInput()+checkbox('remember','Remember my student sign-in for 7 days'),'Verify and continue');
   const help='<details><summary>Email hasn’t arrived?</summary><p>Check that your roll number matches the email on your student record. A resend keeps the same active code.</p>'+
     signInForm('matchMail',rollField('matchRoll')+input('matchEmail','Email on your student record','type="email" autocomplete="email" required maxlength="254"'),'Check details and send code')+'</details>';
   el('content').innerHTML='<div class="narrow login-card">'+panel('Enter your sign-in code',form+btn('resendCode','Resend code')+btn('changeLogin','Change roll number or email')+help)+'</div>';
@@ -98,7 +99,7 @@ async function action(name){
   if(name==='requestCode'||name==='resendCode'||name==='matchMail'){
     const identifier=name==='resendCode'?challenge.identifier:name==='matchMail'?val('matchRoll'):val('identifier');
     if(!/^\d{9}$/.test(identifier)&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(identifier))throw Error('Enter your nine-digit roll number or your registered email address.');
-    const reply=name==='matchMail'?await api('requestMatchedPlayerCode',identifier,val('matchEmail')):await api('requestPlayerCode',identifier);
+    const reply=name==='matchMail'?await api('requestMatchedPlayerCode',identifier,val('matchEmail')):await api('requestEventCode',identifier);
     challenge={identifier,resendAt:Date.now()+reply.resendAfter*1000,expires:Date.now()+(reply.expiresIn??600)*1000};
     tabValue('email-step',JSON.stringify(challenge));codePage();
     if(name==='matchMail')msg(reply.delivery==='accepted'?'Your details match. Google accepted the email for delivery.':reply.delivery==='existing'?'Your details match. Your existing email code is still active.':'Your details match. A send is already in progress.');
@@ -106,7 +107,16 @@ async function action(name){
   }
   if(name==='verifyCode'){
     const remember=el('remember').checked;
-    const signed=await api('signInPlayer',challenge.identifier,val('loginCode'),preferredReceipt||'');
+    const signed=await api('signInEvent',challenge.identifier,val('loginCode'),preferredReceipt||'');
+    if(signed.continueUrl){
+      const next=new URL(signed.continueUrl);
+      if(next.origin!=='https://script.google.com' || !next.pathname.endsWith('/exec') ||
+        (window.POKER_NIGHT_WEB_APP && next.origin+next.pathname!==window.POKER_NIGHT_WEB_APP))throw Error('Open the private desk link from the club Sheet.');
+      clearPlayer();heading('EVENT ACCESS','Opening your admin desk');
+      el('content').innerHTML='<div class="narrow">'+panel('Club account verified','<a href="'+esc(next.href)+'" target="_top" rel="noreferrer">Open admin desk</a>')+'</div>';
+      if(window===window.top)location.replace(next.href);
+      return;
+    }
     playerSession=signed.session;
     durable.set('player-login','');tabValue('player-login','');
     (remember?durable.set:tabValue)('player-login',JSON.stringify(playerSession));

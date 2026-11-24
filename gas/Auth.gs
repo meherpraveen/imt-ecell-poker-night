@@ -33,6 +33,14 @@ function ownerIdentity_(invite) {
   return {scope:'owner', id:hash_(row[2]).slice(0,24), email:owner, row};
 }
 
+function eventIdentity_(identifier) {
+  const email = emailAddress_(identifier);
+  if (!email || email !== clubOwner_()) return playerIdentity_(identifier);
+  const rows = staffList_().filter(row => row[1] === 'admin' && activeStaff_(row));
+  if (rows.length !== 1) return null;
+  return {scope:'owner-entry', id:hash_(rows[0][2]).slice(0,24), email, row:rows[0]};
+}
+
 function authCleanup_(now) {
   const properties = props_();
   if (Number(properties.getProperty('AUTH_CLEAN_AFTER')) > now) return;
@@ -133,9 +141,13 @@ function sendLoginCode_(identity, owner, confirmed=false) {
     const plan=result;
     let accepted=false;
     try {
+      const eventAdmin = identity.scope === 'owner-entry';
+      const kind = owner ? 'private desk ' : eventAdmin ? 'admin ' : '';
+      const message = owner ? 'Enter this code on the private E-Cell desk page where you requested it.'
+        : eventAdmin ? 'Enter this code on the event sign-in page where you entered the club email. It will open your admin desk.'
+        : 'Enter this code on the Poker Night registration page you opened.';
       sendEventMail_(identity.email, {
-        subject:EVENT_MAIL_NAME+' sign-in code', heading:'Your sign-in code',
-        message:owner?'Enter this code on the private E-Cell desk page you opened.':'Enter this code on the Poker Night registration page you opened.',
+        subject:EVENT_MAIL_NAME+' '+kind+'sign-in code', heading:'Your '+kind+'sign-in code', message,
         code:plan.code, instructions:'This code works once and expires in 10 minutes. If you did not request it, you can ignore this email.'
       });
       accepted=true;
@@ -194,6 +206,11 @@ function requestPlayerCode(identifier) {
   return sendLoginCode_(playerIdentity_(identifier), false);
 }
 
+function requestEventCode(identifier) {
+  // Public requests share the ordinary mail budget. The private desk keeps its reserved send.
+  return sendLoginCode_(eventIdentity_(identifier), false);
+}
+
 function requestMatchedPlayerCode(roll,email) {
   const identity=playerIdentity_(roll_(roll));
   must_(identity && emailAddress_(email)===identity.email,'That roll and email do not match one student record. E-Cell can check the registered address against your college ID.');
@@ -209,11 +226,36 @@ function verifyPlayerCode(identifier, code) {
   return authenticatePlayer_(playerIdentity_(identifier),code);
 }
 function signInPlayer(identifier,code,preferred) {
-  const identity=playerIdentity_(identifier);
+  return signedInPlayer_(playerIdentity_(identifier),code,preferred);
+}
+function signedInPlayer_(identity,code,preferred) {
   const session=authenticatePlayer_(identity,code);
   // A temporary checkout read failure must never consume the student's sign-in without returning the session.
   try { return {session,account:accountForRoll_(identity.id,preferred)} }
   catch { return {session,account:null} }
+}
+
+function signInEvent(identifier,code,preferred) {
+  const identity = eventIdentity_(identifier);
+  if (identity?.scope !== 'owner-entry') return signedInPlayer_(identity,code,preferred);
+  const base = deskBaseUrl_();
+  must_(base, 'The desk link is unavailable. Open the Staff tab in the club Sheet.');
+  return locked_(() => {
+    consumeLoginCode_(identity,code);
+    const transfer = newSession_('desk-transfer','h',{staffId:identity.id},2*60000);
+    const desk = staffDeskLink_(base,identity.row[2]);
+    return {continueUrl:desk+'&entry=verified#ticket='+transfer.token};
+  },false);
+}
+
+function completeDeskSignIn(invite,ticket) {
+  return locked_(() => {
+    const owner = ownerIdentity_(invite);
+    const transfer = authSession_(ticket,'desk-transfer');
+    must_(transfer && transfer.staffId === owner.id, 'This sign-in link has expired or was already used. Send a new code to the club email here.');
+    props_().deleteProperty('AUTH_SESSION_'+hash_(ticket));
+    return staffSession_(owner.row);
+  },false);
 }
 
 function playerRoll_(token) {

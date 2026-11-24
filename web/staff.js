@@ -16,7 +16,7 @@ function login(){
   el('content').innerHTML='<div class="narrow login-card">'+panel(owner?'Admin sign-in':'Staff sign-in',body)+'</div>';
 }
 function ownerCodePage(delay){
-  const form=signInForm('verifyOwner','<p>Look for <strong>Poker Night 2026 sign-in code</strong> in the club inbox or Spam. The code expires in 10 minutes.</p>'+codeInput(),'Verify and open desk');
+  const form=signInForm('verifyOwner','<p>Look for <strong>Poker Night 2026 private desk sign-in code</strong> in the club inbox or Spam. The code expires in 10 minutes.</p>'+codeInput(),'Verify and open desk');
   el('content').innerHTML='<div class="narrow login-card">'+panel('Check the club inbox',form+btn('resendCode','Resend code'))+'</div>';
   startResendTimer(Date.now()+delay*1000);el('loginCode').focus();
 }
@@ -120,7 +120,7 @@ async function action(name,id){
   if(name==='ownerCode'||name==='resendCode'){const reply=await api('requestOwnerCode',invite);mem.set(sessionKey+':code',JSON.stringify({resend:Date.now()+reply.resendAfter*1000,expires:Date.now()+(reply.expiresIn??600)*1000}));ownerCodePage(reply.resendAfter);return}
   if(name==='verifyOwner'||name==='login'){
     const auth=name==='verifyOwner'?await api('verifyOwnerCode',invite,val('loginCode')):await api('staffLogin',val('staffkey'),invite);
-    token=auth.token;mem.set(sessionKey,token);mem.set(sessionKey+':code','');await openDesk();return;
+    await enterDesk(auth);return;
   }
   if(name==='logout'){const old=token;mem.set(sessionKey,'');token='';snapshot=null;login();await api('staffLogout',old);return}
   if(name==='refresh'){await openDesk();return}if(name==='inspect'){inspect(id);return}if(name==='deskform'){deskForm();return}
@@ -176,7 +176,25 @@ async function openDesk(){
     msg(e.message||'The desk could not load. Try again.',true);
   }
 }
+async function enterDesk(auth){
+  token=auth.token;mem.set(sessionKey,token);mem.set(sessionKey+':code','');
+  await openDesk();
+}
 async function launch(){
+  if(document.body.dataset.verifiedEntry==='yes'){
+    heading('STAFF ACCESS','Opening your admin desk');
+    try{
+      const locationInfo=await new Promise(resolve=>google.script.url.getLocation(resolve));
+      const ticket=new URLSearchParams(locationInfo.hash).get('ticket')||'';
+      const auth=await api('completeDeskSignIn',invite,ticket);
+      try{google.script.history.replace(null,{view:'staff',invite},'')}catch{}
+      await enterDesk(auth);
+    }catch(error){
+      if(token){await openDesk();return}
+      login();msg(error.message||'Send a new code to the club email to open the desk.',true);
+    }
+    return;
+  }
   if(token){await openDesk();return}
   if(document.body.dataset.ownerLogin==='yes'){
     let saved;try{saved=JSON.parse(mem.get(sessionKey+':code')||'null')}catch{}

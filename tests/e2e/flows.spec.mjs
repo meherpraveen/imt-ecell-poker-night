@@ -42,15 +42,39 @@ test('first paint accepts typed input before scripts arrive and sends one reques
   await identifier.fill(player.roll);await identifier.press('Enter');
   expect(site.calls).toEqual([]);release();
   await expect(page.getByLabel('Six-digit code')).toBeVisible();
-  expect(site.calls).toEqual(['requestPlayerCode']);
+  expect(site.calls).toEqual(['requestEventCode']);
   await enterCode(page,site.code(player.email),'Verify and continue');
   await expect(button(page,'Save my registration')).toBeVisible();
-  expect(site.calls).toEqual(['requestPlayerCode','signInPlayer']);
+  expect(site.calls).toEqual(['requestEventCode','signInEvent']);
   await button(page,'Save my registration').dblclick();
   await expect(heading(page,'Registration saved')).toBeVisible();
   expect(site.rows.Journal.filter(r=>r[1]==='Registration saved')).toHaveLength(1);
   await page.reload();await expect(heading(page,'Registration saved')).toBeVisible();
   await button(page,'Sign out').click();await expect(identifier).toBeVisible();
+});
+
+test('club email at the public sign-in opens the private admin desk with one code',async({page,context,site})=>{
+  await page.goto(site.register);
+  await expect(page.locator('a[href*="view=staff"]')).toHaveCount(0);
+  await page.getByLabel('Roll number or registered email').fill(owner.toUpperCase());
+  await button(page,'Send code').click();
+  await expect(page.getByLabel('Six-digit code')).toBeVisible();
+  await expect(page.locator('#content')).toContainText(owner.toUpperCase());
+  expect(site.mail.map(({to,subject})=>[to,subject])).toEqual([[owner,'Poker Night 2026 admin sign-in code']]);
+  await page.getByLabel('Remember my student sign-in for 7 days').check();
+  await enterCode(page,site.code(owner),'Verify and continue');
+  await expect(button(page,'Settings')).toBeVisible();
+  const privateUrl=new URL(page.url());
+  expect(privateUrl.origin).toBe('https://script.google.com');
+  expect(privateUrl.hash).toBe('');expect(privateUrl.searchParams.has('entry')).toBe(false);
+  await page.reload();
+  await button(page,'Settings').click();await expect(page.getByLabel('UPI ID')).toBeVisible();
+  expect(site.mail).toHaveLength(1);
+  const storage=await context.storageState();
+  expect(storage.origins.every(origin=>!origin.localStorage.some(item=>item.name.includes('staff:')))).toBe(true);
+  await page.goto(site.register);
+  await expect(page.getByLabel('Roll number or registered email')).toBeVisible();
+  expect(await page.evaluate(()=>Object.keys(sessionStorage).filter(key=>key.startsWith('pn26:')))).toEqual([]);
 });
 
 test('mail failure, mismatched details, cooldown and delayed email can all be recovered',async({page,site})=>{
