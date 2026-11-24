@@ -7,7 +7,7 @@ async function api(action,...args){
     throw Error('The event desk is unavailable. Please contact E-Cell.');
   }
   const controller=new AbortController();
-  const timeout=setTimeout(()=>controller.abort(),['publicInfo','liveFloor','playerHome','passInfo','playerStatus'].includes(action)?20000:55000);
+  const timeout=setTimeout(()=>controller.abort(),['publicInfo','liveFloor','playerHome','passInfo','playerStatus'].includes(action)?20000:['playerReadProof','playerSubmitPayment'].includes(action)?120000:55000);
   let result;
   try{
     const response=await fetch(endpoint,{

@@ -94,7 +94,7 @@ test('registration and checkout cross the same price boundary while a phone stay
   await expect(offer.locator('s')).toContainText('₹199');await expect(offer).toContainText('Early Bird');await expect(offer).toContainText('1 min left');
   await page.getByLabel('Roll number or registered email').fill(player.roll);await page.getByRole('button',{name:'Send code',exact:true}).click();
   await page.getByLabel('Six-digit code').fill(site.code(player.email));await page.getByRole('button',{name:'Verify and continue'}).click();
-  await expect(page.getByText('Sample Student')).toBeVisible();await expect(offer).toContainText('₹149');
+  await expect(page.getByLabel('Full Name')).toHaveValue('Sample Student');await expect(offer).toContainText('₹149');
   await page.screenshot({animations:'disabled',path:testInfo.outputPath('registration-light.png')});
   await page.getByRole('button',{name:'Request a seat'}).click();await expect(offer.locator('s')).toContainText('₹199');
   await expect(page.getByRole('link',{name:'Open UPI app'})).toHaveAttribute('href',/am=149.00/);

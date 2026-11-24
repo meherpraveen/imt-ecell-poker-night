@@ -28,7 +28,7 @@ Registration opens on 23 November. The currency, entry prices, retry fee and Ear
 
 Players can save their details before payment opens. Checkout holds a place for up to 15 minutes, ending at the Early Bird cutoff when it comes first. The server saves the quoted fee and the receiving account. A student who already paid can submit the original receipt after a hold expires for desk review.
 
-Students upload a screenshot, check the extracted UTR, amount and time in IST, name the person who paid, select the registered beneficiary and accept the fair-play declaration. Someone may pay on a player’s behalf. The player submits from their own account. The private Journal preserves each proof revision, including the original OCR and the student’s corrections.
+Registration asks for Full Name and verified PGP ID. Contact No. and Batch (2025-27 or 2026-28) are optional. Students can choose an active recipient before paying. They upload one JPEG, PNG or WebP screenshot up to 10 MB, check the extracted UTR, amount and time in IST, and explicitly confirm who received the transfer. They also identify the payer and beneficiary and accept the E-Cell fair-play declaration. Someone may pay on a player’s behalf. The player submits from their own account. The private Journal preserves each proof revision, including the original OCR and the student’s corrections.
 
 ### Reconciliation at the club desk
 

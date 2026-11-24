@@ -165,3 +165,40 @@ test('a staged reversal invalidates an earlier exact preview before it can consu
   assert.match(reviewed.matches[0].reason,/conflicting/);assert.equal(f.apply(reviewed).authorized,0);
   assert.throws(()=>f.rpc('adminReviewPayment',f.admin,f.p.hold.id,'approve',reviewed.matches[0].row,'Check original evidence',1),/conflicting/);
 });
+
+test('form fields are stored against verified PGP ID, with optional contact and batch',()=>{
+  const event=createEvent(),f=club(event),r=f.makeReceiver();
+  f.publicRpc('requestEventCode','123456789');
+  const token=f.publicRpc('signInEvent','123456789',event.code('player@example.test'),'').session.token;
+  const valid={pgpId:'123456789',fullName:'Sample Full Name',contact:'+91 98765 43210',batch:'2026-28'};
+  for(const overrides of [{pgpId:'223456789'},{fullName:'  '},{contact:'call me'},{batch:'2024-26'}]){
+    assert.throws(()=>f.publicRpc('playerStart',token,'',randomUUID(),JSON.stringify({...valid,...overrides})));
+  }
+  const saved=f.publicRpc('playerStart',token,'',randomUUID(),JSON.stringify(valid));
+  assert.deepEqual(JSON.parse(JSON.stringify(saved.details)),valid);assert.equal(saved.receiver.id,r.id);
+  assert.equal(saved.fairPlay,'I agree to play fair, respect the rules, and accept all decisions made by E-Cell, IMT Ghaziabad.');
+  const current=f.publicRpc('playerStatus',token,saved.ticket);assert.equal(current.details.batch,'2026-28');
+});
+test('both receiver options preserve the quote; a payment sent to a different confirmed account requires review',()=>{
+  const f=start(),{p,receiver,admin}=f,next=f.makeReceiver('backup@samplebank','Second Treasurer');
+  const first=p.status();assert.deepEqual(Array.from(first.paymentRecipients,r=>r.name).sort(),['Second Treasurer','Test receiver']);
+  const switched=f.publicRpc('playerSelectReceiver',p.token,p.hold.ticket,next.id);
+  assert.equal(switched.upi,next.upi);assert.equal(switched.fee,first.fee);assert.equal(switched.expires,first.expires);
+  p.hold=switched;
+  const proof=f.submission(p,{paidReceiver:receiver.id});
+  assert.throws(()=>f.submit(p,{...proof,values:{...proof.values,paidReceiver:''}}),/recipient/);
+  assert.throws(()=>f.submit(p,{...proof,values:{...proof.values,agreementVersion:'old'}}),/fair-play/);
+  f.submit(p,proof);
+  assert.throws(()=>f.publicRpc('playerSelectReceiver',p.token,p.hold.ticket,receiver.id),/hold changed/);
+  const plan=f.statement(receiver);assert.match(plan.matches[0].reason,/differs from the receiver shown/);assert.equal(f.apply(plan).authorized,0);
+  const v=f.rpc('adminPaymentDetail',admin,p.hold.id,'');assert.equal(v.receiver,next.name);assert.equal(v.confirmedRecipient,receiver.name);
+  f.rpc('adminReviewPayment',admin,p.hold.id,'approve',v.rows[0].key,'Verified the confirmed alternate receiver’s original bank credit',1);
+  assert.equal(p.status().paymentStatus,'AUTHORIZED');
+});
+test('payment screenshot accepts exactly 10 MB and rejects larger or unsupported uploads',()=>{
+  const event=createEvent(),bytes=Buffer.alloc(10*1024*1024);bytes.set([137,80,78,71,13,10,26,10]);
+  const prefix='data:image/png;base64,';
+  assert.equal(event.staff('proofImageBytes_',[prefix+bytes.toString('base64')]).bytes.length,bytes.length);
+  assert.throws(()=>event.staff('proofImageBytes_',[prefix+Buffer.concat([bytes,Buffer.alloc(1)]).toString('base64')]),/10 MB/);
+  assert.throws(()=>event.staff('proofImageBytes_',['data:text/plain;base64,QUJD']),/screenshot/);
+});

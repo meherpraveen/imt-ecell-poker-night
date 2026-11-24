@@ -37,7 +37,7 @@ export function club(event){
   function submission(p,edits={},proof=image,raw=receiptText()){
     event.ocr(raw);
     const read=publicRpc('playerReadProof',p.token,p.hold.ticket,proof);
-    return {proof,values:{utr,amount:'149.00',time:paidAt,payer:'Sample payer',beneficiary:p.hold.beneficiary,receiver:p.hold.receiver.id,revision:p.status().proofVersion,fairPlay:true,ocr:read,...edits}};
+    return {proof,values:{utr,amount:'149.00',time:paidAt,payer:'Sample payer',beneficiary:p.hold.beneficiary,receiver:p.hold.receiver.id,paidReceiver:p.hold.receiver.id,agreementVersion:p.hold.fairPlayVersion,revision:p.status().proofVersion,fairPlay:true,ocr:read,...edits}};
   }
   const submit=(p,s)=>publicRpc('playerSubmitPayment',p.token,p.hold.ticket,s.proof,JSON.stringify(s.values));
   function importFile(id,name,bytes){return rpc('adminImportStatement',admin,id,name,Buffer.from(bytes).toString('base64'))}

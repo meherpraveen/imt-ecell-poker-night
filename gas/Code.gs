@@ -66,7 +66,7 @@ function doPost(event){
   let result;
   try{
     const body=event&&event.postData&&event.postData.contents;
-    must_(typeof body==='string'&&body.length<=2410000,'Check the request or choose a smaller screenshot.');
+    must_(typeof body==='string'&&body.length<=4*Math.ceil(PROOF_MAX_BYTES/3)+12000,'Check the request or choose a smaller screenshot.');
     const request=JSON.parse(body);
     const methods=new Map([
       ['publicPrices',[publicPrices,0]],['publicInfo',[publicInfo,0]],['liveFloor',[liveFloor,0]],
@@ -74,12 +74,13 @@ function doPost(event){
       ['requestPlayerCode',[requestPlayerCode,1]],['verifyPlayerCode',[verifyPlayerCode,2]],['playerLogout',[playerLogout,1]],
       ['requestMatchedPlayerCode',[requestMatchedPlayerCode,2]],['signInPlayer',[signInPlayer,3]],['passInfo',[passInfo,1]],
       ['playerHome',[playerHome,2]],['playerStart',[playerStart,3]],['playerStatus',[playerStatus,2]],
-      ['playerCheckout',[playerCheckout,2]],['playerUpload',[playerUpload,4]],['playerReadProof',[playerReadProof,3]],['playerSubmitPayment',[playerSubmitPayment,4]],['playerIdentifyReceiver',[playerIdentifyReceiver,3]],
+      ['playerSelectReceiver',[playerSelectReceiver,3]],['playerSaveDetails',[playerSaveDetails,3]],['playerCheckout',[playerCheckout,2]],['playerUpload',[playerUpload,4]],['playerReadProof',[playerReadProof,3]],['playerSubmitPayment',[playerSubmitPayment,4]],['playerIdentifyReceiver',[playerIdentifyReceiver,3]],
       ['scanEntryTicket',[scanEntryTicket,3]]
     ]);
     const method=request&&methods.get(request.action);
     must_(method&&Array.isArray(request.args)&&request.args.every(arg=>typeof arg==='string'),'Invalid event request.');
-    must_(request.args.length===method[1], 'Refresh the event page and sign in to continue.');
+    must_(body.length<=2410000||['playerReadProof','playerSubmitPayment'].includes(request.action),'This request is too large.');
+    must_(request.args.length===method[1]||request.action==='playerStart'&&request.args.length===4, 'Refresh the event page and sign in to continue.');
     result={ok:true,value:method[0](...request.args)};
   }catch(error){
     const validation=error.name==='EventValidationError';
@@ -277,7 +278,7 @@ function accountForRoll_(roll,preferred){
   const person=roster_()[roll]||{};
   return {...signupInfo_(set,now,st),player:{name:person.name||'',roll,email:person.email||'',phone:person.phone||''},receipt:attempt?receipt_(attempt,set,st):null};
 }
-function playerStart(session,previous,requestId){
+function playerStart(session,previous,requestId,detailsJson){
   const roll=playerRoll_(session);
   must_(!requestId||(typeof requestId==='string'&&/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(requestId)),'Refresh the page and try again.');
   return locked_(()=>{
@@ -296,6 +297,8 @@ function playerStart(session,previous,requestId){
     eligibility_(st,roll,kind,now);
     const a=attachReceiver_(newAttempt_(roll,kind,info.paymentsReady?waveFor_(st,roll,now):-1,now),st,now);
     if(!info.paymentsReady){a.status='REGISTERED';a.expires=0}
+    if(detailsJson)a.details=registrationDetails_(roll,detailsJson);
+    else if(usesBankVerification_(st)){const p=roster_()[roll];a.details=registrationDetails_(roll,{fullName:p?.name,pgpId:roll,contact:'',batch:''})}
     if(startHash)a.startHash=startHash;
     commit_(st,a.status==='REGISTERED'?'Registration saved':'Seat request','Player',{attempts:[a],note:a.id});return receipt_(a,set,st);
   });
@@ -317,9 +320,11 @@ function receipt_(a,set,st){
   const payee=selected||set;
   return {ticket:a.id+'.'+mac_('receipt:'+a.id),id:a.id,fee:quotedFee_(a,now),offer:entryOffer_(now,a.kind),wave:a.wave+1,status:a.status==='HOLD'&&!hold?'EXPIRED':a.status,
     expires,upi:payable?payee.upi:'',name:payable?payee.name:'',paymentQr:payable&&payee.qrFile?paymentQrData_(payee.qrFile):'',
-    managed,receiver:selected?{id:selected.id,name:selected.name,upi:selected.upi,number:selected.number||''}:null,
+    managed,canChooseReceiver:hold&&!!selected&&!a.file&&!a.legacyReceiver,details:a.details||null,fairPlay:FAIR_PLAY_DECLARATION,fairPlayVersion:FAIR_PLAY_VERSION,
+    paymentRecipients:selected?receivers_(st).filter(r=>r.active||r.id===selected.id||r.id===a.claim?.paidReceiver?.id).map(receiverView_):[],
+    receiver:selected?{id:selected.id,name:selected.name,upi:selected.upi,number:selected.number||''}:null,
     identifyReceivers:managed&&!selected&&['HOLD','REVIEW','REJECTED'].includes(a.status)?receivers_(st).map(receiverView_):[],
-    paymentStatus:a.paymentStatus||(issued_(a)?'AUTHORIZED':'PENDING'),proofVersion:a.proofVersion||0,claim:a.claim||null,issue:a.reviewReason||a.reason||'',beneficiary:a.roll,
+    paymentStatus:a.paymentStatus||(issued_(a)?'AUTHORIZED':'PENDING'),proofVersion:a.proofVersion||0,claim:a.claim||null,needsConfirmation:!!a.claim&&!a.claim.paidReceiver,issue:a.reviewReason||a.reason||(a.claim&&!a.claim.paidReceiver?'Confirm the payment recipient and fair-play declaration below.':''),beneficiary:a.roll,
     canCheckout:a.status==='REGISTERED'&&ready&&now<NEW_CLOSE,checkoutEnded:now>=NEW_CLOSE,delivery:a.delivery||'',reason:a.reason||'',
     seat:a.seat||null,checkedInAt:a.checkedInAt||null,entryCode:ticketActive_(a,st,now)?pass_(a.id):''};
 }
@@ -469,7 +474,7 @@ function deskPayment(token,roll,kind,full,confirmed,verifiedFee){
   });
 }
 function staffPass(token,id,send){const s=staff_(token,['desk']);return locked_(()=>{const st=ledger_(),a=st.attempts[id];must_(a&&ticketActive_(a,st,Date.now()),'This ticket is no longer available for entry.');const p=roster_()[a.roll]||{};
-  const current=send?mailCode_(st,a,p,s.name):a;return {code:pass_(id),phone:p.phone||'',name:p.name||'',wave:a.wave+1,delivery:current.delivery};})}
+  const current=send?mailCode_(st,a,p,s.name):a;return {code:pass_(id),phone:a.details?a.details.contact.replace(/\D/g,''):p.phone||'',name:a.details?.fullName||p.name||'',wave:a.wave+1,delivery:current.delivery};})}
 function scannerLink_(token){
   // This capability can only admit tickets. Revoking the parent desk session also revokes the camera.
   const key=hash_(token);
@@ -488,7 +493,7 @@ function admitTicket_(staff,value,op){
     const st=ledger_(),a=byCode_(st,value);
     if(!a)return {status:'invalid'};
     if(!a.used&&!ticketActive_(a,st,Date.now()))return {status:'invalid'};
-    const player=roster_()[a.roll]?.name||a.roll;
+    const player=a.details?.fullName||roster_()[a.roll]?.name||a.roll;
     if(a.used)return {status:'used',player,wave:a.wave+1,seat:a.seat,checkedInAt:a.checkedInAt};
     const seat=nextSeat_(st,a.wave),checkedInAt=Date.now();
     const venue={where:'IN',ops:[...(st.venue[a.roll]?.ops||[]).slice(-23),op]};

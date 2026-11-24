@@ -33,6 +33,8 @@ test('published navigation, mobile startup, live floor and backend validation @d
     api('requestEventCode','').catch(e=>e.message),api('signInEvent','','','').catch(e=>e.message)
   ]));
   for(const message of validation)expect(message).toContain('nine-digit roll number');
+  const guarded=await page.evaluate(()=>Promise.all([api('playerSaveDetails','','','{}').catch(e=>e.message),api('playerSubmitPayment','','','','{}').catch(e=>e.message)]));
+  for(const message of guarded)expect(message).toContain('Sign in with your registered email');
   await page.getByLabel('Roll number or registered email').fill('invalid');
   await page.getByRole('button',{name:'Send code',exact:true}).click();await expect(page.locator('#identifierError')).toContainText('nine-digit');
   // Resume the public code-entry screen with local test state. This checks the live UI without sending mail.
@@ -45,5 +47,5 @@ test('published navigation, mobile startup, live floor and backend validation @d
   const settings=await page.evaluate(()=>api('publicInfo'));expect(typeof settings.open).toBe('boolean');
   await page.goto(site+'event.html?view=pass');await expect(page.locator('#msg')).toContainText('complete pass link');
   await page.goto(site+'event.html?view=staff');await expect(page.getByRole('heading',{name:'Page unavailable'})).toBeVisible();
-  expect(actions.every(a=>['publicPrices','publicInfo','liveFloor','requestEventCode','signInEvent'].includes(a))).toBe(true);expect(errors).toEqual([]);
+  expect(actions.every(a=>['publicPrices','publicInfo','liveFloor','requestEventCode','signInEvent','playerSaveDetails','playerSubmitPayment'].includes(a))).toBe(true);expect(errors).toEqual([]);
 });

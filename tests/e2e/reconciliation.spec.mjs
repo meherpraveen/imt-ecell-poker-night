@@ -8,7 +8,7 @@ async function register(page,site){
   await page.goto(site.register);await page.getByLabel('Roll number or registered email').fill(player.roll);
   await button(page,'Send code').click();await expect(page.getByLabel('Six-digit code')).toBeVisible();
   await page.getByLabel('Six-digit code').fill(site.code(player.email));await button(page,'Verify and continue').click();
-  await expect(page.getByText('Sample Student',{exact:true})).toBeVisible();await button(page,'Request a seat').click();
+  await expect(page.getByLabel('Full Name')).toHaveValue('Sample Student');await expect(page.getByLabel('PGP ID',{exact:true})).toHaveValue(player.roll);await page.getByLabel('Batch (optional)').selectOption('2026-28');await page.getByLabel('Contact No. (optional)').fill('9876543210');await button(page,'Request a seat').click();
 }
 async function addReceiver(admin,site){
   await admin.goto(site.staffUrl('admin'));await button(admin,'Send code to club email').click();
@@ -25,14 +25,24 @@ async function proof(page,site,alter){
   await expect(page.getByLabel('UTR / UPI Transaction ID')).toHaveValue(utr);
   await expect(page.getByLabel('Payment time (IST)')).toHaveValue(paidAt);
   if(alter)await page.getByLabel('Amount paid (₹)').fill('140');
+  await page.getByLabel('Please confirm the recipient of your payment').selectOption({label:'Sample Treasurer'});
   await page.getByLabel('Who made the payment?').fill('Friend of Student');
   await page.getByLabel('Who was the payment for?').selectOption(player.roll);
-  await page.getByLabel('I agree to fair play.',{exact:false}).check();await button(page,'Submit for verification').click();
+  await page.getByLabel('I agree to play fair, respect the rules, and accept all decisions made by E-Cell, IMT Ghaziabad.',{exact:true}).check();await button(page,'Submit for verification').click();
   await expect(page.getByRole('heading',{name:'Payment pending'})).toBeVisible();
 }
 for(const manual of [false,true]){
   test(manual?'admin compares corrected proof to the bank and manually authorizes the selected credit':'student payment moves from screenshot to statement preview to an emailed phone pass',async({page,context,site})=>{
-    const admin=await context.newPage();await addReceiver(admin,site);await register(page,site);
+    const admin=await context.newPage();await addReceiver(admin,site);
+    if(manual){
+      await button(admin,'Add receiver').click();await admin.getByLabel('Receiver name').fill('Alternate Treasurer');await admin.getByLabel('UPI ID',{exact:true}).fill('second@samplebank');
+      await admin.getByLabel('Payment QR image').setInputFiles({...screenshot,buffer:jpegQr('second@samplebank')});await button(admin,'Save receiver').click();await expect(admin.locator('dialog')).not.toBeVisible();
+    }
+    await register(page,site);
+    if(manual){
+      await page.getByText('Choose a payment receiver',{exact:true}).click();await page.getByLabel('Who would you like to pay?').selectOption({label:'Sample Treasurer'});
+      await button(page,'Show selected QR').click();await expect(page.getByRole('link',{name:'Open UPI app'})).toHaveAttribute('href',/pa=club%40samplebank/);
+    }
     await expect(page.getByAltText('Coordinator’s UPI payment QR')).toBeVisible();
     await expect(page.getByRole('link',{name:'Open UPI app'})).toHaveAttribute('href',/am=149\.00/);
     await proof(page,site,manual);

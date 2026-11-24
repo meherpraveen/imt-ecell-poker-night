@@ -163,8 +163,8 @@ function adminImportStatement(token,receiverId,filename,data){
     if(prior){must_(prior.receiver.id===receiverId,'These same statement bytes belong to another receiver.');return}
     must_(live.receivers[receiverId]?.revision===receiver.revision,'The receiving account changed. Check it before uploading again.');
     const original=folder.createFile(source.blob);
-    const manifest=folder.createFile(Utilities.newBlob(JSON.stringify(rows),'application/json','bank-rows-'+id+'.json'));
-    const item={id,name:source.name,ext:source.ext,receiver:receiverView_(receiver),original:original.getId(),manifest:manifest.getId(),count:rows.length,created:Date.now(),applied:false};
+    const contents=JSON.stringify(rows),manifest=folder.createFile(Utilities.newBlob(contents,'application/json','bank-rows-'+id+'.json'));
+    const item={id,name:source.name,ext:source.ext,receiver:receiverView_(receiver),original:original.getId(),manifest:manifest.getId(),manifestDigest:hash_(contents),count:rows.length,created:Date.now(),applied:false};
     commit_(live,'Statement uploaded for preview',user.name,{statements:[item],note:receiver.name+' · '+source.name});
   });
   return adminStatementPreview(token,id);
@@ -173,7 +173,9 @@ function bankRows_(st,includeId,includeStaged=false){
   const all=[];
   for(const s of Object.values(st.statements)){
     if(!includeStaged&&!s.applied&&s.id!==includeId)continue;
-    const rows=JSON.parse(DriveApp.getFileById(s.manifest).getBlob().getDataAsString());
+    const contents=DriveApp.getFileById(s.manifest).getBlob().getDataAsString();
+    must_(!s.manifestDigest||hash_(contents)===s.manifestDigest,'Stored statement rows differ from the original import. Stop and check the bank file.');
+    const rows=JSON.parse(contents);
     must_(Array.isArray(rows)&&rows.length===s.count,'Statement rows could not be verified. Contact the club administrator.');
     rows.forEach((row,i)=>{const key=s.id+'.'+i,fix=st.bankCorrections[key];all.push({...row,...(fix?.values||{}),key,applied:!!s.applied,statement:s.id,account:s.receiver.id,upi:s.receiver.upi,source:s.name})});
   }

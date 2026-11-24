@@ -1,8 +1,11 @@
 // Exact matches and manual decisions use the same server-side credit and admission checks.
 function rowMentions_(row,utr){return !!utr&&(row.utr===utr||!row.utr&&(row.refs||String(row.raw||'').match(/\b\d{12}\b/g)||[]).includes(utr))}
+function paidReceiver_(a){return a.claim?.paidReceiver||a.receiver}
 function paymentBlock_(st,a,row,bank){
   if(!a.file||!a.claim||!a.receiver)return 'Missing structured proof or receiver. Ask the player to upload again.';
-  if(row.account!==a.receiver.id||row.upi!==a.receiver.upi)return 'Receiving account differs from checkout.';
+  if(!a.details||!a.claim.paidReceiver||a.fairPlayVersion!==FAIR_PLAY_VERSION)return 'Ask the player to confirm their registration, payment recipient and fair-play declaration.';
+  const recipient=paidReceiver_(a);
+  if(row.account!==recipient.id||row.upi!==recipient.upi)return 'Bank credit belongs to a different account from the confirmed recipient.';
   if(row.issue||row.direction!=='CREDIT'||!row.utr)return row.issue||'No verified incoming credit.';
   if(row.minor!==a.fee*100)return 'Bank credit differs from the server-quoted fee.';
   const same=bank.filter(r=>rowMentions_(r,row.utr));
@@ -20,6 +23,7 @@ function paymentBlock_(st,a,row,bank){
 function autoReason_(st,a,row,bank){
   const block=paymentBlock_(st,a,row,bank);if(block)return block;
   if(row.ocr)return 'PDF extraction needs visual confirmation against the original statement.';
+  if(a.claim.paidReceiver.id!==a.receiver.id)return 'Confirmed payment recipient differs from the receiver shown at checkout.';
   if(a.legacyReceiver)return 'The receiving account was supplied after the original checkout.';
   if(a.late)return 'Proof arrived after the seat hold expired.';
   if(a.ocr?.payee&&a.ocr.payee!==a.receiver.upi)return 'Screenshot shows a different receiving UPI ID.';
@@ -29,18 +33,18 @@ function autoReason_(st,a,row,bank){
   if(a.claim.amount!==row.minor)return 'Screenshot amount differs from the bank credit.';
   if(a.claim.time.slice(0,10)!==row.date)return 'Payment and statement dates differ.';
   const time=Date.parse(a.claim.time+':00+05:30');
-  if(time+60000<(a.quotedAt||a.created)||time>=holdEnd_(a)||time>a.submitted+60000)return 'Payment time falls outside the quoted payment window.';
+  if(time+60000<Math.max(a.quotedAt||a.created,a.receiverSelectedAt||0)||time>=holdEnd_(a)||time>a.submitted+60000)return 'Payment time falls outside the quoted payment window.';
   return '';
 }
 function paymentMatch_(st,a,bank){
   const exact=bank.filter(r=>r.applied&&r.utr&&r.utr===a.claim?.utr);
-  const row=exact.find(r=>r.account===a.receiver?.id)||exact[0];
-  const staged=bank.some(r=>!r.applied&&r.account===a.receiver?.id&&rowMentions_(r,a.claim?.utr));
+  const row=exact.find(r=>r.account===paidReceiver_(a)?.id)||exact[0];
+  const staged=bank.some(r=>!r.applied&&r.account===paidReceiver_(a)?.id&&rowMentions_(r,a.claim?.utr));
   const reason=row?autoReason_(st,a,row,bank):staged?'Matching UTR in a staged statement. Check and apply its preview.':'No matching bank UTR. Check the receiver statement.';
   return {id:a.id,version:a.proofVersion||0,roll:a.roll,utr:a.claim?.utr||'',row:row?.key||'',reason,fee:a.fee};
 }
 function statementPlan_(st,s){
-  const bank=bankRows_(st,s.id,true),own=bank.filter(r=>r.statement===s.id),pending=Object.values(st.attempts).filter(a=>a.status==='REVIEW'&&a.receiver?.id===s.receiver.id);
+  const bank=bankRows_(st,s.id,true),own=bank.filter(r=>r.statement===s.id),pending=Object.values(st.attempts).filter(a=>a.status==='REVIEW'&&paidReceiver_(a)?.id===s.receiver.id);
   const matches=pending.map(a=>{
     // Only this statement's credits may be applied by this preview.
     const row=own.find(r=>r.utr&&r.utr===a.claim?.utr);
@@ -88,7 +92,7 @@ function adminDispatchPasses(token){
   });
 }
 function reviewCandidates_(a,bank){
-  const rank=r=>(r.key===a.linkedRow?200:0)+(r.utr&&r.utr===a.claim?.utr?100:0)+(r.utr&&a.suffix&&r.utr.endsWith(a.suffix)?18:0)+(r.account===a.receiver?.id?10:0)+(r.minor===a.fee*100?5:0)+(r.date&&a.claim?.time.startsWith(r.date)?2:0);
+  const rank=r=>(r.key===a.linkedRow?200:0)+(r.utr&&r.utr===a.claim?.utr?100:0)+(r.utr&&a.suffix&&r.utr.endsWith(a.suffix)?18:0)+(r.account===paidReceiver_(a)?.id?10:0)+(r.minor===a.fee*100?5:0)+(r.date&&a.claim?.time.startsWith(r.date)?2:0);
   return bank.map(r=>({r,rank:rank(r)})).filter(v=>v.rank>=10).sort((a,b)=>b.rank-a.rank||a.r.key.localeCompare(b.r.key)).slice(0,10).map(v=>v.r);
 }
 function adminPaymentDetail(token,id,lookup){
@@ -97,7 +101,7 @@ function adminPaymentDetail(token,id,lookup){
   must_(!query||ref_(query),'Search with a full 12-digit UTR.');
   const rows=query?available.filter(r=>rowMentions_(r,query)).slice(0,40):reviewCandidates_(a,available);
   return {version:a.proofVersion||0,linked:a.linkedRow||'',claim:a.claim||null,ocr:a.ocr||null,
-    receiver:a.receiver.name,reason:paymentMatch_(st,a,bank).reason||'Exact match available.',rows:rows.map(r=>({...r,sourceUrl:'https://drive.google.com/open?id='+encodeURIComponent(st.statements[r.statement].original)}))};
+    receiver:a.receiver.name,confirmedRecipient:a.claim?.paidReceiver?.name||'',details:a.details||null,reason:paymentMatch_(st,a,bank).reason||'Exact match available.',rows:rows.map(r=>({...r,sourceUrl:'https://drive.google.com/open?id='+encodeURIComponent(st.statements[r.statement].original)}))};
 }
 function adminReviewPayment(token,id,action,rowKey,reason,revision){
   const admin=staff_(token,[]);reason=String(reason||'').trim();
@@ -110,7 +114,7 @@ function adminReviewPayment(token,id,action,rowKey,reason,revision){
     if(action==='reject'){commit_(st,'Proof rejected',admin.name,{attempts:[{...a,status:'REJECTED',paymentStatus:'PENDING',reason,linkedRow:'',reviewReason:reason}],note:id});return {status:'Rejected'}}
     const bank=bankRows_(st,'',true),row=bank.find(r=>r.applied&&r.key===rowKey);must_(row,'Choose an applied statement row.');
     if(action==='link'){
-      must_(row.account===a.receiver.id,'Select a row from this receiver’s statement.');
+      must_(row.account===paidReceiver_(a)?.id,'Select a row from the confirmed receiving account.');
       must_(!Object.values(st.attempts).some(x=>x.id!==id&&row.utr&&x.utr===row.utr),'This bank credit has already funded an entry.');
       if(a.linkedRow!==rowKey||a.linkReason!==reason)commit_(st,'Statement row linked',admin.name,{attempts:[{...a,linkedRow:rowKey,linkReason:reason}],note:id});
       return {status:'Linked · payment pending'};
@@ -130,7 +134,7 @@ function adminOpenDeskPayment(token,roll,kind){
     if(active)return {id:active.id,status:'This player already has a payment in progress.'};
     const saved=Object.values(st.attempts).find(a=>a.roll===roll&&['REGISTERED','WAITLIST'].includes(a.status)&&a.kind!=='retry'&&kind==='walk');
     eligibility_(st,roll,kind,now,saved?.id);const wave=waveFor_(st,roll,now);must_(wave>=0,'No later qualifier seat is available.');
-    const a=attachReceiver_({...newAttempt_(roll,kind,wave,now),...(saved?{id:saved.id}:{}),status:'HOLD'},st,now);
+    const a=attachReceiver_({...newAttempt_(roll,kind,wave,now),...(saved?{id:saved.id,details:saved.details||null}:{}),status:'HOLD'},st,now);
     must_(a.receiver,'Configure a receiving account first.');
     commit_(st,'Desk payment opened',user.name,{attempts:[a],note:a.id});
     return {id:a.id,status:'Payment pending. The player can sign in to see their receiver and upload proof.'};

@@ -43,11 +43,12 @@ async function dispatchBankPasses(){
   return failed?failed+' pass email(s) need desk delivery.':'Pass delivery is up to date.';
 }
 async function bankReviewDialog(id,query=''){
-  const r=await api('adminPaymentDetail',token,id,query);reviewPayment={...r,id};opened=id;
+  const r=await api('adminPaymentDetail',token,id,query);reviewPayment={...r,id,proofVisible:false};opened=id;
   const c=r.claim||{},money=n=>n==null?'Unknown':formatFee_(n/100),options=r.rows.map(x=>'<option value="'+esc(x.key)+'"'+(x.key===r.linked?' selected':'')+'>'+esc([x.source,x.line,x.utr||'No UTR',money(x.minor)].join(' · '))+'</option>').join('');
   const rows=r.rows.map(x=>'<li><strong>'+esc(x.line+' · '+x.source)+'</strong><small>'+esc(x.raw)+'</small><small>'+esc(x.issue||x.direction)+' · '+esc(x.date)+'</small>'+
     '<a href="'+esc(x.sourceUrl)+'" target="_blank" rel="noopener">Open original statement</a></li>').join('');
-  detail('<h2>Review payment</h2><p>'+esc(r.receiver)+' · '+esc(r.reason)+'</p><dl class="details-list"><div><dt>Paid for</dt><dd>'+esc(c.beneficiary)+'</dd></div><div><dt>Paid by</dt><dd>'+esc(c.payer)+'</dd></div><div><dt>Student UTR</dt><dd>'+esc(c.utr)+'</dd></div><div><dt>Claimed amount</dt><dd>'+esc(money(c.amount))+'</dd></div><div><dt>Paid at (IST)</dt><dd>'+esc(c.time)+'</dd></div></dl>'+
+  const contact=[['Contact No.',r.details?.contact],['Batch',r.details?.batch]].filter(([,v])=>v).map(([k,v])=>'<div><dt>'+k+'</dt><dd>'+esc(v)+'</dd></div>').join('');
+  detail('<h2>Review payment</h2><p>'+esc(r.reason)+'</p><dl class="details-list"><div><dt>Receiver shown</dt><dd>'+esc(r.receiver)+'</dd></div><div><dt>Confirmed recipient</dt><dd>'+esc(r.confirmedRecipient||'Awaiting confirmation')+'</dd></div><div><dt>Paid for</dt><dd>'+esc([r.details?.fullName,c.beneficiary].filter(Boolean).join(' · '))+'</dd></div>'+contact+'<div><dt>Paid by</dt><dd>'+esc(c.payer)+'</dd></div><div><dt>Student UTR</dt><dd>'+esc(c.utr)+'</dd></div><div><dt>Claimed amount</dt><dd>'+esc(money(c.amount))+'</dd></div><div><dt>Paid at (IST)</dt><dd>'+esc(c.time)+'</dd></div></dl>'+
     '<details><summary>Original OCR values</summary><p>'+esc([r.ocr?.utr||'UTR unreadable',r.ocr?.amount||'Amount unreadable',r.ocr?.time||'Time unreadable'].join(' · '))+'</p></details>'+
     '<div id="bankProofImage" role="status">Loading private screenshot…</div><h3>Closest statement rows</h3>'+
     input('bankLookup','Find another row by full UTR','inputmode="numeric" maxlength="12" value="'+esc(query)+'"')+btn('bankFind','Find row')+
@@ -56,7 +57,7 @@ async function bankReviewDialog(id,query=''){
     (rows?checkbox('bankVerified','I checked the screenshot and the original bank credit.')+btn('bankApprove','Approve payment','primary wide')+btn('bankLink','Link row and keep pending'):'')+
     btn('bankReject','Reject proof')+btn('move','Move to an open wave')+
     (r.rows.some(x=>x.ocr)?'<details><summary>Transcribe an unclear PDF credit</summary><p>Choose the original line above and verify it in the PDF.</p>'+input('pdfUtr','Full UTR on the PDF line','inputmode="numeric" maxlength="12"')+input('pdfAmount','Incoming amount on the PDF','inputmode="decimal"')+input('pdfDate','Bank credit date','type="date"')+btn('bankTranscribe','Record verified PDF values')+'</details>':''));
-  try{const pic=await api('proofImage',token,id),slot=el('bankProofImage');if(!slot||reviewPayment?.id!==id)return;const img=new Image();img.className='shot';img.alt='Student payment screenshot';img.src=pic;slot.replaceChildren(img)}
+  try{const pic=await api('proofImage',token,id),slot=el('bankProofImage');if(!slot||reviewPayment?.id!==id)return;const img=new Image();img.className='shot';img.alt='Student payment screenshot';img.src=pic;slot.replaceChildren(img);await img.decode();if(slot.isConnected&&reviewPayment?.id===id)reviewPayment.proofVisible=true}
   catch(e){if(el('bankProofImage'))el('bankProofImage').textContent='Screenshot unavailable. '+e.message}
 }
 async function bankAction(name,id){
@@ -91,6 +92,7 @@ async function bankAction(name,id){
     await bankReviewDialog(reviewPayment.id);return;
   }
   if(name==='bankApprove'||name==='bankLink'||name==='bankReject'){
+    if(name==='bankApprove'&&!reviewPayment.proofVisible)throw Error('Open the readable payment screenshot before approving.');
     if(name==='bankApprove'&&!el('bankVerified')?.checked)throw Error('Confirm the original bank credit and screenshot before approving.');
     const decision={bankApprove:'approve',bankLink:'link',bankReject:'reject'}[name];
     const result=await api('adminReviewPayment',token,reviewPayment.id,decision,val('bankRow'),val('bankReason'),reviewPayment.version);closeDetail();await refresh();msg(result.status);return;
