@@ -226,6 +226,9 @@ test('phone, tablet and desktop layouts fit, and a desk poll preserves an unsave
     await expect(wordmark).toBeVisible();
     await expect.poll(()=>wordmark.evaluate(img=>img.complete&&img.naturalWidth>0)).toBe(true);
     await expect(hero.getByRole('link',{name:'Sign in to register'})).toBeInViewport({ratio:1});
+    const navLinks=page.getByRole('navigation',{name:'Event',exact:true}).getByRole('link');
+    const targets=await navLinks.evaluateAll(links=>links.map(link=>{const {width,height}=link.getBoundingClientRect();return {width,height}}));
+    expect(targets.every(({width,height})=>width>=44&&height>=44)).toBe(true);
     const mark=page.getByAltText('Entrepreneurship Cell, IMT Ghaziabad');
     await expect(mark).toBeVisible();await expect.poll(()=>mark.evaluate(img=>img.naturalWidth)).toBeGreaterThan(100);
     const sponsors=page.getByRole('region',{name:'Sponsored by'});
