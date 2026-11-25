@@ -76,18 +76,20 @@ test('published navigation, mobile startup, live floor and backend validation @d
   await page.evaluate(()=>localStorage.setItem('pn26:email-step',JSON.stringify({identifier:'preview@example.invalid',resendAt:Date.now()+60000,expires:Date.now()+600000})));
   await page.reload();await expect(page.getByRole('heading',{name:'Student sign-in'})).toBeVisible();
   await expect(page.getByLabel('Six-digit code')).toHaveCount(0);
-  // The owner still has the email-code screen, without issuing a live message.
+  // An old owner email-code step now opens the password form without sending mail.
   await page.evaluate(()=>localStorage.setItem('pn26:email-step',JSON.stringify({identifier:'preview@example.invalid',adminEntry:true,resendAt:Date.now()+60000,expires:Date.now()+600000})));
-  await page.reload();const junk=page.getByRole('link',{name:'Open Outlook Junk Email'});
-  await expect(junk).toBeVisible();await expect(junk).toHaveAttribute('href','https://outlook.office.com/mail/junkemail');
-  await expect(page.getByText('Student sign-in is saved on this device for 30 days.')).toBeVisible();
+  await page.reload();await expect(page.getByLabel('Club password',{exact:true})).toHaveAttribute('type','password');
+  await expect(page.getByLabel('Club email',{exact:true})).toHaveValue('preview@example.invalid');
+  await expect(page.getByLabel('Six-digit code')).toHaveCount(0);
+  const rejected=await page.evaluate(()=>api('signInClubWithPassword','','',crypto.randomUUID()).catch(e=>e.message));
+  expect(rejected).toContain('incorrect');
   await page.goto(site+'event.html?view=board');await expect(page.locator('#clock')).toBeVisible({timeout:35000});
   await expect(page.getByRole('region',{name:'Sponsored by'})).toBeVisible();
   await expect(page.locator('#content h2').first()).toBeVisible();
   const settings=await page.evaluate(()=>api('publicInfo'));expect(typeof settings.open).toBe('boolean');
   await page.goto(site+'event.html?view=pass');await expect(page.locator('#msg')).toContainText('complete pass link');
   await page.goto(site+'event.html?view=staff');await expect(page.getByRole('heading',{name:'Page unavailable'})).toBeVisible();
-  expect(actions.every(a=>['publicPrices','publicInfo','liveFloor','signInWithStudentDetails','requestEventCode','signInEvent','playerSaveDetails','playerSubmitPayment','playerSubmitScreenshot','playerSelectReceiver'].includes(a))).toBe(true);expect(errors).toEqual([]);
+  expect(actions.every(a=>['publicPrices','publicInfo','liveFloor','signInWithStudentDetails','signInClubWithPassword','requestEventCode','signInEvent','playerSaveDetails','playerSubmitPayment','playerSubmitScreenshot','playerSelectReceiver'].includes(a))).toBe(true);expect(errors).toEqual([]);
 });
 
 test('published pages, checkout module and camera assets match the release build @deployed',async({request})=>{
@@ -104,7 +106,7 @@ test('published pages, checkout module and camera assets match the release build
     for(const asset of expected)assets.add(asset);
   }
   for(const asset of refs(read('assets/event-app.js')))assets.add(asset);
-  for(const name of ['player-account.js','payment-form.js','gate-camera.js','email-code.js'])expect([...assets].some(url=>url.includes('/'+name+'?v='))).toBe(true);
+  for(const name of ['player-account.js','payment-form.js','gate-camera.js','email-code.js','club-login.js'])expect([...assets].some(url=>url.includes('/'+name+'?v='))).toBe(true);
   assets.add('assets/jsQR-1.4.0.js');assets.add('assets/qrcode-1.4.4.js');
   await Promise.all([...assets].map(async asset=>{
     const live=await request.get(new URL(asset,site).href);expect(live.ok(),asset).toBe(true);

@@ -6,7 +6,7 @@ function fixture(){
   let time=Date.parse('2026-11-25T12:00:00+05:30');class Clock extends Date{static now(){return time}}
   const sent=[],loginMail=[],people={'123456789':{name:'Sample Player',email:'sample@example.test',phone:'9999999999'},'987654321':{name:'Second Player',email:'second@example.test',phone:''}};
   const properties=new Map([['KEY','fixture-only'],['FOLDER','folder']]);
-  const ctx={Date:Clock,console,ticketQrEncoder_:require('qrcode-generator'),CLUB_RESOURCES:{owner:'owner@example.test',studentSignIn:'email'},Utilities:{getUuid:crypto.randomUUID,base64Decode:s=>Array.from(Buffer.from(s,'base64')),newBlob:(bytes,type,name)=>({bytes,type,name}),computeHmacSha256Signature:(message,key)=>[...crypto.createHmac('sha256',key).update(message).digest()]},
+  const ctx={Date:Clock,console,ticketQrEncoder_:require('qrcode-generator'),CLUB_RESOURCES:{owner:'owner@example.test',studentSignIn:'email',ownerSignIn:'email'},Utilities:{getUuid:crypto.randomUUID,base64Decode:s=>Array.from(Buffer.from(s,'base64')),newBlob:(bytes,type,name)=>({bytes,type,name}),computeHmacSha256Signature:(message,key)=>[...crypto.createHmac('sha256',key).update(message).digest()]},
     MailApp:{getRemainingDailyQuota:()=>100,sendEmail:(...m)=>(m[1].includes('sign-in')?loginMail:sent).push(m)},ScriptApp:{getService:()=>({getUrl:()=>''})}};
   vm.createContext(ctx);vm.runInContext(source,ctx);const st=ctx.fresh_(),audit=[];
   ctx.ledger_=()=>st;ctx.locked_=fn=>fn();ctx.commit_=(s,kind,actor,p)=>{audit.push([kind,actor,p]);ctx.apply_(s,JSON.parse(JSON.stringify(p)))};

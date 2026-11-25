@@ -9,7 +9,7 @@ GitHub Pages serves the event homepage, registration, live floor, pass and scann
 | Source | Responsibility |
 | --- | --- |
 | `gas/Code.gs` | App setup, HTTP dispatch, request validation, settings and the event lock |
-| `gas/Auth.gs`, `StudentSignIn.gs`, `Directory.gs`, `StaffAccess.gs` | Email challenges, temporary directory login, session lifecycle, student identity and staff permissions |
+| `gas/Auth.gs`, `StudentSignIn.gs`, `OwnerPassword.gs`, `Directory.gs`, `StaffAccess.gs` | Email challenges, temporary directory login, owner password verification, session lifecycle, student identity and staff permissions |
 | `gas/Registration.gs`, `Pricing.gs`, `Receivers.gs` | Eligibility, wave capacity, receipts, prices and receiving accounts |
 | `gas/ReceiptAmounts.gs`, `PaymentProof.gs`, `Statements.gs`, `Reconcile.gs` | Contextual amount reading, proof storage, OCR, bank imports and credit authorization |
 | `gas/Journal.gs`, `Tickets.gs`, `Floor.gs`, `Desk.gs` | Replay and commits, pass delivery and admission, tournament stages and desk operations |
@@ -21,6 +21,7 @@ GitHub Pages serves the event homepage, registration, live floor, pass and scann
 
 | Area | Change and operational effect |
 | --- | --- |
+| Club password | Replace owner OTP with email plus password on the public page and password on the invitation-bound private desk. Use a private salted bcrypt verifier, a shared eight-attempt/15-minute guard, single-use public transfers and existing eight-hour staff sessions. Password rotation revokes password sessions and pending transfers. No password is persisted in browser storage or published to GitHub. Student and volunteer flows remain separate. |
 | Temporary student login | Require both a nine-digit roll number and the matching unique college email. Pause student email-code sends while preserving owner verification, volunteer permissions and email mode for restoration. The server issues the existing student session without consulting the mail quota. Restoring email mode rejects sessions created through temporary login. |
 | Login recovery and startup | A request UUID makes retries recover the same session. Account downloads can retry after login, and saved registrations and screenshots reopen on another device. Old student code screens yield to the new form. Retained email controls load only when needed; the anonymous runtime remains below 32 KiB. |
 | Receipt extraction | Paytm Ref No is recognized as a bank reference and outranks an app transaction ID. A missing or misread rupee symbol can be recovered when the adjacent numeric amount agrees with the written rupee amount. Conflicting values remain available for review. |
@@ -51,14 +52,17 @@ The receipt-amount follow-up passes all 91 automated tests and three payment bro
 
 The temporary-login follow-up passes 97 server tests and all 68 browser journeys. Its exact patch on the published backend also passes six login tests, 12 receipt tests and 25 browser journeys covering sign-in, owner access, registration, screenshots, reconciliation, pass delivery and gate admission. The private directory dry run matches all 1,327 populated email records and preserves the intentionally blank record. Journal replay is identical for the 51 registrations and 36 screenshots present when the patch was prepared. All 212 existing deployed function signatures, the staff script, private resource configuration and floor code are preserved. The anonymous runtime is 32,464 bytes against the 32 KiB budget. No live test emails or registrations are created by these checks.
 
+The owner-password follow-up passes 104 server tests and 72 browser journeys. The exact deployment patch passes 25 focused server checks and 30 browser journeys. Coverage includes unavailable mail, incorrect credentials, shared rate limits, duplicate responses, owner revocation, expiry, password rotation, single-use transfers and both login screens. All 216 pre-existing deployed server signatures remain intact. The anonymous runtime is 32,454 bytes; bcrypt is included only in the server package, and club login UI loads on demand. The installed dependency tree passes its offline consistency check with pinned bcryptjs 3.0.3.
+
 The installed dependency tree passed `npm ls --all --offline`, and all 20 installed package versions matched the lockfile. A source scan found no matches for the checked private-key, Google credential, AWS access-key and GitHub token patterns in repository files. The automated approval review blocked the live npm advisory query because it would send dependency metadata to the public registry. Current advisory status remains unverified.
 
 ## Risk report
 
 | Area | Remaining risk and follow-up |
 | --- | --- |
+| Club credential | Anyone holding the club email and password can act as administrator. Keep the credential within the authorized club team and rotate it after the event. The shared retry limit protects both entry points but can temporarily delay the owner after repeated failed attempts. |
 | Temporary identity check | Roll number plus college email checks the directory, not mailbox ownership. Anyone who knows both can access that student's registration. Restore email verification after reliable delivery is available; the mode switch invalidates temporary sessions. Missing and duplicate directory details remain blocked for coordinator review. |
-| Deployed staff runtime | This emergency release retains the previously deployed staff script. The source fixes for revoked-session screen reset, failed offline acknowledgements and coordination between gate tabs need a separate staff deployment. The three corresponding browser cases run against the full source build, but are excluded from the targeted legacy-deployment suite. Server-side staff authorization remains enforced. |
+| Deployed staff runtime | This emergency release updates owner authentication while retaining the deployed payment, gate and refresh logic. The source fixes for revoked-session screen reset, failed offline acknowledgements and coordination between gate tabs need a separate staff deployment. The three corresponding browser cases run against the full source build, but are excluded from the targeted legacy-deployment suite. Server-side staff authorization remains enforced. |
 | Deployment and providers | Local tests simulate Sheets, Drive, OCR and mail. Production permissions, inbox delivery, physical cameras and event-night latency need deployment or device verification. Use the existing read-only deployment smoke test after publishing. |
 | Receipt recognition | OCR can still omit or misread evidence in new layouts or damaged images. Unsupported or conflicting amounts need review. Screenshots remain supporting evidence; a bank-credit match is required for authorization. Preserve that boundary when extending extraction rules. |
 | Journal compatibility | Oversized closures use one row per changed attempt plus a closing row. Earlier server versions can replay those records, but their activity view can list the individual writes. The new snapshot cache starts cold. Keep the journal append-only so a cached prefix stays valid. |

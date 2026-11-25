@@ -136,6 +136,8 @@ function finishMail_(plan,accepted) {
 }
 
 function sendLoginCode_(identity, owner, confirmed=false) {
+  must_(!(owner||identity?.scope==='owner-entry')||ownerSignInMode_()!=='password',
+    'Club sign-in now uses a password. Reload the sign-in page.');
   must_(studentSignInMode_()!=='directory'||owner||identity?.scope==='owner-entry',
     'Email codes are paused for students. Reload and sign in with your roll number and college email.');
   let result=locked_(()=>planCode_(identity,owner),false);
@@ -256,6 +258,7 @@ function signedInPlayer_(identity,code,preferred,requestId) {
 function signInEvent(identifier,code,preferred,requestId) {
   const identity = eventIdentity_(identifier);
   if (identity?.scope !== 'owner-entry') return signedInPlayer_(identity,code,preferred,requestId);
+  must_(ownerSignInMode_()!=='password','Club sign-in now uses a password. Reload the sign-in page.');
   const base = deskBaseUrl_();
   must_(base, 'The desk link is unavailable. Open the Staff tab in the club Sheet.');
   return locked_(() => {
@@ -270,9 +273,14 @@ function completeDeskSignIn(invite,ticket) {
   return locked_(() => {
     const owner = ownerIdentity_(invite);
     const transfer = authSession_(ticket,'desk-transfer');
-    must_(transfer && transfer.staffId === owner.id, 'This sign-in link has expired or was already used. Send a new code to the club email here.');
+    must_(transfer && transfer.staffId === owner.id && passwordSessionValid_(transfer), 'This sign-in link has expired or was already used. Sign in to the club account again.');
     props_().deleteProperty('AUTH_SESSION_'+hash_(ticket));
-    return staffSession_(owner.row);
+    const signed=staffSession_(owner.row);
+    if(transfer.passwordTag){
+      const key='AUTH_SESSION_'+hash_(signed.token),session=authSession_(signed.token,'staff');
+      props_().setProperty(key,JSON.stringify({...session,passwordTag:transfer.passwordTag}));
+    }
+    return signed;
   },false);
 }
 
@@ -302,6 +310,7 @@ function playerLogout(token){return locked_(()=>endSession_(token,'player'),fals
 function requestOwnerCode(invite) { return sendLoginCode_(ownerIdentity_(invite), true); }
 
 function verifyOwnerCode(invite, code) {
+  must_(ownerSignInMode_()!=='password','Club sign-in now uses a password. Reload the sign-in page.');
   return locked_(() => {
     const owner = ownerIdentity_(invite);
     consumeLoginCode_(owner, code);

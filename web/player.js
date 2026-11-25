@@ -27,6 +27,7 @@ function loadPaymentForm(){
   return scriptAsset('assets/payment-form.js?v=__PAYMENT_VERSION__');
 }
 function warmPaymentForm(){loadPaymentForm().catch(()=>{})}
+function loadClubTools(){return typeof clubSignInPage==='function'?Promise.resolve():scriptAsset('assets/club-login.js?v=__CLUB_LOGIN_VERSION__')}
 if(incomingReceipt)tabValue('receipt-link',incomingReceipt);
 function signInPage(keepForm=false,hint=deviceValue('email-hint'),emailOnly=false){
   challenge=null;saveDeviceValue('email-step','');heading('','Event registration');
@@ -119,7 +120,8 @@ async function openSignedInPlayer(signed){
 async function action(name){
   if(mode==='scan')return name==='reloadScanner'?launch():scannerAction(name);
   if(name==='reloadPass'){await renderPass();return}
-  if(name==='clubSignIn'){signInPage(false,'',true);el('identifier').focus();return}
+  if(name==='clubSignIn'){if(ownerUsesPassword()){await loadClubTools();clubSignInPage()}else{signInPage(false,'',true);el('identifier').focus()}return}
+  if(name==='clubPassword'){await submitClubPassword();return}
   if(name==='changeLogin'){saveDeviceValue('email-hint','');signInPage(false,'');(el('studentRoll')||el('identifier')).focus();return}
   if(name==='signInDetails'){
     const roll=val('studentRoll'),email=val('studentEmail').toLowerCase();
@@ -166,13 +168,7 @@ async function action(name){
     catch(e){if(/incorrect or has expired/.test(e.message)){fieldError('loginCode',e.message);return}throw e}
     if(challenge!==step)return;
     if(signed.continueUrl){
-      const next=new URL(signed.continueUrl);
-      if(next.origin!=='https://script.google.com' || !next.pathname.endsWith('/exec') ||
-        (window.POKER_NIGHT_WEB_APP && next.origin+next.pathname!==window.POKER_NIGHT_WEB_APP))throw Error('Open the private desk link from the club Sheet.');
-      clearPlayer();heading('EVENT ACCESS','Opening your admin desk');
-      el('content').innerHTML='<div class="narrow">'+panel('Club account verified','<a href="'+esc(next.href)+'" target="_top" rel="noreferrer">Open admin desk</a>')+'</div>';
-      if(window===window.top)location.replace(next.href);
-      return;
+      await loadClubTools();openClubDesk(signed);return;
     }
     await openSignedInPlayer(signed);return;
   }
@@ -249,6 +245,7 @@ async function launch(){try{
     el('content').innerHTML=skeleton('Opening your registration');
     try{await loadAccount()}catch(e){if(playerSession)accountRetry();throw e}return;
   }
+  if(challenge?.adminEntry&&ownerUsesPassword()){await loadClubTools();clubSignInPage();return}
   if(challenge?.identifier&&(studentSignInMode!=='directory'||challenge.adminEntry)){await codePage();return}
   signInPage(true);
   if(window.pendingPokerSignIn){

@@ -45,14 +45,14 @@ function staffLogin(key,invite){
   must_(typeof invite==='string'&&staffInvite_(key)===invite,'Use the private link and key issued to you.');
   const row=staffList_().find(r=>r[2]===key&&activeStaff_(r));
   must_(row,'Check your staff access with the coordinator.');
-  must_(row[1]!=='admin','Open the owner’s private desk link and sign in with the emailed code.');
+  must_(row[1]!=='admin','Open the owner’s private desk link and sign in to the club account.');
   return staffSession_(row);
 }
 function staff_(token,roles){
   return staffClaims_(authSession_(token,'staff'),roles);
 }
 function staffClaims_(session,roles){
-  must_(session&&session.type==='staff'&&session.expires>Date.now(),STAFF_SIGN_IN);
+  must_(session&&session.type==='staff'&&session.expires>Date.now()&&passwordSessionValid_(session),STAFF_SIGN_IN);
   const r=staffList_().find(x=>activeStaff_(x)&&x[1]===session.role&&hash_(x[2]).slice(0,24)===session.staffId);
   must_(r&&(r[1]==='admin'||roles.includes(r[1])),'Your staff role cannot perform that action.');
   return {name:r[0],role:r[1]};

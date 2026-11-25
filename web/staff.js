@@ -1,7 +1,7 @@
 'use strict';
 const mem={get(k){try{return sessionStorage.getItem('pn26:'+k)||''}catch{return ''}},set(k,v){try{sessionStorage.setItem('pn26:'+k,v)}catch{}}};
 const invite=document.body.dataset.invite,sessionKey='staff:'+invite;
-let token=mem.get(sessionKey),snapshot,tab='Review',opened,draft,refreshVersion=0,polling=false;
+let token=mem.get(sessionKey),snapshot,tab='Review',opened,draft,refreshVersion=0,polling=false,ownerPasswordRequest;
 function staffAccessLost(error){
   return /sign in to the staff desk again|your staff role cannot perform that action/i.test(error?.message||'');
 }
@@ -50,7 +50,7 @@ function login(){
   clearDeskShell();tab='Review';
   heading('Staff access','Event desk');
   const owner=document.body.dataset.ownerLogin==='yes';
-  const body=owner?signInForm('ownerCode','<p>Send a six-digit sign-in code to <strong>'+esc(document.body.dataset.ownerEmail)+'</strong>.</p>','Send code to club email'):
+  const body=owner&&ownerUsesPassword()?ownerPasswordForm('ownerPassword',document.body.dataset.ownerEmail):owner?signInForm('ownerCode','<p>Send a six-digit sign-in code to <strong>'+esc(document.body.dataset.ownerEmail)+'</strong>.</p>','Send code to club email'):
     signInForm('login',input('staffkey','Private staff key','type="password" required autocomplete="current-password"')+'<p class="sub">Use the individual key issued by the coordinator.</p>','Sign in');
   el('content').innerHTML='<div class="narrow login-card">'+panel(owner?'Admin sign-in':'Staff sign-in',body)+'</div>';
 }
@@ -198,6 +198,11 @@ async function action(name,id){
     const next=snapshot.records.slice().reverse().find(r=>r.status==='REVIEW');
     if(next)await inspect(next.id);return;
   }
+  if(name==='ownerPassword'){
+    ownerPasswordRequest=ownerPasswordRequest||crypto.randomUUID();
+    const auth=await deskApi('signInOwnerWithPassword',invite,el('clubPassword').value,ownerPasswordRequest);
+    el('clubPassword').value='';ownerPasswordRequest='';await enterDesk(auth);return;
+  }
   if(name==='ownerCode'||name==='resendCode'){const reply=await deskApi('requestOwnerCode',invite);mem.set(sessionKey+':code',JSON.stringify({resend:Date.now()+reply.resendAfter*1000,expires:Date.now()+(reply.expiresIn??600)*1000}));ownerCodePage(reply.resendAfter);return}
   if(name==='verifyOwner'||name==='login'){
     const auth=name==='verifyOwner'?await deskApi('verifyOwnerCode',invite,val('loginCode')):await deskApi('staffLogin',val('staffkey'),invite);
@@ -318,12 +323,12 @@ async function launch(){
       await enterDesk(auth);
     }catch(error){
       if(token){await openDesk();return}
-      login();msg(error.message||'Send a new code to the club email to open the desk.',true);
+      login();msg(error.message||'Sign in to the club account again to open the desk.',true);
     }
     return;
   }
   if(token){deskLoading();await openDesk();return}
-  if(document.body.dataset.ownerLogin==='yes'){
+  if(document.body.dataset.ownerLogin==='yes'&&!ownerUsesPassword()){
     let saved;try{saved=JSON.parse(mem.get(sessionKey+':code')||'null')}catch{}
     if(saved?.expires>Date.now()){heading('STAFF ACCESS','Event desk');ownerCodePage(Math.max(0,(saved.resend-Date.now())/1000));return}
   }

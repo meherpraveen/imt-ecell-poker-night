@@ -4,6 +4,7 @@ const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&
 const val=id=>el(id)?.value.trim()||'';
 const durable={get(k){try{return localStorage.getItem('pn26:'+k)||''}catch{return ''}},set(k,v){try{if(v)localStorage.setItem('pn26:'+k,v);else localStorage.removeItem('pn26:'+k);return true}catch{return false}}};
 let clockEnd=0,busy=false;
+function ownerUsesPassword(){return (document.documentElement.dataset.ownerSignIn||document.body.dataset.ownerSignIn||'__OWNER_SIGN_IN_MODE__')==='password'}
 function msg(t='',bad=false){el('msg').textContent=t;el('msg').className='note'+(bad?' error':'')}
 function btn(action,label,cls='',id=''){return '<button type="button" data-do="'+action+'" data-id="'+esc(id)+'" class="'+cls+'">'+esc(label)+'</button>'}
 function input(id,label,extra=''){return '<label for="'+id+'">'+label+'</label><input id="'+id+'" '+extra+'>'}

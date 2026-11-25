@@ -72,6 +72,7 @@ function doGet(e){
   t.verifiedEntry=t.ownerLogin&&q.entry==='verified'?'yes':'';
   t.ownerEmail=t.ownerLogin?clubOwner_():'';
   t.studentSignIn=studentSignInMode_();
+  t.ownerSignIn=ownerSignInMode_();
   t.invite=route==='staff'?q.invite:'';
   t.pass=/^[A-Z0-9-]{12,24}$/.test(q.p||'')?q.p:'';
   return t.evaluate().setTitle(route==='unavailable'?'Page unavailable':'Poké Poker Night 2026 · E-Cell').addMetaTag('viewport','width=device-width, initial-scale=1');
@@ -86,6 +87,7 @@ function doPost(event){
       ['publicPrices',[publicPrices,0]],['publicInfo',[publicInfo,0]],['liveFloor',[liveFloor,0]],
       ['requestEventCode',[requestEventCode,1]],['signInEvent',[signInEvent,3,4]],
       ['signInWithStudentDetails',[signInWithStudentDetails,4]],
+      ['signInClubWithPassword',[signInClubWithPassword,3]],
       ['requestPlayerCode',[requestPlayerCode,1]],['verifyPlayerCode',[verifyPlayerCode,2]],['playerLogout',[playerLogout,1]],
       ['requestMatchedPlayerCode',[requestMatchedPlayerCode,2]],['signInPlayer',[signInPlayer,3]],['passInfo',[passInfo,1]],
       ['playerHome',[playerHome,2]],['playerStart',[playerStart,3,4]],['playerStatus',[playerStatus,2]],
