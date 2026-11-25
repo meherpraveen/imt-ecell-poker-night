@@ -21,6 +21,8 @@ GitHub Pages serves the event homepage, registration, live floor, pass and scann
 
 | Area | Change and operational effect |
 | --- | --- |
+| Receipt extraction | Paytm Ref No is recognized as a bank reference and outranks an app transaction ID. A missing or misread rupee symbol can be recovered when the adjacent numeric amount agrees with the written rupee amount. Conflicting values remain available for review. |
+| Saved payment evidence | Administrators can reread missing amounts even when a reference was already captured. The operation fills missing screenshot fields, preserves supplied claims and original evidence, checks the proof revision, and records an audited update. Payment authorization continues through the receiving-bank reconciliation flow. |
 | Server packaging | Split the 601-line server entry file by responsibility. The deployment still contains `Code.gs`, `Auth.gs` and `Floor.gs`. Existing Sheet menus, links and RPC callers keep their entry points. |
 | Stage closure | A full qualifier with payment evidence exceeded the journal's 49,000-character guard. Oversized stage changes now write the attempt records and final stage record in one range under the lock. Replay preserves the payment history and presents one activity entry. Ordinary updates still append one row. |
 | Student identity | Sign-in, session revalidation and pass email look up both the roll and mailbox. Each must identify the same single directory row. Ambiguous recipients go to desk delivery. Staff entry also checks new roll and email assignments for duplicates. Only one student's row is fetched for the identity lookup. [Google TextFinder reference](https://developers.google.com/apps-script/reference/spreadsheet/text-finder) |

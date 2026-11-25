@@ -42,7 +42,7 @@ test('an administrator can reread an existing original without replacing it, ove
   assert.throws(()=>f.rpc('adminReadScreenshotReference',admin,id,1),/changed/);
   assert.equal(f.rpc('adminReadScreenshotReference',admin,id,2).found,true);
   detail=f.rpc('adminPaymentDetail',admin,id,'');
-  assert.equal(detail.claim.utr,utr);assert.equal(detail.canReadReference,false);
+  assert.equal(detail.claim.utr,utr);assert.equal(detail.canReadReference,true);
   const saved=f.event.staff('ledger_',[]).attempts[id];
   assert.equal(saved.file,original);assert.equal(saved.status,'REVIEW');assert.equal(saved.utr||'','');
   assert.equal(f.rpc('proofImage',admin,id,true).version,detail.version);
@@ -53,6 +53,42 @@ test('an administrator can reread an existing original without replacing it, ove
   g.rpc('adminReadScreenshotReference',g.admin,g.p.hold.id,1);
   const legacy=g.rpc('adminPaymentDetail',g.admin,g.p.hold.id,'');
   assert.equal(legacy.ocr.utr,'987654321012');assert.equal(legacy.claim.utr,utr);
+});
+
+test('Paytm Ref No outranks an app ID and a damaged rupee glyph needs matching written currency',()=>{
+  const event=createEvent(),read=text=>event.staff('readPaymentText_',[text]);
+  const receipt=(amount,words='One Hundred Forty Nine Rupees')=>
+    ['Paytm','Example Receiver','******1234@samplebank on Paytm',amount,words,'Paid Successfully','From','Sample Student',
+      'Bank Of Example - 2276','25 Nov, 02:52 AM | Ref No: 0123 4567 8901','Transaction ID: 987654321012'].join('\r\n');
+  for(const amount of ['149','$149','₹149','149.00']){
+    const fields=read(receipt(amount));assert.equal(fields.utr,utr);assert.equal(fields.amount,'149.00');
+    assert.equal(fields.time,'');assert.equal(fields.payee,'');
+  }
+  assert.equal(read(receipt('199','One Hundred and Ninety-Nine Rupees Only')).amount,'199.00');
+  assert.equal(read(receipt('$149','One Hundred Fifty Rupees')).amount,'');
+  assert.equal(read(receipt('149','One Hundred Forty Nine Dollars')).amount,'');
+  assert.equal(read('Bank account: 149\nOne Hundred Forty Nine Rupees').amount,'');
+  assert.equal(read('$149\nPaid Successfully').amount,'');
+  assert.equal(read(receipt('149')+'\nINR 199').amount,'');
+  assert.equal(read(receipt('149')+'\nPayment pending').uncertain,true);
+  assert.equal(read(receipt('149')+'\nRef No: 987654321012').utr,'');
+});
+
+test('rereading a saved screenshot fills its missing amount even when its UTR is already known',()=>{
+  const f=start(),id=f.p.hold.id;
+  f.event.ocr('Ref No: '+utr);
+  f.publicRpc('playerSubmitScreenshot',f.p.token,f.p.hold.ticket,image,'0');
+  const before=f.event.staff('ledger_',[]).attempts[id];
+  assert.equal(before.claim.amount,null);
+  assert.equal(f.rpc('adminPaymentDetail',f.admin,id,'').canReadReference,true);
+  f.event.ocr('Paytm\n149\nOne Hundred Forty Nine Rupees\nRef No: '+utr);
+  assert.equal(f.rpc('adminReadScreenshotReference',f.admin,id,1).updated,true);
+  const saved=f.event.staff('ledger_',[]).attempts[id];
+  assert.equal(saved.claim.amount,14900);assert.equal(saved.ocr.amount,'149.00');
+  assert.equal(saved.file,before.file);assert.equal(saved.status,'REVIEW');assert.equal(saved.proofVersion,2);
+  assert.equal(f.rpc('adminPaymentDetail',f.admin,id,'').canReadReference,false);
+  assert.equal(f.rpc('adminReadScreenshotReference',f.admin,id,2).updated,false);
+  assert.equal(f.event.staff('ledger_',[]).attempts[id].proofVersion,2);
 });
 
 test('managed checkout pins the server quote and receiver, validates QR and preserves old account revisions',()=>{

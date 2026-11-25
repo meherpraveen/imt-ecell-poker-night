@@ -95,7 +95,7 @@ function localPaidTime_(text){
 // Keep digits as text, including leading zeroes. A bank reference outranks an app transaction ID.
 function screenshotReferences_(text){
   const bank=new Set(),transaction=new Set(),unlabelled=new Set();
-  const suffix=/(?:\b(?:u[\s.]?t[\s.]?r|r[\s.]?r[\s.]?n)|\b(?:upi|bank)\s*(?:(?:transaction|txn)\s*)?ref(?:erence)?|\bretrieval\s+reference|\bupi\s*(?:transaction|txn))[\s.:#№-]*(?:(?:no|num(?:ber)?|id|code)\b[\s.:#№-]*)?$/i;
+  const suffix=/(?:\b(?:u[\s.]?t[\s.]?r|r[\s.]?r[\s.]?n)|\b(?:upi|bank)\s*(?:(?:transaction|txn)\s*)?ref(?:erence)?|\bref(?:erence)?\.?\s+(?:no|num(?:ber)?)\b|\bretrieval\s+reference|\bupi\s*(?:transaction|txn))[\s.:#№-]*(?:(?:no|num(?:ber)?|id|code)\b[\s.:#№-]*)?$/i;
   const generic=/\b(?:trans(?:action)?|txn|ref(?:erence)?)[\s.:#-]*(?:id|no|num(?:ber)?|code)?[\s.:#-]*$/i;
   const unrelated=/(?:\b(?:order|invoice|customer|mobile|phone|card|account|a\/c|aadhaar|aadhar|wallet|merchant|upi\s*(?:id|number))[\s.:#-]*(?:(?:ref(?:erence)?|no|num(?:ber)?|id)[\s.:#-]*)*|(?:₹|\b(?:INR|Rs))[\s.:]*)$/i;
   const digits=/[0-9]{12}|[0-9]{4}(?:[\s-]+[0-9]{4}){2}|[0-9]{6}[\s-]+[0-9]{6}|[0-9]{3}(?:[\s-]+[0-9]{3}){3}/g;
@@ -114,12 +114,32 @@ function screenshotReferences_(text){
   const best=bank.size?bank:transaction.size?transaction:unlabelled,values=[...best];
   return {utr:values.length===1?values[0]:'',utrCandidates:values.length>1?values.slice(0,8):[]};
 }
+// A damaged currency glyph can be recovered when the adjacent amount in words agrees.
+// Larger or fractional word amounts stay available for manual review.
+function receiptRupeesInWords_(text){
+  const small=['zero','one','two','three','four','five','six','seven','eight','nine','ten','eleven','twelve','thirteen','fourteen','fifteen','sixteen','seventeen','eighteen','nineteen'];
+  const tens=['twenty','thirty','forty','fifty','sixty','seventy','eighty','ninety'];
+  let words=text.toLowerCase().trim().replace(/-/g,' ').split(/\s+/),amount=0;
+  if(words[1]==='hundred'){
+    const hundreds=small.indexOf(words[0]);if(hundreds<1||hundreds>9)return null;
+    amount=hundreds*100;words=words.slice(2);
+    if(words[0]==='and'){words=words.slice(1);if(!words.length)return null}
+  }
+  if(!words.length)return amount*100;
+  if(words.length===1&&small.includes(words[0]))return (amount+small.indexOf(words[0]))*100;
+  const ten=tens.indexOf(words[0]),unit=words.length===2?small.indexOf(words[1]):0;
+  return ten>=0&&words.length<=2&&unit>=0&&unit<10&&(words.length===1||unit>0)?(amount+(ten+2)*10+unit)*100:null;
+}
 function readPaymentText_(text){
   const s=String(text||'').normalize('NFKC').replace(/[\u200b-\u200f\ufeff]/g,'').replace(/[\u2010-\u2014]/g,'-')
     .replace(/[०-९]/g,c=>String(c.charCodeAt(0)-0x966));
   function unique(values){const options=[...new Set(values)];return options.length===1?options[0]:''}
   const references=screenshotReferences_(s);
   const amounts=Array.from(s.matchAll(/(?:₹|INR\b|Rs\.?)\s*([\d,]+(?:\.\d{1,2})?)(?![\d.])/gi),m=>paise_(m[1])).filter(n=>n!==null);
+  for(const m of s.matchAll(/^(?:₹|INR\b|Rs\.?|\$)?[ \t]*([\d,]+(?:\.\d{1,2})?)[ \t]*\r?\n[ \t]*([a-z -]+?)\s+rupees(?:\s+only)?[ \t]*$/gmi)){
+    const numeric=paise_(m[1]),written=receiptRupeesInWords_(m[2]);
+    if(numeric!==null&&numeric===written)amounts.push(numeric);
+  }
   const amount=unique(amounts),months=['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
   const dates=[],times=[];
   for(const m of s.matchAll(/\b(\d{4})-(\d{2})-(\d{2})\b/g))dates.push(m[1]+'-'+m[2]+'-'+m[3]);
@@ -197,7 +217,8 @@ function adminReadScreenshotReference(token,id,version){
   const admin=staff_(token,[]),original=ledger_().attempts[id];
   const eligible=a=>a?.status==='REVIEW'&&a.file&&(a.proofVersion||0)===version;
   must_(eligible(original),'The payment changed. Reopen it before reading its screenshot.');
-  if(original.ocr?.utr)return {found:true};
+  const complete=a=>!!a.ocr?.utr&&paise_(a.ocr.amount)>0;
+  if(complete(original))return {found:true,updated:false};
   let extracted;
   try{
     const originalImage=DriveApp.getFileById(original.file).getBlob();
@@ -206,16 +227,20 @@ function adminReadScreenshotReference(token,id,version){
   return locked_(()=>{
     const st=ledger_(),a=st.attempts[id];
     must_(eligible(a)&&a.file===original.file,'The screenshot changed. Reopen the payment.');
-    if(a.ocr?.utr)return {found:true};
-    if(!extracted.utr&&!extracted.utrCandidates.length)return {found:false};
-    if(!extracted.utr&&JSON.stringify(a.ocr?.utrCandidates||[])===JSON.stringify(extracted.utrCandidates))return {found:false};
-    const ocr={...(a.ocr||extracted),utr:extracted.utr,utrCandidates:extracted.utrCandidates,uncertain:!!(a.ocr?.uncertain||extracted.uncertain)};
+    if(complete(a))return {found:true,updated:false};
+    if(!extracted.utr&&!extracted.utrCandidates.length&&!extracted.amount)return {found:!!a.ocr?.utr,updated:false};
+    const previous=a.ocr||{},ocr={...previous};
+    for(const field of ['utr','amount','time','payee'])ocr[field]=previous[field]||extracted[field]||'';
+    ocr.utrCandidates=ocr.utr?[]:extracted.utrCandidates;
+    ocr.uncertain=!!(previous.uncertain||extracted.uncertain);
+    if(JSON.stringify(previous)===JSON.stringify(ocr))return {found:!!ocr.utr,updated:false};
     const updated={...a,ocr,proofVersion:version+1};
-    if(a.claim?.source==='screenshot'&&!a.claim.utr&&ocr.utr){
-      updated.claim={...a.claim,utr:ocr.utr};updated.suffix=ocr.utr.slice(-4);
+    if(a.claim?.source==='screenshot'){
+      updated.claim={...a.claim,utr:a.claim.utr||ocr.utr,amount:a.claim.amount??paise_(ocr.amount),time:a.claim.time||ocr.time};
+      updated.suffix=updated.claim.utr.slice(-4);
     }
-    commit_(st,'Screenshot reference reread',admin.name,{attempts:[updated],note:id});
-    return {found:!!ocr.utr};
+    commit_(st,'Screenshot details reread',admin.name,{attempts:[updated],note:id});
+    return {found:!!ocr.utr,updated:true};
   },false);
 }
 function playerReadProof(session,ticket,data){

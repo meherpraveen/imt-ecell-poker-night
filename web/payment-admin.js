@@ -92,7 +92,7 @@ function renderBankReview(r,query){
   detail('<h2>Review payment</h2><p>'+esc(r.reason)+'</p><dl class="details-list"><div><dt>Receiver shown</dt><dd>'+esc(r.receiver)+'</dd></div><div><dt>Payment recipient</dt><dd>'+esc(r.confirmedRecipient||'Check original screenshot')+'</dd></div><div><dt>Paid for</dt><dd>'+esc([r.details?.fullName,c.beneficiary].filter(Boolean).join(' · '))+'</dd></div>'+contact+(c.payer?'<div><dt>Paid by</dt><dd>'+esc(c.payer)+'</dd></div>':'')+'<div><dt>Payment UTR</dt><dd>'+esc(c.utr||r.ocr?.utr||'Unreadable')+'</dd></div><div><dt>Receipt amount</dt><dd>'+esc(money(c.amount))+'</dd></div><div><dt>Paid at (IST)</dt><dd>'+esc(c.time||'Unreadable')+'</dd></div></dl>'+
     '<details><summary>Original OCR values</summary><p>'+esc([r.ocr?.utr||'UTR unreadable',r.ocr?.amount||'Amount unreadable',r.ocr?.time||'Time unreadable'].join(' · '))+'</p></details>'+
     (r.ocr?.utrCandidates?.length?'<p>Possible references from the screenshot</p><div class="bank-candidates">'+r.ocr.utrCandidates.map(ref=>btn('bankFind',ref,'',ref)).join('')+'</div>':'')+
-    (r.canReadReference?btn('bankReadReference','Read screenshot reference again'):'')+
+    (r.canReadReference?btn('bankReadReference','Read screenshot details again'):'')+
     '<div id="bankProofImage" role="status">Loading private screenshot…</div><h3>Closest statement rows</h3>'+
     input('bankLookup','Find another row by full UTR','inputmode="numeric" maxlength="12" value="'+esc(query)+'"')+btn('bankFind','Find row')+
     (rows?'<ul class="bank-list">'+rows+'</ul><label for="bankRow">Statement row to use</label><select id="bankRow"><option value="">Choose a row</option>'+options+'</select>':'<p>No matching applied statement rows. Upload or apply the receiver statement first.</p>')+
@@ -140,7 +140,7 @@ async function bankAction(name,id){
     deskApi('adminReadScreenshotReference',token,review.id,review.version).then(result=>{
       if(reviewPayment===review&&el('dialog').open){
         bankReviewDialog(review.id);
-        msg(result.found?'Reference found in the screenshot.':'Check the original screenshot for the bank reference.');
+        msg(result.updated||result.found?'Screenshot details updated.':'Check the original screenshot for the payment details.');
       }
     }).catch(error=>{
       if(reviewPayment===review&&feedback.isConnected){feedback.textContent=error.message+' ';feedback.append(button)}
