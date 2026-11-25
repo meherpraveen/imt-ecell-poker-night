@@ -8,7 +8,13 @@ async function publicForm(page,site){await page.goto(site.register);await button
 test('club email and password open the private desk while mail is offline',async({page,site})=>{
   site.mailFailure(true);await publicForm(page,site);await page.getByLabel('Club password',{exact:true}).fill(password);
   await button(page,'Sign in to club desk').click();await expect(page.getByRole('heading',{name:'Payments',exact:true})).toBeVisible();
-  expect(site.mail).toHaveLength(0);await button(page,'Sign out').click();await expect(page.getByLabel('Club password',{exact:true})).toBeVisible();
+  expect(site.mail).toHaveLength(0);
+  let release;const held=new Promise(resolve=>{release=resolve});
+  await page.route('**/test-staff-rpc',async route=>{if(route.request().postDataJSON().name==='staffLogout')await held;await route.fallback()});
+  await button(page,'Sign out').click();
+  try{await expect(page.getByLabel('Club password',{exact:true})).toHaveCount(0);await expect(page.locator('#content')).toContainText('Signing out')}
+  finally{release()}
+  await expect(page.getByLabel('Club password',{exact:true})).toBeVisible();
   await page.getByLabel('Club password',{exact:true}).fill(password);await button(page,'Sign in to club desk').click();
   await expect(page.getByRole('heading',{name:'Payments',exact:true})).toBeVisible();expect(site.mail).toHaveLength(0);
 });

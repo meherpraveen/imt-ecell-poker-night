@@ -208,7 +208,11 @@ async function action(name,id){
     const auth=name==='verifyOwner'?await deskApi('verifyOwnerCode',invite,val('loginCode')):await deskApi('staffLogin',val('staffkey'),invite);
     await enterDesk(auth);return;
   }
-  if(name==='logout'){const old=token;leaveDesk();await deskApi('staffLogout',old);return}
+  if(name==='logout'){
+    const old=token;leaveDesk();el('content').innerHTML=skeleton('Signing out');
+    try{await deskApi('staffLogout',old)}finally{login()}
+    return;
+  }
   if(name==='refresh'){await openDesk();return}if(name==='inspect'){await inspect(id);return}if(name==='deskform'){deskForm();return}
   if(name==='studentform'){detail('<h2>Verify directory details</h2>'+rollField('newroll')+input('newname','Name on college ID')+input('newmail','Delivery email','type="email"')+input('newphone','WhatsApp number','type="tel"')+checkbox('newid','I verified the college ID and the contact with the student.')+btn('student','Save missing details','primary'));return}
   if(name==='student'){await deskApi('deskStudent',token,val('newroll'),val('newname'),val('newmail'),val('newphone'),el('newid').checked);await finishDeskChange();msg('Directory details saved.');return}
