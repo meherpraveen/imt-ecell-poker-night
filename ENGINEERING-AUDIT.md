@@ -9,7 +9,7 @@ GitHub Pages serves the event homepage, registration, live floor, pass and scann
 | Source | Responsibility |
 | --- | --- |
 | `gas/Code.gs` | App setup, HTTP dispatch, request validation, settings and the event lock |
-| `gas/Auth.gs`, `Directory.gs`, `StaffAccess.gs` | Email challenges, session lifecycle, student identity and staff permissions |
+| `gas/Auth.gs`, `StudentSignIn.gs`, `Directory.gs`, `StaffAccess.gs` | Email challenges, temporary directory login, session lifecycle, student identity and staff permissions |
 | `gas/Registration.gs`, `Pricing.gs`, `Receivers.gs` | Eligibility, wave capacity, receipts, prices and receiving accounts |
 | `gas/ReceiptAmounts.gs`, `PaymentProof.gs`, `Statements.gs`, `Reconcile.gs` | Contextual amount reading, proof storage, OCR, bank imports and credit authorization |
 | `gas/Journal.gs`, `Tickets.gs`, `Floor.gs`, `Desk.gs` | Replay and commits, pass delivery and admission, tournament stages and desk operations |
@@ -21,6 +21,8 @@ GitHub Pages serves the event homepage, registration, live floor, pass and scann
 
 | Area | Change and operational effect |
 | --- | --- |
+| Temporary student login | Require both a nine-digit roll number and the matching unique college email. Pause student email-code sends while preserving owner verification, volunteer permissions and email mode for restoration. The server issues the existing student session without consulting the mail quota. Restoring email mode rejects sessions created through temporary login. |
+| Login recovery and startup | A request UUID makes retries recover the same session. Account downloads can retry after login, and saved registrations and screenshots reopen on another device. Old student code screens yield to the new form. Retained email controls load only when needed; the anonymous runtime remains below 32 KiB. |
 | Receipt extraction | Paytm Ref No is recognized as a bank reference and outranks an app transaction ID. A missing or misread rupee symbol can be recovered when the adjacent numeric amount agrees with the written rupee amount. Conflicting values remain available for review. |
 | Receipt amounts | Extract whole numeric tokens and exclude promotional limits, cashback, fees and balances. Recover lost currency glyphs from payment labels, recognizable receipt summaries, matching written amounts or corroborating PhonePe amounts. Conflicting values and unsupported layouts remain unreadable; no amount is inferred from the entry price. The OCR cache namespace changed so prior cached mistakes are not reused. |
 | Saved payment evidence | Administrators can reread both missing and incorrect amounts. Matching automatically derived claims follow the corrected OCR; payer-entered, explicitly corrected and owner-transcribed claim amounts remain intact. Ambiguous rereads clear automatic amounts for review. Original evidence and payment decisions are preserved, changed proofs are rejected, and repeated identical reads create no journal update. Payment authorization continues through the receiving-bank reconciliation flow. |
@@ -47,12 +49,16 @@ The capacity suite took 50 simulated clients through payment and admission, chec
 
 The receipt-amount follow-up passes all 91 automated tests and three payment browser journeys. Synthetic regression cases cover multiple receipt layouts and payment values, malformed amounts, promotional limits, balances, ambiguous OCR, preserved manual claims, concurrent edits and stale caches. A separate private check compares all 20 saved original images with extracted amounts; all match, including a genuine lower payment. Original images and student OCR are excluded from the repository. The targeted patch on the published backend also passes 12 focused tests and the same three browser journeys.
 
+The temporary-login follow-up passes 97 server tests and all 68 browser journeys. Its exact patch on the published backend also passes six login tests, 12 receipt tests and 25 browser journeys covering sign-in, owner access, registration, screenshots, reconciliation, pass delivery and gate admission. The private directory dry run matches all 1,327 populated email records and preserves the intentionally blank record. Journal replay is identical for the 51 registrations and 36 screenshots present when the patch was prepared. All 212 existing deployed function signatures, the staff script, private resource configuration and floor code are preserved. The anonymous runtime is 32,464 bytes against the 32 KiB budget. No live test emails or registrations are created by these checks.
+
 The installed dependency tree passed `npm ls --all --offline`, and all 20 installed package versions matched the lockfile. A source scan found no matches for the checked private-key, Google credential, AWS access-key and GitHub token patterns in repository files. The automated approval review blocked the live npm advisory query because it would send dependency metadata to the public registry. Current advisory status remains unverified.
 
 ## Risk report
 
 | Area | Remaining risk and follow-up |
 | --- | --- |
+| Temporary identity check | Roll number plus college email checks the directory, not mailbox ownership. Anyone who knows both can access that student's registration. Restore email verification after reliable delivery is available; the mode switch invalidates temporary sessions. Missing and duplicate directory details remain blocked for coordinator review. |
+| Deployed staff runtime | This emergency release retains the previously deployed staff script. The source fixes for revoked-session screen reset, failed offline acknowledgements and coordination between gate tabs need a separate staff deployment. The three corresponding browser cases run against the full source build, but are excluded from the targeted legacy-deployment suite. Server-side staff authorization remains enforced. |
 | Deployment and providers | Local tests simulate Sheets, Drive, OCR and mail. Production permissions, inbox delivery, physical cameras and event-night latency need deployment or device verification. Use the existing read-only deployment smoke test after publishing. |
 | Receipt recognition | OCR can still omit or misread evidence in new layouts or damaged images. Unsupported or conflicting amounts need review. Screenshots remain supporting evidence; a bank-credit match is required for authorization. Preserve that boundary when extending extraction rules. |
 | Journal compatibility | Oversized closures use one row per changed attempt plus a closing row. Earlier server versions can replay those records, but their activity view can list the individual writes. The new snapshot cache starts cold. Keep the journal append-only so a cached prefix stays valid. |

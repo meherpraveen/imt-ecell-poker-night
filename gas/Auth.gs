@@ -136,6 +136,8 @@ function finishMail_(plan,accepted) {
 }
 
 function sendLoginCode_(identity, owner, confirmed=false) {
+  must_(studentSignInMode_()!=='directory'||owner||identity?.scope==='owner-entry',
+    'Email codes are paused for students. Reload and sign in with your roll number and college email.');
   let result=locked_(()=>planCode_(identity,owner),false);
   if (result.ref) {
     const plan=result;
@@ -275,7 +277,8 @@ function completeDeskSignIn(invite,ticket) {
 }
 
 function playerDirectory_(token) {
-  const session=authSession_(token,'player');must_(session,PLAYER_SIGN_IN);
+  const session=authSession_(token,'player');
+  must_(session&&(session.method!=='directory'||studentSignInMode_()==='directory'),PLAYER_SIGN_IN);
   const person=directoryPlayer_(session.roll);
   const email=emailAddress_(person?.email);must_(email&&session.emailTag===mac_('mail:'+email),PLAYER_SIGN_IN);
   return {roll:session.roll,person,session};

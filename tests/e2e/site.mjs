@@ -16,10 +16,13 @@ window.google={script:{
 }};
 </script>`;
 const staffMethods=new Set(['requestOwnerCode','verifyOwnerCode','completeDeskSignIn','staffLogin','staffLogout','staffSnapshot','adminSettings','adminPaymentQr','adminAddStaff','deskPayment','deskStudent','staffApprove','staffReject','staffPass','proofImage','gateAction','releaseSeat','gamePreview','startStage','skipEmptyWave','tableResult','finishStage','adminSaveReceiver','adminImportStatement','adminStatementPreview','adminApplyStatement','adminDispatchPasses','adminPaymentDetail','adminReadScreenshotReference','adminNeedsReview','adminReviewPayment','adminCertifyPdfRow','adminOpenDeskPayment']);
+// The Google-hosted registration invokes the same public handlers through script.run.
+for(const name of ['publicPrices','signInWithStudentDetails','playerHome','playerLogout'])staffMethods.add(name);
 
 export const test=base.extend({
-  site:async({context},use)=>{
-    const event=createEvent();
+  studentSignIn:['email',{option:true}],
+  site:async({context,studentSignIn},use)=>{
+    const event=createEvent({studentSignIn});
     const staffPage=url=>event.get(Object.fromEntries(url.searchParams)).replace('</head>',staffTransport+'</head>');
     function staffReply({name,args}){
       if(!staffMethods.has(name))return {ok:false,error:'Unknown test operation'};
@@ -44,7 +47,7 @@ export const test=base.extend({
           const bundle=await readFile(new URL(u.pathname.slice(1),docs),'utf8');
           const config=await readFile(new URL('../../web/config.js',import.meta.url),'utf8');
           res.setHeader('content-type',u.pathname==='/event.html'?'text/html; charset=utf-8':'text/javascript; charset=utf-8');
-          return res.end(bundle.replace(config.trim(),'window.POKER_NIGHT_WEB_APP="'+testEndpoint+'";'));
+          return res.end(bundle.replace(config.trim(),'window.POKER_NIGHT_WEB_APP="'+testEndpoint+'";').replace(/data-student-sign-in="directory"/g,'data-student-sign-in="'+studentSignIn+'"'));
         }
         const path=u.pathname==='/'?'index.html':u.pathname.slice(1);
         if(!/^(index\.html|event\.html|assets\/[\w.-]+)$/.test(path)){res.statusCode=404;return res.end()}

@@ -197,3 +197,4 @@ body[data-scan-state=result] .stage,body[data-scan-state=result] .stage>.wrap {w
 @media (prefers-reduced-motion: reduce) {
   *,*::before,*::after {animation: none !important; transition: none !important; scroll-behavior: auto !important}
 }
+html[data-student-sign-in="directory"] .student-email,html:not([data-student-sign-in="directory"]) .student-directory{display:none}

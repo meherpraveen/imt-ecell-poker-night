@@ -24,11 +24,11 @@ test.describe('cold mobile assets',()=>{
   });
 });
 
-test.describe('published fees before JavaScript',()=>{
-  test.use({javaScriptEnabled:false});
+for(const studentSignIn of ['email','directory'])test.describe('published fees before JavaScript: '+studentSignIn,()=>{
+  test.use({javaScriptEnabled:false,studentSignIn});
   test('entry fees and their deadline arrive with both public pages',async({page,site})=>{
     await page.goto(site.origin);
-    const schedule=page.locator('[data-entry-price]');
+    const schedule=page.locator('[data-entry-price]:visible');
     await expect(schedule).toContainText('Early Bird ends');
     const range=await schedule.locator('strong').innerText();
     expect(range).toMatch(/^₹[\d,]+–₹[\d,]+$/);
@@ -36,6 +36,8 @@ test.describe('published fees before JavaScript',()=>{
     await expect(schedule.locator('strong')).toHaveText(range);
     await expect(page.getByRole('note')).toContainText('Enable JavaScript');
     await expect(page.getByRole('button',{name:'Send code'})).toBeHidden();
+    await expect(page.getByRole('button',{name:'Sign in',exact:true})).toBeHidden();
+    await expect(page.getByRole('button',{name:'Club account sign-in',exact:true})).toBeHidden();
     expect(site.calls).toEqual([]);
   });
 });

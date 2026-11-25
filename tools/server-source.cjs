@@ -5,7 +5,7 @@ const path = require('node:path');
 const bundles = {
   Code: ['Pricing', 'Code', 'Directory', 'Journal', 'StaffAccess', 'Registration',
     'Receivers', 'ReceiptAmounts', 'PaymentProof', 'Statements', 'Reconcile', 'Desk', 'Tickets'],
-  Auth: ['Auth'],
+  Auth: ['Auth', 'StudentSignIn'],
   Floor: ['Floor']
 };
 

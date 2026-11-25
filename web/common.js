@@ -19,22 +19,7 @@ function rollField(id){return input(id,'College roll number','inputmode="numeric
 function signInForm(action,body,label){
   return '<form data-action="'+action+'">'+body+'<button class="primary" type="submit">'+label+'</button></form>';
 }
-function codeInput(){
-  return input('loginCode','Six-digit code','type="text" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" minlength="6" maxlength="6" required placeholder="000000"');
-}
 let resendTimer;
-function startResendTimer(until){
-  clearInterval(resendTimer);
-  function update(){
-    const button=document.querySelector('[data-do="resendCode"]');
-    if(!button){clearInterval(resendTimer);return}
-    const seconds=Math.max(0,Math.ceil((until-Date.now())/1000));
-    button.disabled=seconds>0;
-    button.textContent=seconds?'Resend in '+seconds+'s':'Resend code';
-    if(!seconds)clearInterval(resendTimer);
-  }
-  resendTimer=setInterval(update,1000);update();
-}
 async function picture(file,forPaymentQr=false){
   if(!file||!['image/jpeg','image/png','image/webp'].includes(file.type)||file.size>15*1024*1024)throw Error('Choose a JPEG, PNG or WebP image under 15 MB.');
   const url=URL.createObjectURL(file);
@@ -95,7 +80,7 @@ document.addEventListener('input',e=>{
     el(field.id+'Error')?.remove()}
 });
 document.addEventListener('invalid',e=>{
-  const messages={identifier:'Enter your roll number or registered email.',loginCode:'Enter all six digits from your email.',matchRoll:'Enter your nine-digit roll number.',matchEmail:'Enter the email on your student record.'};
+  const messages={studentRoll:'Enter your nine-digit roll number.',studentEmail:'Enter your registered college email.',identifier:'Enter your roll number or registered email.',loginCode:'Enter all six digits from your email.',matchRoll:'Enter your nine-digit roll number.',matchEmail:'Enter the email on your student record.'};
   if(messages[e.target.id]){e.preventDefault();fieldError(e.target.id,messages[e.target.id])}
 },true);
 function board(b){clockEnd=b.deadline;return '<div class="row"><div><p class="tag">'+esc(b.state)+'</p><h2>'+esc(b.title)+'</h2></div><div class="timer" id="clock"></div></div>'+(b.champion?'<p class="note">Winner · '+esc(b.champion)+'</p>':'')+
@@ -114,7 +99,7 @@ function tick(){
 async function runAction(b,name){
   if(!b||busy)return;
   busy=true;b.disabled=true;b.setAttribute('aria-busy','true');msg();
-  const label=b.textContent,progress={requestCode:'Sending code…',resendCode:'Sending…',matchMail:'Checking your details…',ownerCode:'Sending code…',verifyCode:'Verifying…',verifyOwner:'Verifying…',upload:'Submitting…',start:'Saving…',checkout:'Opening payment…',approve:'Saving approval…',save:'Saving…',submitPayment:'Submitting…',bankUpload:'Reading statement…',bankApply:'Applying preview…',bankSaveReceiver:'Checking receiver…',bankApprove:'Authorizing…'};
+  const label=b.textContent,progress={signInDetails:'Signing in…',requestCode:'Sending code…',resendCode:'Sending…',matchMail:'Checking your details…',ownerCode:'Sending code…',verifyCode:'Verifying…',verifyOwner:'Verifying…',upload:'Submitting…',start:'Saving…',checkout:'Opening payment…',approve:'Saving approval…',save:'Saving…',submitPayment:'Submitting…',bankUpload:'Reading statement…',bankApply:'Applying preview…',bankSaveReceiver:'Checking receiver…',bankApprove:'Authorizing…'};
   if(progress[name])b.textContent=progress[name];
   try{await action(name,b.dataset.id)}
   catch(err){msg(err.message||'Connection failed. Try again.',true);if(el('dialog')?.open){let n=el('detail').querySelector('[data-error]');if(!n){n=document.createElement('p');n.className='note error';n.dataset.error='1';el('detail').prepend(n)}n.textContent=err.message}}

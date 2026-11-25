@@ -13,13 +13,18 @@ const assets='docs/assets/';
 const baseStyles=read('web/base.css');
 const eventStyles=read('web/event.css');
 const commonCode=read('web/common.js');
+const studentSignInMode=runInNewContext(server.readServerSource('Auth')+'\nSTUDENT_SIGN_IN_MODE');
+const emailControls=read('web/email-controls.js');
+const emailCode=emailControls+'\n'+read('web/email-code.js');
+const emailCodeVersion=writeAsset('email-code.js',(await minify(emailCode,{ecma:2020})).code+'\n');
 const scannerVersion=writeAsset('gate-camera.js',read('web/scanner.js'));
 const paymentCode=read('web/payment-form.js');
 const paymentVersion=writeAsset('payment-form.js',(await minify(paymentCode,{ecma:2020})).code+'\n');
 const accountCode=['ticket','registration-drafts','player-account'].map(name=>read('web/'+name+'.js')).join('\n');
 const accountVersion=writeAsset('player-account.js',(await minify(accountCode,{ecma:2020})).code+'\n');
 const playerCode=read('web/player-storage.js')+'\n'+read('web/player.js')
-  .replace('__ACCOUNT_VERSION__',accountVersion).replace('__SCANNER_VERSION__',scannerVersion).replace('__PAYMENT_VERSION__',paymentVersion);
+  .replace('__ACCOUNT_VERSION__',accountVersion).replace('__SCANNER_VERSION__',scannerVersion).replace('__PAYMENT_VERSION__',paymentVersion)
+  .replace('__STUDENT_SIGN_IN_MODE__',studentSignInMode).replace('__EMAIL_CODE_VERSION__',emailCodeVersion);
 const pricing=read('gas/Pricing.gs');
 const publishedPrices=runInNewContext(pricing+'\nENTRY_PRICING');
 const money=new Intl.NumberFormat('en-IN',{style:'currency',currency:publishedPrices.currency,maximumFractionDigits:0});
@@ -70,6 +75,7 @@ const homepage=homeSource.replace(/<!-- HOME-STYLES:START -->[\s\S]*?<!-- HOME-S
   .replace(/entry-prices\.js\?v=[a-z0-9]+/,'entry-prices.js?v='+priceVersion);
 fs.writeFileSync(path.join(root,'docs/index.html'),homepage);
 let publicPage=withPublishedFees(withSponsors(read('docs/event.html')));
+publicPage=publicPage.replace(/data-student-sign-in="[^"]*"/,()=> 'data-student-sign-in="'+studentSignInMode+'"');
 const floorStart="if(document.documentElement.dataset.entry==='board'&&!document.hidden){window.firstFloorRead=api('liveFloor');window.firstFloorRead.catch(()=>{});}";
 publicPage=publicPage.replace(/<!-- EVENT-DATA:START -->[\s\S]*?<!-- EVENT-DATA:END -->/,
   ()=>'<!-- EVENT-DATA:START -->\n  <script>'+installTransport+floorStart+'</script>\n  <!-- EVENT-DATA:END -->');
@@ -96,9 +102,9 @@ const deskIcons=['activity','arrow-right','camera','check-circle','chevron-down'
 const iconSymbols=deskIcons.map(name=>'<symbol id="desk-i-'+name+'" viewBox="0 0 24 24">'+feather.icons[name].contents+'</symbol>').join('');
 const iconLicense=fs.readFileSync(require.resolve('feather-icons/LICENSE'),'utf8');
 const deskSprite='<!-- Feather Icons\n'+iconLicense+'-->\n<svg xmlns="http://www.w3.org/2000/svg" width="0" height="0" aria-hidden="true" style="position:absolute;overflow:hidden">'+iconSymbols+'</svg>';
-const inlineSources=[library,priceDisplay+'\n'+commonCode,
+const inlineSources=[library,priceDisplay+'\n'+commonCode+'\n'+emailControls,
   ['payment-admin','staff-views','gate-queue','staff'].map(name=>read('web/'+name+'.js')).join('\n'),
-  [paymentCode,accountCode,playerCode].join('\n')];
+  [paymentCode,accountCode,read('web/email-code.js'),playerCode].join('\n')];
 const [inlineQr,inlineCommon,inlineStaff,inlinePlayer]=await Promise.all(inlineSources.map(async source=>(await minify(source,{ecma:2020})).code));
 const qrNotice=library.slice(0,library.indexOf('var qrcode'));
 const page=read('web/App.html')

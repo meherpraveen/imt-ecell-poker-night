@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en" data-entry="register">
+<html lang="en" data-entry="register" data-student-sign-in="directory">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -9,7 +9,7 @@
   <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#101f39">
   <link rel="icon" href="assets/poke-chip.png" type="image/png">
   <title>Poké Poker Night 2026 · IMT Ghaziabad</title>
-  <noscript><style>.login-card form,.event-links,.skeleton {display:none!important}</style></noscript>
+  <noscript><style>.login-card form,.login-card [data-do],.event-links,.skeleton {display:none!important}</style></noscript>
   <script>
     (() => {
       let entry=new URLSearchParams(location.search).get('view')||'register';
@@ -18,7 +18,7 @@
         const read=(store,key)=>{try{return JSON.parse(window[store].getItem('pn26:'+key))}catch{return null}};
         const saved=read('localStorage','player-login')||read('sessionStorage','player-login');
         const step=read('sessionStorage','email-step')||read('localStorage','email-step');
-        if(saved?.token)entry='account';else if(step?.identifier)entry='code';
+        if(saved?.token)entry='account';else if(step?.identifier&&(document.documentElement.dataset.studentSignIn!=='directory'||step.adminEntry))entry='code';
       }
       document.documentElement.dataset.entry=entry;
       // Keep the first form and the user's pending submit intact across a failed download.
@@ -36,10 +36,10 @@
         failed.replaceWith(retry);
       });
       document.addEventListener('submit',e=>{
-        if(!window.pokerReady&&e.target.dataset.action==='requestCode'){
+        if(!window.pokerReady&&['requestCode','signInDetails'].includes(e.target.dataset.action)){
           e.preventDefault();window.pendingPokerSignIn=true;
-          e.target.querySelector('input').readOnly=true;
-          const button=e.target.querySelector('button');button.disabled=true;button.setAttribute('aria-busy','true');button.textContent='Sending code…';
+          for(const field of e.target.querySelectorAll('input'))field.readOnly=true;
+          const button=e.target.querySelector('button');button.disabled=true;button.setAttribute('aria-busy','true');button.textContent=e.target.dataset.action==='signInDetails'?'Signing in…':'Sending code…';
         }
       });
     })();
@@ -53,8 +53,8 @@ const publicReads=new Map;function api(e,...t){if(!["publicPrices","liveFloor","
 window.api=api;})();}
 if(document.documentElement.dataset.entry==='board'&&!document.hidden){window.firstFloorRead=api('liveFloor');window.firstFloorRead.catch(()=>{});}</script>
   <!-- EVENT-DATA:END -->
-  <link rel="stylesheet" href="assets/event-app.css?v=310f382f26c8">
-  <script id="event-runtime" defer src="assets/event-app.js?v=cc716006333f"></script>
+  <link rel="stylesheet" href="assets/event-app.css?v=fb38df349c4a">
+  <script id="event-runtime" defer src="assets/event-app.js?v=9b03cf90ecb8"></script>
 </head>
 <body data-host="pages">
   <header class="top">
@@ -69,7 +69,19 @@ if(document.documentElement.dataset.entry==='board'&&!document.hidden){window.fi
       <h1 id="title" tabindex="-1"><span data-shell="register">Event registration</span><span data-shell="account">Your registration</span><span data-shell="code">Check your email</span><span data-shell="board">Tournament floor</span><span data-shell="pass">Your entry pass</span><span data-shell="scan">Gate scanner</span><span data-shell="unavailable">Page unavailable</span></h1>
       <p class="floor-guide sub" data-shell="board">Find your table by trainer alias. Your entry pass shows your seat number after gate check-in.</p>
       <div id="content">
-        <div class="narrow login-card" data-shell="register"><section class="panel"><h2>Email sign-in</h2>
+        <div class="narrow login-card student-directory" data-shell="register"><section class="panel"><h2>Student sign-in</h2>
+          <div data-entry-price class="offer" data-rendered="schedule"><!-- FEES:START --><div class="price-label">Published entry fees</div><div class="price-values"><strong>₹149–₹199</strong></div><p class="price-time">Early Bird ends 27 Nov, 7:00 pm IST</p><!-- FEES:END --></div>
+          <form data-action="signInDetails"><p>Enter the roll number and college email on your student record. No email code is needed.</p>
+            <label for="studentRoll">College roll number</label>
+            <input id="studentRoll" type="text" inputmode="numeric" pattern="[0-9]{9}" maxlength="9" autocomplete="username" required placeholder="Nine-digit roll number">
+            <label for="studentEmail">College email</label>
+            <input id="studentEmail" type="email" autocomplete="email" autocapitalize="none" spellcheck="false" maxlength="254" required>
+            <p class="sub">Student sign-in is saved on this device for 30 days.</p>
+            <button class="primary" type="submit">Sign in</button>
+          </form>
+          <button type="button" class="quiet" data-do="clubSignIn">Club account sign-in</button>
+        </section></div>
+        <div class="narrow login-card student-email" data-shell="register"><section class="panel"><h2>Email sign-in</h2>
           <div data-entry-price class="offer" data-rendered="schedule"><!-- FEES:START --><div class="price-label">Published entry fees</div><div class="price-values"><strong>₹149–₹199</strong></div><p class="price-time">Early Bird ends 27 Nov, 7:00 pm IST</p><!-- FEES:END --></div>
           <form data-action="requestCode"><p>Use your roll number or account email to receive a six-digit code.</p>
             <label for="identifier">Roll number or registered email</label>

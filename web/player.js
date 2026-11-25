@@ -1,5 +1,6 @@
 'use strict';
 const mode=document.body.dataset.mode;
+const studentSignInMode=document.documentElement.dataset.studentSignIn||document.body.dataset.studentSignIn||'__STUDENT_SIGN_IN_MODE__';
 const assetRequests=new Map();
 function scriptAsset(src){
   if(assetRequests.has(src))return assetRequests.get(src);
@@ -12,6 +13,7 @@ function scriptAsset(src){
 }
 let playerSession=unpack(deviceValue('player-login')),sharedSession=!!durable.get('player-login');
 let challenge=unpack(deviceValue('email-step')), pendingRequest=tabValue('seat-request'),accountInfo,accountLoad;
+let studentAttempt=unpack(deviceValue('student-sign-in'));
 let preferredReceipt=incomingReceipt||tabValue('receipt-link')||'';
 let currentReceipt=null,currentPass=null,ticketTimer,checkoutTimer;
 // Cached account bundles also use this binding when loading the ticket encoder.
@@ -26,8 +28,19 @@ function loadPaymentForm(){
 }
 function warmPaymentForm(){loadPaymentForm().catch(()=>{})}
 if(incomingReceipt)tabValue('receipt-link',incomingReceipt);
-function signInPage(keepForm=false,hint=deviceValue('email-hint')){
+function signInPage(keepForm=false,hint=deviceValue('email-hint'),emailOnly=false){
   challenge=null;saveDeviceValue('email-step','');heading('','Event registration');
+  if(keepForm)document.querySelector(studentSignInMode==='directory'?'.student-email':'.student-directory')?.remove();
+  if(studentSignInMode==='directory'&&!emailOnly){
+    clearInterval(resendTimer);
+    if(keepForm&&el('studentRoll')&&document.documentElement.dataset.entry==='register')return;
+    const form=signInForm('signInDetails','<p>Enter the roll number and college email on your student record. No email code is needed.</p>'+
+      rollField('studentRoll')+input('studentEmail','College email','type="email" autocomplete="email" autocapitalize="none" spellcheck="false" maxlength="254" required')+
+      '<p class="sub">Student sign-in is saved on this device for 30 days.</p>','Sign in');
+    el('content').innerHTML='<div class="narrow login-card">'+panel('Student sign-in','<div data-entry-price class="offer"></div>'+form+btn('clubSignIn','Club account sign-in','quiet'))+'</div>';
+    el('studentRoll').value=studentAttempt?.roll||(/^\d{9}$/.test(hint)?hint:'');el('studentEmail').value=studentAttempt?.email||'';
+    updatePrices();return;
+  }
   if(keepForm&&el('identifier')&&document.documentElement.dataset.entry==='register'){
     if(!el('identifier').value)el('identifier').value=hint||'';return;
   }
@@ -36,25 +49,14 @@ function signInPage(keepForm=false,hint=deviceValue('email-hint')){
   el('content').innerHTML='<div class="narrow login-card">'+panel('Email sign-in','<div data-entry-price class="offer"></div>'+entry)+'</div>';
   updatePrices();
 }
-function codePage(){
-  heading('','Check your email');
-  const mailbox=/^\d{9}$/.test(challenge.identifier)?'the email on your student record':'<strong>'+esc(challenge.identifier)+'</strong>';
-  if(challenge.expires<=Date.now()){
-    clearInterval(resendTimer);
-    el('content').innerHTML='<div class="narrow login-card">'+panel('Get a new sign-in code','<p>Your previous code expired. Send a new one to '+mailbox+' to continue.</p>'+btn('resendCode','Send a new code','primary wide')+btn('changeLogin','Change roll number or email'))+'</div>';return;
-  }
-  const form=signInForm('verifyCode','<p>Check '+mailbox+' for a six-digit code from <strong>Poké Poker Night 2026</strong>. Enter it here within 10 minutes.</p>'+
-    '<p class="mail-folder"><a href="https://outlook.office.com/mail/junkemail" target="_blank" rel="noopener noreferrer">Open Outlook Junk Email</a> if the code is missing from your inbox. In Gmail, check Spam. You can use the code straight from either folder.</p>'+
-    codeInput()+'<p class="sub">Student sign-in is saved on this device for 30 days.</p>','Verify and continue');
-  const help='<details><summary>Email hasn’t arrived?</summary><p>Check that your roll number matches the email on your student record. A resend keeps the same active code.</p>'+
-    signInForm('matchMail',rollField('matchRoll')+input('matchEmail','Email on your student record','type="email" autocomplete="email" required maxlength="254"'),'Check details and send code')+'</details>';
-  el('content').innerHTML='<div class="narrow login-card">'+panel('Enter your sign-in code',form+btn('resendCode','Resend code')+btn('changeLogin','Change roll number or email')+help)+'</div>';
-  if(/^\d{9}$/.test(challenge.identifier))el('matchRoll').value=challenge.identifier;else el('matchEmail').value=challenge.identifier;
-  startResendTimer(challenge.resendAt);el('loginCode').focus({preventScroll:true});
+async function codePage(){
+  if(typeof renderEmailCodePage!=='function')await scriptAsset('assets/email-code.js?v=__EMAIL_CODE_VERSION__');
+  if(!playerSession&&challenge?.identifier)renderEmailCodePage();
 }
+
 function resetPlayerView(){
   clearTimeout(ticketTimer);clearTimeout(checkoutTimer);clearInterval(resendTimer);
-  currentReceipt=null;playerSession=null;challenge=null;pendingRequest='';preferredReceipt='';accountInfo=null;accountLoad=null;
+  currentReceipt=null;playerSession=null;challenge=null;studentAttempt=null;pendingRequest='';preferredReceipt='';accountInfo=null;accountLoad=null;
   for(const key of ['player-login','seat-request','email-step','receipt-link'])tabValue(key,'');
 }
 function clearPlayer(forgetDrafts=false){
@@ -62,7 +64,7 @@ function clearPlayer(forgetDrafts=false){
   const other=shared?.token&&playerSession?.token&&shared.token!==playerSession.token;
   if(forgetDrafts)dropAccountDrafts(roll);
   resetPlayerView();sharedSession=false;
-  if(!other)for(const key of ['player-login','receipt','pending-seat','email-step','email-hint'])saveDeviceValue(key,'');
+  if(!other)for(const key of ['player-login','receipt','pending-seat','email-step','email-hint','student-sign-in'])saveDeviceValue(key,'');
 }
 function rememberPlayer(session,roll){
   playerSession={...session,roll:roll||session.roll||''};
@@ -103,10 +105,32 @@ function loadAccount(){
 function accountRetry(){
   el('content').innerHTML='<div class="narrow">'+panel('Your account',btn('account','Open registration','primary')+btn('logout','Sign out'))+'</div>';
 }
+async function openSignedInPlayer(signed){
+  rememberPlayer(signed.session,signed.account?.player?.roll);
+  for(const key of ['email-step','email-hint','student-sign-in'])saveDeviceValue(key,'');challenge=null;studentAttempt=null;
+  if(signed.account){
+    try{await loadAccountTools()}catch(error){if(playerSession?.token===signed.session.token)accountRetry();throw error}
+    if(playerSession?.token===signed.session.token)renderAccount(signed.account);
+    return;
+  }
+  heading('PLAYER REGISTRATION','Signed in');accountRetry();
+  msg('Your sign-in was saved. Open registration to retry loading your receipt.');
+}
 async function action(name){
   if(mode==='scan')return name==='reloadScanner'?launch():scannerAction(name);
   if(name==='reloadPass'){await renderPass();return}
-  if(name==='changeLogin'){saveDeviceValue('email-hint','');signInPage(false,'');el('identifier').focus();return}
+  if(name==='clubSignIn'){signInPage(false,'',true);el('identifier').focus();return}
+  if(name==='changeLogin'){saveDeviceValue('email-hint','');signInPage(false,'');(el('studentRoll')||el('identifier')).focus();return}
+  if(name==='signInDetails'){
+    const roll=val('studentRoll'),email=val('studentEmail').toLowerCase();
+    if(!/^\d{9}$/.test(roll)){fieldError('studentRoll','Enter your nine-digit roll number.');return}
+    if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){fieldError('studentEmail','Enter your registered college email.');return}
+    if(studentAttempt?.roll!==roll||studentAttempt?.email!==email||!studentAttempt?.requestId)studentAttempt={roll,email,requestId:crypto.randomUUID()};
+    const attempt=studentAttempt;saveDeviceValue('student-sign-in',JSON.stringify(attempt));
+    const signed=await api('signInWithStudentDetails',roll,email,preferredReceipt||'',attempt.requestId);
+    if(studentAttempt===attempt&&!playerSession)await openSignedInPlayer(signed);
+    return;
+  }
   if(name==='requestCode'||name==='resendCode'||name==='matchMail'){
     const identifier=name==='resendCode'?challenge.identifier:name==='matchMail'?val('matchRoll'):val('identifier');
     if(!/^\d{9}$/.test(identifier)&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(identifier)){
@@ -115,14 +139,14 @@ async function action(name){
     }
     saveDeviceValue('email-hint',identifier);
     // Mail can arrive before the browser receives the response, especially when switching apps.
-    const waiting=name==='requestCode'?{identifier,resendAt:0,expires:Date.now()+600000,requestId:crypto.randomUUID()}:null;
+    const waiting=name==='requestCode'?{identifier,resendAt:0,expires:Date.now()+600000,requestId:crypto.randomUUID(),adminEntry:studentSignInMode==='directory'}:null;
     if(waiting)saveDeviceValue('email-step',JSON.stringify(waiting));
     let reply;
     try{reply=name==='matchMail'?await api('requestMatchedPlayerCode',identifier,val('matchEmail')):await api('requestEventCode',identifier)}
     catch(error){
       if(waiting&&!playerSession){
         if(error.message.includes('Could not reach')){
-          challenge=waiting;codePage();msg('If your email arrived, enter its code. You can also resend it here.');return;
+          challenge=waiting;await codePage();msg('If your email arrived, enter its code. You can also resend it here.');return;
         }
         if(unpack(deviceValue('email-step'))?.requestId===waiting.requestId)saveDeviceValue('email-step','');
       }
@@ -130,8 +154,8 @@ async function action(name){
     }
     if(playerSession)return;
     const requestId=waiting?.requestId||(challenge?.identifier===identifier&&challenge.expires>Date.now()&&challenge.requestId)||crypto.randomUUID();
-    challenge={identifier,resendAt:Date.now()+reply.resendAfter*1000,expires:Date.now()+(reply.expiresIn??600)*1000,requestId};
-    saveDeviceValue('email-step',JSON.stringify(challenge));codePage();
+    challenge={identifier,resendAt:Date.now()+reply.resendAfter*1000,expires:Date.now()+(reply.expiresIn??600)*1000,requestId,adminEntry:waiting?.adminEntry||challenge?.adminEntry||false};
+    saveDeviceValue('email-step',JSON.stringify(challenge));await codePage();
     if(name==='matchMail')msg(reply.delivery==='accepted'?'Your details match. Google accepted the email for delivery.':reply.delivery==='existing'?'Your details match. Your existing email code is still active.':'Your details match. A send is already in progress.');
     return;
   }
@@ -150,16 +174,7 @@ async function action(name){
       if(window===window.top)location.replace(next.href);
       return;
     }
-    rememberPlayer(signed.session,signed.account?.player?.roll);
-    saveDeviceValue('email-step','');saveDeviceValue('email-hint','');challenge=null;
-    if(signed.account){
-      try{await loadAccountTools()}catch(error){if(playerSession?.token===signed.session.token)accountRetry();throw error}
-      if(playerSession?.token===signed.session.token)renderAccount(signed.account);
-      return;
-    }
-    heading('PLAYER REGISTRATION','Signed in');
-    el('content').innerHTML='<div class="narrow">'+panel('Your account',btn('account','Open registration','primary')+btn('logout','Sign out'))+'</div>';
-    msg('Your sign-in was saved. Open registration to retry loading your receipt.');return;
+    await openSignedInPlayer(signed);return;
   }
   if(name==='account'){await loadAccount();return}
   if(name==='refreshBoard'){await refreshBoard();return}
@@ -234,12 +249,13 @@ async function launch(){try{
     el('content').innerHTML=skeleton('Opening your registration');
     try{await loadAccount()}catch(e){if(playerSession)accountRetry();throw e}return;
   }
-  if(challenge?.identifier){codePage();return}
+  if(challenge?.identifier&&(studentSignInMode!=='directory'||challenge.adminEntry)){await codePage();return}
   signInPage(true);
   if(window.pendingPokerSignIn){
     window.pendingPokerSignIn=false;
-    const form=el('identifier').form,button=form.querySelector('button');
-    el('identifier').readOnly=false;button.disabled=false;button.removeAttribute('aria-busy');button.textContent='Send code';form.requestSubmit();
+    const form=(studentSignInMode==='directory'?el('studentRoll'):el('identifier')).form,button=form.querySelector('button');
+    for(const field of form.querySelectorAll('input'))field.readOnly=false;
+    button.disabled=false;button.removeAttribute('aria-busy');button.textContent=studentSignInMode==='directory'?'Sign in':'Send code';form.requestSubmit();
   }
 }catch(e){msg(e.message||'The club desk is temporarily unavailable.',true)}}
 addEventListener('online',()=>{el('net').textContent='';if(mode==='board')refreshBoard()});
@@ -251,7 +267,7 @@ if(mode==='register'){
   const resume=()=>{
     if(document.hidden||syncDeviceSession())return;
     if(playerSession&&!accountInfo&&navigator.onLine)loadAccount().catch(e=>msg(e.message,true));
-    else if(!playerSession&&challenge?.expires<=Date.now()&&el('loginCode'))codePage();
+    else if(!playerSession&&challenge?.expires<=Date.now()&&el('loginCode'))codePage().catch(e=>msg(e.message,true));
   };
   addEventListener('online',resume);addEventListener('pageshow',resume);document.addEventListener('visibilitychange',resume);
 }

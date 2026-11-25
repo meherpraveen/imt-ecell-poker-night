@@ -19,9 +19,10 @@ test('the published Apps Script registration renders inside the Google host @dep
   },{timeout:40000}).toBe(true);
   await expect(app.getByRole('link',{name:'Poké Poker Night home'})).toHaveAttribute('href','https://'+domain+'/');
   await expect(app.locator('.offer .price-values strong')).toHaveText(/^₹[\d,]+$/,{timeout:40000});
-  await app.getByLabel('Roll number or registered email').fill('invalid');
-  await app.getByRole('button',{name:'Send code',exact:true}).click();
-  await expect(app.locator('#identifierError')).toContainText('nine-digit');
+  await app.getByLabel('College roll number',{exact:true}).fill('123');
+  await app.getByLabel('College email',{exact:true}).fill('preview@example.invalid');
+  await app.getByRole('button',{name:'Sign in',exact:true}).click();
+  await expect(app.locator('#studentRollError')).toContainText('nine-digit');
 });
 
 test('published navigation, mobile startup, live floor and backend validation @deployed',async({page})=>{
@@ -46,8 +47,9 @@ test('published navigation, mobile startup, live floor and backend validation @d
   await expect.poll(()=>sponsors.locator('img').evaluateAll(imgs=>imgs.every(img=>img.complete&&img.naturalWidth>0))).toBe(true);
   await expect(page.locator('a[href*="view=staff"]')).toHaveCount(0);
   await page.getByRole('link',{name:'Sign in to register'}).click();
-  await expect(page.getByLabel('Roll number or registered email')).toBeVisible();
-  await expect(page.getByRole('heading',{name:'Email sign-in'})).toBeVisible();
+  await expect(page.getByLabel('College roll number',{exact:true})).toBeVisible();
+  await expect(page.getByLabel('College email',{exact:true})).toBeVisible();
+  await expect(page.getByRole('heading',{name:'Student sign-in'})).toBeVisible();
   await page.waitForFunction(()=>window.pokerReady===true);
   await expect(page.locator('.offer .price-values strong')).toHaveText(/^₹[\d,]+/);
   await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
@@ -58,16 +60,24 @@ test('published navigation, mobile startup, live floor and backend validation @d
   expect(metrics.horizontalOverflow).toBe(false);expect(metrics.initialLayoutShift).toBeLessThan(0.05);expect(metrics.startupAssets).toBe(2);
   // Empty identifiers validate the deployed account routes before a directory read or an email send.
   const validation=await page.evaluate(()=>Promise.all([
-    api('requestEventCode','').catch(e=>e.message),api('signInEvent','','','').catch(e=>e.message)
+    api('signInWithStudentDetails','','','',crypto.randomUUID()).catch(e=>e.message),
+    api('signInEvent','','','').catch(e=>e.message)
   ]));
-  for(const message of validation)expect(message).toContain('nine-digit roll number');
+  expect(validation[0]).toContain('match one student record');expect(validation[1]).toContain('nine-digit roll number');
+  // Reserved .invalid addresses can never receive mail or match the college directory.
+  const paused=await page.evaluate(()=>api('requestEventCode','temporary-login-probe@example.invalid').catch(e=>e.message));
+  expect(paused).toContain('Email codes are paused');
   const guarded=await page.evaluate(()=>Promise.all([api('playerSaveDetails','','','{}').catch(e=>e.message),api('playerSubmitPayment','','','','{}').catch(e=>e.message),api('playerSubmitScreenshot','','','','0').catch(e=>e.message),api('playerSelectReceiver','','','','0').catch(e=>e.message)]));
   for(const message of guarded)expect(message).toContain('Sign in with your registered email');
-  await page.getByLabel('Roll number or registered email').fill('invalid');
-  await page.getByRole('button',{name:'Send code',exact:true}).click();await expect(page.locator('#identifierError')).toContainText('nine-digit');
-  await page.reload();await expect(page.getByLabel('Roll number or registered email')).toHaveValue('invalid');
-  // Resume the public code-entry screen with device state. This checks the live UI without sending mail.
+  await page.getByLabel('College roll number',{exact:true}).fill('123');
+  await page.getByLabel('College email',{exact:true}).fill('preview@example.invalid');
+  await page.getByRole('button',{name:'Sign in',exact:true}).click();await expect(page.locator('#studentRollError')).toContainText('nine-digit');
+  // Obsolete student challenges no longer block access to the replacement form.
   await page.evaluate(()=>localStorage.setItem('pn26:email-step',JSON.stringify({identifier:'preview@example.invalid',resendAt:Date.now()+60000,expires:Date.now()+600000})));
+  await page.reload();await expect(page.getByRole('heading',{name:'Student sign-in'})).toBeVisible();
+  await expect(page.getByLabel('Six-digit code')).toHaveCount(0);
+  // The owner still has the email-code screen, without issuing a live message.
+  await page.evaluate(()=>localStorage.setItem('pn26:email-step',JSON.stringify({identifier:'preview@example.invalid',adminEntry:true,resendAt:Date.now()+60000,expires:Date.now()+600000})));
   await page.reload();const junk=page.getByRole('link',{name:'Open Outlook Junk Email'});
   await expect(junk).toBeVisible();await expect(junk).toHaveAttribute('href','https://outlook.office.com/mail/junkemail');
   await expect(page.getByText('Student sign-in is saved on this device for 30 days.')).toBeVisible();
@@ -77,7 +87,7 @@ test('published navigation, mobile startup, live floor and backend validation @d
   const settings=await page.evaluate(()=>api('publicInfo'));expect(typeof settings.open).toBe('boolean');
   await page.goto(site+'event.html?view=pass');await expect(page.locator('#msg')).toContainText('complete pass link');
   await page.goto(site+'event.html?view=staff');await expect(page.getByRole('heading',{name:'Page unavailable'})).toBeVisible();
-  expect(actions.every(a=>['publicPrices','publicInfo','liveFloor','requestEventCode','signInEvent','playerSaveDetails','playerSubmitPayment','playerSubmitScreenshot','playerSelectReceiver'].includes(a))).toBe(true);expect(errors).toEqual([]);
+  expect(actions.every(a=>['publicPrices','publicInfo','liveFloor','signInWithStudentDetails','requestEventCode','signInEvent','playerSaveDetails','playerSubmitPayment','playerSubmitScreenshot','playerSelectReceiver'].includes(a))).toBe(true);expect(errors).toEqual([]);
 });
 
 test('published pages, checkout module and camera assets match the release build @deployed',async({request})=>{
@@ -94,7 +104,7 @@ test('published pages, checkout module and camera assets match the release build
     for(const asset of expected)assets.add(asset);
   }
   for(const asset of refs(read('assets/event-app.js')))assets.add(asset);
-  for(const name of ['player-account.js','payment-form.js','gate-camera.js'])expect([...assets].some(url=>url.includes('/'+name+'?v='))).toBe(true);
+  for(const name of ['player-account.js','payment-form.js','gate-camera.js','email-code.js'])expect([...assets].some(url=>url.includes('/'+name+'?v='))).toBe(true);
   assets.add('assets/jsQR-1.4.0.js');assets.add('assets/qrcode-1.4.4.js');
   await Promise.all([...assets].map(async asset=>{
     const live=await request.get(new URL(asset,site).href);expect(live.ok(),asset).toBe(true);
