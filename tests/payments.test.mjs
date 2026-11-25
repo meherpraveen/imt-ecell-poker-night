@@ -74,6 +74,31 @@ test('Paytm Ref No outranks an app ID and a damaged rupee glyph needs matching w
   assert.equal(read(receipt('149')+'\nRef No: 987654321012').utr,'');
 });
 
+test('receipt amount reading excludes rewards, timestamps and partial numeric tokens',()=>{
+  const event=createEvent(),read=text=>event.staff('readPaymentText_',[text]).amount;
+  for(const text of [
+    'Rewards earned ₹10','Cashback\n₹10','Get up to ₹10 cashback','Balance ₹408',
+    'Enjoy seamless and safer, payments up to ₹10,000.','₹10,000.','₹1,49','₹149.0.0',
+    'Others10','INR149','₹149abc','₹10:35','₹149.009','₹149,','₹149%','₹1 49',
+    '₹10\nOne Hundred Forty Nine Rupees','₹149\nOne Hundred Fifty Rupees',
+    'Payment successful\n₹149\nTotal paid ₹199'
+  ])assert.equal(read(text),'',text);
+  for(const text of [
+    'Amount paid ₹149\nCashback earned ₹10','₹149\nRewards\n₹10',
+    '₹\n149\nGet ₹10 cashback','149\nOne Hundred Forty Nine Rupees\nCashback ₹10',
+    'Paid INR 149.00\nAvailable balance INR 408.00','Payment amount Rs.149'
+  ])assert.equal(read(text),'149.00',text);
+  assert.equal(read('Payment successful\n₹10'),'10.00');
+  assert.equal(read('Payment successful\n₹199'),'199.00');
+  const phonePe=['Transaction Successful','Paid to','SAMPLE RECEIVER','149','••••••1234@yapl','Transfer Details',
+    'PhonePe Transaction ID','T0123456789','Debited from','XX1234','UTR: 012345678901','149','Send Again','Enjoy seamless and safer, payments up to ₹10,000.'].join('\n');
+  assert.equal(read(phonePe),'149.00');
+  assert.equal(read(phonePe.replaceAll('149','10')),'10.00');
+  assert.equal(read(phonePe.replace('SAMPLE RECEIVER\n149','SAMPLE RECEIVER\n7')),'');
+  const wallet=phonePe.replace('SAMPLE RECEIVER\n149','SAMPLE RECEIVER\n7').replace('XX1234','PhonePe Wallet\nClosing Balance: ₹408').replace('\n149\nSend Again','\n7\n149\n$149\nSend Again');
+  assert.equal(read(wallet),'149.00');
+});
+
 test('rereading a saved screenshot fills its missing amount even when its UTR is already known',()=>{
   const f=start(),id=f.p.hold.id;
   f.event.ocr('Ref No: '+utr);
@@ -86,7 +111,7 @@ test('rereading a saved screenshot fills its missing amount even when its UTR is
   const saved=f.event.staff('ledger_',[]).attempts[id];
   assert.equal(saved.claim.amount,14900);assert.equal(saved.ocr.amount,'149.00');
   assert.equal(saved.file,before.file);assert.equal(saved.status,'REVIEW');assert.equal(saved.proofVersion,2);
-  assert.equal(f.rpc('adminPaymentDetail',f.admin,id,'').canReadReference,false);
+  assert.equal(f.rpc('adminPaymentDetail',f.admin,id,'').canReadReference,true);
   assert.equal(f.rpc('adminReadScreenshotReference',f.admin,id,2).updated,false);
   assert.equal(f.event.staff('ledger_',[]).attempts[id].proofVersion,2);
 });

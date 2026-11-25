@@ -4,9 +4,9 @@ import {club,credit,csvHeader,image,jpegQr,receiptText,testUpi,utr} from '../pay
 
 const button=(page,name)=>page.getByRole('button',{name,exact:true});
 const screenshot={name:'payment.jpg',mimeType:'image/jpeg',buffer:jpegQr()};
-test('a slow private screenshot leaves the admin desk usable and historical references can be reread from the original',async({page,site})=>{
+test('a slow private screenshot leaves the desk usable and an incorrect saved amount can be reread from the original',async({page,site})=>{
   const api=club(site);api.makeReceiver();const student=api.student();
-  site.ocr(null);api.publicRpc('playerSubmitScreenshot',student.token,student.hold.ticket,image,'0');
+  site.ocr(receiptText(utr,'10'));api.publicRpc('playerSubmitScreenshot',student.token,student.hold.ticket,image,'0');
   await page.addInitScript(({invite,token})=>sessionStorage.setItem('pn26:staff:'+invite,token),{invite:site.invite('admin'),token:api.admin});
   await page.setViewportSize({width:320,height:740});await page.goto(site.staffUrl('admin'));
   let allowDetail,allowImage,sawDetail,sawImage;
@@ -40,12 +40,13 @@ test('a slow private screenshot leaves the admin desk usable and historical refe
   await expect(page.getByAltText('Student payment screenshot')).toBeVisible();
   await expect(page.getByLabel('Reason for your decision')).toHaveValue('Checking the original bank entry.');
   expect(site.calls.filter(x=>x==='proofImage').length).toBe(reads);
+  await expect(page.getByRole('dialog').locator('dt').filter({hasText:'Amount'}).locator('..')).toContainText('10');
   site.ocr('Payment successful\n149\nOne Hundred Forty Nine Rupees\nRef No: 0123 4567 8901');
   await button(page,'Read screenshot details again').click();
   const dialog=page.getByRole('dialog');
   await expect(dialog.locator('dt').filter({hasText:'Payment UTR'}).locator('..')).toContainText('012345678901');
   await expect(dialog.locator('dt').filter({hasText:'Amount'}).locator('..')).toContainText('149');
-  await expect(button(page,'Read screenshot details again')).toHaveCount(0);
+  await expect(button(page,'Read screenshot details again')).toBeVisible();
   expect(student.status().status).toBe('REVIEW');
   await button(page,'Close').click();await button(page,'Refresh').click();
   await page.getByLabel('Search payments').fill('012345678901');

@@ -135,12 +135,7 @@ function readPaymentText_(text){
     .replace(/[०-९]/g,c=>String(c.charCodeAt(0)-0x966));
   function unique(values){const options=[...new Set(values)];return options.length===1?options[0]:''}
   const references=screenshotReferences_(s);
-  const amounts=Array.from(s.matchAll(/(?:₹|INR\b|Rs\.?)\s*([\d,]+(?:\.\d{1,2})?)(?![\d.])/gi),m=>paise_(m[1])).filter(n=>n!==null);
-  for(const m of s.matchAll(/^(?:₹|INR\b|Rs\.?|\$)?[ \t]*([\d,]+(?:\.\d{1,2})?)[ \t]*\r?\n[ \t]*([a-z -]+?)\s+rupees(?:\s+only)?[ \t]*$/gmi)){
-    const numeric=paise_(m[1]),written=receiptRupeesInWords_(m[2]);
-    if(numeric!==null&&numeric===written)amounts.push(numeric);
-  }
-  const amount=unique(amounts),months=['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
+  const amount=screenshotAmount_(s),months=['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
   const dates=[],times=[];
   for(const m of s.matchAll(/\b(\d{4})-(\d{2})-(\d{2})\b/g))dates.push(m[1]+'-'+m[2]+'-'+m[3]);
   for(const m of s.matchAll(/\b(\d{1,2})[\s/.-]+([A-Za-z]{3,9}|\d{1,2})[\s,./-]+(\d{4})\b/g)){
@@ -152,7 +147,7 @@ function readPaymentText_(text){
     if(h<=23&&Number(m[2])<60)times.push(String(h).padStart(2,'0')+':'+m[2]);
   }
   const payees=Array.from(s.matchAll(/(?:paid to|payee(?:\s+(?:upi\s*id|vpa))?|receiver(?:\s+upi\s*id)?|beneficiary(?:\s+upi\s*id)?)\s*[:\s-]*(?:[^@\n]{1,65}\n\s*)?([a-z0-9._-]+@[a-z][a-z0-9.-]+)/gi),m=>m[1].toLowerCase());
-  return {...references,payee:unique(payees),amount:amount===''?'':(amount/100).toFixed(2),time:localPaidTime_(unique(dates)+'T'+unique(times)),
+  return {...references,payee:unique(payees),amount,time:localPaidTime_(unique(dates)+'T'+unique(times)),
     uncertain:new Set(payees).size>1||/\b(?:failed|pending|reversed|refunded|declined|unsuccessful)\b/i.test(s)};
 }
 function convertPaymentFile_(blob,mime,read){
@@ -212,13 +207,27 @@ function extractScreenshot_(a,image){
   try{return readPaymentText_(paymentDocument_(Utilities.newBlob(image.bytes,image.mime,'receipt.'+image.ext)).text)}
   catch{console.warn('Receipt text extraction failed for '+a.id);return null}
 }
+// Refresh machine-read amounts without overwriting a payer's entered amount or
+// an owner-transcribed receipt. Clearing ambiguous OCR keeps it in review.
+function rereadScreenshotFields_(a,extracted){
+  const previous=a.ocr||{},ocr={...previous,amount:extracted.amount||''};
+  for(const field of ['utr','time','payee'])ocr[field]=previous[field]||extracted[field]||'';
+  ocr.utrCandidates=ocr.utr?[]:extracted.utrCandidates||[];
+  ocr.uncertain=!!(previous.uncertain||extracted.uncertain);
+  const updated={...a,ocr};
+  if(a.claim?.source==='screenshot'){
+    updated.claim={...a.claim,utr:a.claim.utr||ocr.utr,time:a.claim.time||ocr.time};
+    if(!a.proofImportKey&&(a.claim.amount==null||a.claim.amount===paise_(previous.amount)))updated.claim.amount=paise_(ocr.amount);
+    updated.suffix=updated.claim.utr.slice(-4);
+  }
+  if(JSON.stringify(a)===JSON.stringify(updated))return null;
+  return {...updated,proofVersion:(a.proofVersion||0)+1};
+}
 // Older uploads keep their original evidence. An administrator can read it again without a student resubmission.
 function adminReadScreenshotReference(token,id,version){
   const admin=staff_(token,[]),original=ledger_().attempts[id];
   const eligible=a=>a?.status==='REVIEW'&&a.file&&(a.proofVersion||0)===version;
   must_(eligible(original),'The payment changed. Reopen it before reading its screenshot.');
-  const complete=a=>!!a.ocr?.utr&&paise_(a.ocr.amount)>0;
-  if(complete(original))return {found:true,updated:false};
   let extracted;
   try{
     const originalImage=DriveApp.getFileById(original.file).getBlob();
@@ -227,26 +236,16 @@ function adminReadScreenshotReference(token,id,version){
   return locked_(()=>{
     const st=ledger_(),a=st.attempts[id];
     must_(eligible(a)&&a.file===original.file,'The screenshot changed. Reopen the payment.');
-    if(complete(a))return {found:true,updated:false};
-    if(!extracted.utr&&!extracted.utrCandidates.length&&!extracted.amount)return {found:!!a.ocr?.utr,updated:false};
-    const previous=a.ocr||{},ocr={...previous};
-    for(const field of ['utr','amount','time','payee'])ocr[field]=previous[field]||extracted[field]||'';
-    ocr.utrCandidates=ocr.utr?[]:extracted.utrCandidates;
-    ocr.uncertain=!!(previous.uncertain||extracted.uncertain);
-    if(JSON.stringify(previous)===JSON.stringify(ocr))return {found:!!ocr.utr,updated:false};
-    const updated={...a,ocr,proofVersion:version+1};
-    if(a.claim?.source==='screenshot'){
-      updated.claim={...a.claim,utr:a.claim.utr||ocr.utr,amount:a.claim.amount??paise_(ocr.amount),time:a.claim.time||ocr.time};
-      updated.suffix=updated.claim.utr.slice(-4);
-    }
+    const updated=rereadScreenshotFields_(a,extracted);
+    if(!updated)return {found:!!a.ocr?.utr,updated:false};
     commit_(st,'Screenshot details reread',admin.name,{attempts:[updated],note:id});
-    return {found:!!ocr.utr,updated:true};
+    return {found:!!updated.ocr.utr,updated:true};
   },false);
 }
 function playerReadProof(session,ticket,data){
   const roll=playerRoll_(session),a=ownReceipt_(ledger_(),ticket,roll),image=proofImageBytes_(data),digest=proofDigest_(image.bytes);
   must_(!issued_(a)&&['HOLD','REVIEW','REJECTED'].includes(a.status),'This receipt is not accepting proof.');
-  const cache=CacheService.getScriptCache(),key='ocr:'+a.id+':'+digest;
+  const cache=CacheService.getScriptCache(),key='ocr:amount-v2:'+a.id+':'+digest;
   const cached=cache.get(key);if(cached)return JSON.parse(cached);
   must_(reserveScreenshotRead_(roll),'Too many screenshot reads. Try again in ten minutes.');
   const extracted=extractScreenshot_(a,image),fields=extracted||readPaymentText_('');
