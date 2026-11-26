@@ -66,6 +66,7 @@ function updatePrices(){
   }),homeFees=document.querySelectorAll('[data-home-fee]');
   if(!offers.length&&!homeFees.length)return;
   const offer=displayedOffer,now=eventNow();
+  const countdownVisible=typeof updateHomeCountdown==='function'&&updateHomeCountdown(offer,now);
   if(!offer||offer.early&&now>=offer.endsAt){
     if(homeFees.length||offers.some(box=>box.closest('.login-card')))showPublishedFees(offers,homeFees);
     else for(const b of offers){b.setAttribute('aria-busy','true');if(b.dataset.rendered||!b.textContent){b.textContent='Checking the current entry fee…';delete b.dataset.rendered}}
@@ -91,7 +92,10 @@ function updatePrices(){
     const value=kind==='retry'?(offer.retry!=null?formatFee_(offer.retry,offer.currency):'See the desk'):kind==='standard'?standard:kind==='label'?(offer.early?'Early Bird':'Standard entry'):amount;
     if(node.textContent!==value)node.textContent=value;
   }
-  if(offer.early)schedulePrices((offer.endsAt-now)%60000||60000);
+  if(offer.early){
+    const interval=countdownVisible?1000:60000;
+    schedulePrices((offer.endsAt-now)%interval||interval);
+  }
 }
 restorePublicQuote();updatePrices();
 document.addEventListener('visibilitychange',updatePrices);

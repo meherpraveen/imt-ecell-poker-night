@@ -20,6 +20,7 @@ test('a cached quote from the previous deadline is discarded on the updated site
 test('the homepage updates both entry quotes at the cutoff and keeps its event links usable',async({page,site})=>{
   site.at(new Date(Date.parse(pricing.earlyBirdEndsAt)-3000).toISOString());
   await page.clock.install({time:new Date(Date.parse(pricing.earlyBirdEndsAt)-3000)});
+  await page.clock.pauseAt(new Date(Date.parse(pricing.earlyBirdEndsAt)-2000));
   await page.goto(site.origin);
   const hero=page.getByRole('region',{name:'Poké Poker Night',exact:true});
   const details=page.getByRole('region',{name:'Entry details'});
@@ -29,7 +30,13 @@ test('the homepage updates both entry quotes at the cutoff and keeps its event l
   await expect(hero.locator('s')).toHaveText('Standard price '+format(pricing.standard));
   await expect(details.locator('.price-time')).toContainText('left');
   await expect(details.locator('[data-home-fee=retry]')).toHaveText(format(pricing.retry));
+  await expect(hero.locator('[data-home-countdown]')).toBeVisible();
+  await expect(hero.getByRole('timer')).toHaveText('00h 00m 03s');
+  site.advance(1000);await page.clock.fastForward(1000);
+  await expect(hero.getByRole('timer')).toHaveText('00h 00m 02s');
+  expect(site.calls.filter(name=>name==='publicPrices')).toHaveLength(1);
   site.advance(4000);await page.clock.fastForward(4000);
+  await expect(hero.locator('[data-home-countdown]')).toBeHidden();
   await expect(hero.locator('[data-home-fee=entry]')).toHaveText(format(pricing.standard));
   await expect(hero.locator('s')).toBeHidden();
   await expect(details.locator('.price-values strong')).toHaveText(format(pricing.standard));
@@ -40,6 +47,33 @@ test('the homepage updates both entry quotes at the cutoff and keeps its event l
   await page.keyboard.press('Enter');
   await expect(page).toHaveURL(/#format$/);
   await expect(page.getByRole('heading',{name:'Tournament format'})).toBeInViewport();
+});
+
+test('the hero countdown uses server time, fits below sign-in and does not shift when the quote arrives',async({page,site})=>{
+  site.at(new Date(Date.parse(pricing.earlyBirdEndsAt)-(2*3600+5*60+8)*1000).toISOString());
+  // A wrong device clock must not change the advertised offer's duration.
+  await page.clock.install({time:new Date('2030-01-01T00:00:00Z')});
+  await page.clock.pauseAt(new Date('2030-01-01T00:00:01Z'));
+  let release;
+  const held=new Promise(resolve=>{release=resolve});
+  await page.route(site.endpoint,async route=>{if(route.request().postDataJSON().action==='publicPrices')await held;await route.fallback()});
+  await page.setViewportSize({width:320,height:750});await page.goto(site.origin);
+  const countdown=page.locator('[data-home-countdown]'),button=page.getByRole('link',{name:'Sign in to register'});
+  await expect(countdown).toBeHidden();
+  const guideTop=await page.locator('.event-guide').evaluate(node=>node.getBoundingClientRect().top);
+  release();await expect(countdown).toBeVisible();
+  await expect(page.getByRole('timer')).toHaveText('02h 05m 08s');
+  await expect(countdown).toContainText('Price rises to '+format(pricing.standard));
+  expect(await page.locator('.event-guide').evaluate(node=>node.getBoundingClientRect().top)).toBe(guideTop);
+  const buttonBox=await button.boundingBox(),timerBox=await countdown.boundingBox();expect(timerBox.y).toBeGreaterThanOrEqual(buttonBox.y+buttonBox.height);
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+  await page.screenshot({path:'.local/countdown-mobile.png',fullPage:true});
+  site.advance(1000);await page.clock.fastForward(1000);await expect(page.getByRole('timer')).toHaveText('02h 05m 07s');
+  await page.reload();await expect(page.getByRole('timer')).toHaveText('02h 05m 07s');
+  expect(site.calls.filter(name=>name==='publicPrices')).toHaveLength(1);
+  await page.setViewportSize({width:1280,height:900});await page.emulateMedia({colorScheme:'dark'});
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+  await page.screenshot({path:'.local/countdown-desktop-dark.png',fullPage:true});
 });
 
 test('a delayed quote leaves the registration fields in place and a return visit reuses the server quote',async({page,site})=>{

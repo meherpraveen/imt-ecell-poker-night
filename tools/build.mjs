@@ -67,7 +67,7 @@ function writeAsset(filename, content) {
 }
 const homeStyles=baseStyles+'\n'+read('web/home.css');
 writeAsset('site.css',homeStyles);
-const priceVersion=writeAsset('entry-prices.js',await publicScript([read('web/transport.js'),priceDisplay,read('web/home-navigation.js')]));
+const priceVersion=writeAsset('entry-prices.js',await publicScript([read('web/transport.js'),priceDisplay,read('web/home-countdown.js'),read('web/home-navigation.js')]));
 const homeSource=withPublishedFees(withSponsors(read('docs/index.html')));
 const hero=homeSource.match(/<img class="hero-wordmark"[^>]+>/)[0];
 const avifSet=hero.match(/srcset="([^"]+)"/)[1].replace(/\.webp/g,'.avif'),heroSizes=hero.match(/sizes="([^"]+)"/)[1];
