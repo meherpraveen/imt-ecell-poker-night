@@ -36,7 +36,7 @@ const fees={label:'Entry fees',entry:money.format(publishedPrices.earlyBird)+'â€
 const deadline=new Date(publishedPrices.earlyBirdEndsAt).toLocaleString('en-IN',{day:'numeric',month:'short',hour:'numeric',minute:'2-digit',timeZone:'Asia/Kolkata'})+' IST';
 const feeMarkup='<div class="price-label">Published entry fees</div><div class="price-values"><strong>'+fees.entry+'</strong></div>'+
   '<p class="price-time">Early Bird ends '+deadline+'</p>';
-const priceDisplay=read('web/prices.js').replace('__PUBLISHED_SCHEDULE__',()=>JSON.stringify({fees,markup:feeMarkup}));
+const priceDisplay=read('web/prices.js').replace('__PUBLISHED_SCHEDULE__',()=>JSON.stringify({fees,endsAt:Date.parse(publishedPrices.earlyBirdEndsAt),markup:feeMarkup}));
 function withPublishedFees(html){
   return html.replace(/<!-- FEES:START -->[\s\S]*?<!-- FEES:END -->/g,()=>'<!-- FEES:START -->'+feeMarkup+'<!-- FEES:END -->')
     .replace(/(<(?:span|strong|dd) data-home-fee="(label|entry|standard|retry)">)[^<]*/g,(_,tag,key)=>tag+fees[key]);

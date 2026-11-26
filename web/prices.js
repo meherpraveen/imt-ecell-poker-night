@@ -12,7 +12,7 @@ function validOffer(offer){
 function restorePublicQuote(){
   try{
     const cached=JSON.parse(sessionStorage.getItem(publicQuoteKey)),age=Date.now()-cached.received;
-    if(age>=0&&age<60000&&validOffer(cached.offer)&&(!cached.offer.early||cached.offer.now+age<cached.offer.endsAt)){
+    if(age>=0&&age<60000&&validOffer(cached.offer)&&cached.offer.endsAt===publishedSchedule.endsAt&&(!cached.offer.early||cached.offer.now+age<cached.offer.endsAt)){
       displayedOffer=cached.offer;offerReceived=cached.received;
     }
   }catch{}

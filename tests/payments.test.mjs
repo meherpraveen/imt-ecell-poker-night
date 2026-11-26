@@ -354,10 +354,10 @@ test('older receiver records regenerate a compact code from the verified private
 });
 test('a later submission uses the transfer-time price and a conflicting bank timestamp blocks the discount',()=>{
   for(const [clock,paid,bankClock,eligible] of [
-    ['18:59','149','18:59',true],['19:00','199','19:00',true],
-    ['19:00','149','19:00',false],['18:59','149','19:00',false],['18:59','149','',false]
+    ['15:59','149','15:59',true],['16:00','199','16:00',true],
+    ['16:00','149','16:00',false],['15:59','149','16:00',false],['15:59','149','',false]
   ]){
-    const event=createEvent();event.at('2026-11-27T17:00:00+05:30');
+    const event=createEvent();event.at('2026-11-27T15:00:00+05:30');
     const f=club(event),receiver=f.makeReceiver(),p=f.student();
     event.at('2026-11-27T21:00:00+05:30');
     assert.equal(p.status().fee,199);assert.equal(p.status().ticket,p.hold.ticket);
@@ -496,10 +496,10 @@ test('a screenshot alone cannot authorize failed, duplicate or underpaid transfe
 });
 
 test('statement time resolves an unreadable screenshot across the Early Bird boundary',()=>{
-  const event=createEvent();event.at('2026-11-27T18:50:00+05:30');
+  const event=createEvent();event.at('2026-11-27T15:50:00+05:30');
   const f=club(event),receiver=f.makeReceiver(),p=f.student();event.advance(20*60000);event.ocr(null);
   assert.equal(f.publicRpc('playerSubmitScreenshot',p.token,p.hold.ticket,image,'0').fee,199);
-  const raw='Date,Time,UTR,Credit,Debit,Receiver UPI,Description\r\n2026-11-27,18:59,'+utr+',149,,'+testUpi+',UPI credit';
+  const raw='Date,Time,UTR,Credit,Debit,Receiver UPI,Description\r\n2026-11-27,15:59,'+utr+',149,,'+testUpi+',UPI credit';
   const plan=f.importFile(receiver.id,'bank.csv',raw);assert.equal(f.apply(plan).authorized,0);
   const detail=f.rpc('adminPaymentDetail',f.admin,p.hold.id,utr);
   f.rpc('adminReviewPayment',f.admin,p.hold.id,'approve',detail.rows[0].key,'Verified original credit before the cutoff.',1);

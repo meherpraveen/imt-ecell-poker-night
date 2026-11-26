@@ -9,7 +9,7 @@ import {club,testUpi,receiptText,credit,paidAt,image} from './payment-fixtures.m
 
 test('quiet desk polls validate staff access and skip the journal payload until records, settings or prices change',()=>{
   const reads=[],site=createEvent({onSheetRead:(sheet,start,count)=>reads.push([sheet,start,count])});
-  site.at('2026-11-27T18:59:50+05:30');const api=club(site),{admin}=api;
+  site.at('2026-11-27T15:59:50+05:30');const api=club(site),{admin}=api;
   for(let i=0;i<300;i++){
     const roll=String(400000000+i),id='large-queue-'+i;
     site.rows.Journal.push([site.now(),'Proof submitted','fixture',JSON.stringify({attempts:[{id,roll,kind:'pre',status:'REVIEW',fee:149,wave:0,details:{fullName:'Test '+i,contact:'9000000000',batch:'2026-28'}}]})]);
@@ -23,7 +23,7 @@ test('quiet desk polls validate staff access and skip the journal payload until 
   const changed=api.rpc('staffSnapshot',admin,initial.revision);assert.equal(changed.settings.open,false);
   site.rows.Journal.push([site.now(),'Desk activity','fixture',JSON.stringify({note:'queue changed'})]);
   const updated=api.rpc('staffSnapshot',admin,changed.revision);assert.notEqual(updated.revision,changed.revision);
-  site.at('2026-11-27T19:00:00+05:30');assert.equal(api.rpc('staffSnapshot',admin,updated.revision).offer.amount,199);
+  site.at('2026-11-27T16:00:00+05:30');assert.equal(api.rpc('staffSnapshot',admin,updated.revision).offer.amount,199);
   const gate=api.rpc('staffLogin',site.team.gate,site.invite('gate')).token;
   assert.equal(api.rpc('staffSnapshot',gate,initial.revision).settings,null);
   site.rows.Staff.find(row=>row[1]==='admin')[3]='no';

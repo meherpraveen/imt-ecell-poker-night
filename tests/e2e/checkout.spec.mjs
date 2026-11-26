@@ -314,7 +314,7 @@ test('a returning registration with a missing batch opens payment as soon as the
 });
 
 test('a receiver choice in flight at the price cutoff stays selected alongside the new price',async({page,site})=>{
-  site.at('2026-11-27T18:59:45+05:30');await page.clock.install({time:new Date(site.now())});
+  site.at('2026-11-27T15:59:45+05:30');await page.clock.install({time:new Date(site.now())});
   const {player,second}=await openCheckout(page,site);
   const pending=await holdRequest(page,site.endpoint,'playerSelectReceiver');
   await page.getByRole('radio',{name:second.name}).check();await pending.seen;
@@ -329,7 +329,7 @@ test('a receiver choice in flight at the price cutoff stays selected alongside t
 });
 
 test('a pricing change temporarily hides payment actions and keeps the details and proof drafts during a retry',async({page,site})=>{
-  site.at('2026-11-27T18:55:00+05:30');await page.clock.install({time:new Date(site.now())});
+  site.at('2026-11-27T15:55:00+05:30');await page.clock.install({time:new Date(site.now())});
   const {first}=await openCheckout(page,site);
   await page.getByRole('radio',{name:first.name}).check();
   const copyId=page.getByRole('button',{name:/Copy UPI ID/});await expect(copyId).toHaveAttribute('data-value',first.upi);

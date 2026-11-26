@@ -43,7 +43,7 @@ test('upgrading an unused club desk opens signups once and respects later admin 
   rows.splice(4);rows[1][1]='old@example';rows[2][1]='Existing Club';
   assert.equal(ctx.publicInfo().open,false);assert.equal(rows[1][1],'old@example');
 });
-test('registration opens on 23 November even before payments and on-site pricing begins at 7 PM on the 27th',()=>{
+test('registration opens on 23 November even before payments and the walk-in desk opens at 7 PM on the 27th',()=>{
   const f=fixture(),settings={upi:'',name:'',open:true,qrFile:'',published:false};
   f.ctx.settings_=()=>settings;f.ctx.ensureStaffLinks_=()=>{};
   f.at('2026-11-22T23:59:59+05:30');
@@ -373,10 +373,10 @@ test('all sign-in and pass emails use plain text, with one private link and a ga
   }
 });
 test('the Early Bird cutoff reprices an open registration in place and preserves submitted fees',()=>{
-  const f=fixture(),c=f.ctx;f.at('2026-11-27T18:59:59+05:30');
+  const f=fixture(),c=f.ctx;f.at('2026-11-27T15:59:59+05:30');
   const early=hold(f),other=pending(f,'987654321','4444');assert.equal(early.offer.early,true);
   f.st.attempts[early.id].expires=early.offer.endsAt; // An older journal row.
-  f.at('2026-11-27T19:00:00+05:30');
+  f.at('2026-11-27T16:00:00+05:30');
   const current=status(f,early.ticket);
   assert.equal(current.status,'HOLD');assert.equal(current.upi,'club@example');assert.equal(current.fee,199);
   assert.equal(current.ticket,early.ticket);assert.equal(current.offer.early,false);

@@ -6,6 +6,17 @@ const config=readFileSync(new URL('../../gas/Pricing.gs',import.meta.url),'utf8'
 const pricing=runInNewContext(config+'\nENTRY_PRICING');
 const format=amount=>new Intl.NumberFormat('en-IN',{style:'currency',currency:pricing.currency,maximumFractionDigits:0}).format(amount);
 
+test('a cached quote from the previous deadline is discarded on the updated site',async({page,site})=>{
+  site.at('2026-11-27T16:00:00+05:30');
+  await page.clock.install({time:new Date('2026-11-27T16:00:00+05:30')});
+  await page.addInitScript(()=>sessionStorage.setItem('pn26:public-entry-quote',JSON.stringify({
+    received:Date.now(),offer:{now:Date.now(),amount:149,standard:199,retry:149,currency:'INR',early:true,endsAt:Date.parse('2026-11-27T19:00:00+05:30')}
+  })));
+  await page.goto(site.origin);
+  await expect(page.locator('[data-home-fee=entry]')).toHaveText(format(pricing.standard));
+  expect(site.calls.filter(name=>name==='publicPrices')).toHaveLength(1);
+});
+
 test('the homepage updates both entry quotes at the cutoff and keeps its event links usable',async({page,site})=>{
   site.at(new Date(Date.parse(pricing.earlyBirdEndsAt)-3000).toISOString());
   await page.clock.install({time:new Date(Date.parse(pricing.earlyBirdEndsAt)-3000)});

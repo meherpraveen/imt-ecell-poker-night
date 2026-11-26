@@ -4,7 +4,7 @@ const ENTRY_PRICING = Object.freeze({
   standard: 199,
   earlyBird: 149,
   retry: 149,
-  earlyBirdEndsAt: '2026-11-27T19:00:00+05:30'
+  earlyBirdEndsAt: '2026-11-27T16:00:00+05:30'
 });
 
 function entryOffer_(now, kind) {
