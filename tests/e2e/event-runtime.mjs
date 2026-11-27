@@ -20,7 +20,7 @@ function html(source){
 }
 
 export function createEvent({freshInstall=false,studentSignIn='email',ownerSignIn='email',ownerPasswordHash='',onSheetRead,onFileCreate,onFileRead,onPassMail}={}){
-  const props=new Map([['BOOK','fixture'],['KEY',randomBytes(32).toString('hex')],['FOLDER','proofs']]);
+  const props=new Map([['BOOK','fixture'],['KEY',randomBytes(32).toString('hex')],['FOLDER','proofs'],['PASS_EMAIL_DELIVERY','enabled']]);
   if(freshInstall)props.set('PAYMENT_VERIFICATION_REQUIRED','yes');
   const cache=new Map(),files=new Map(),mail=[],calls=[];
   let ocrText='',excelSheets=[];

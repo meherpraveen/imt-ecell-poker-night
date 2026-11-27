@@ -15,7 +15,7 @@ function staffSnapshot(token,knownRevision){
   for(const a of as){if(!a.suffix)continue;const end=a.suffix.slice(-4);suffixHits[end]=(suffixHits[end]||0)+1}
   const managed=usesBankVerification_(st);
   const records=as.slice().reverse().filter(a=>finance||issued_(a)).map(a=>{
-    const r={id:a.id,roll:a.roll,name:a.details?.fullName||students[a.roll]?.name||'',kind:a.kind,status:a.status==='HOLD'&&latestByRoll.get(a.roll).id!==a.id?'RELEASED':a.status,wave:a.status==='HOLD'?0:a.wave+1,used:a.used,seat:a.seat||null,where:st.venue[a.roll]?.where||'NEVER'};
+    const r={id:a.id,roll:a.roll,name:a.details?.fullName||students[a.roll]?.name||'',kind:a.kind,status:a.status==='HOLD'&&latestByRoll.get(a.roll).id!==a.id?'RELEASED':a.status,wave:a.used?a.wave+1:0,allocation:a.used?'assigned':'desk',used:a.used,seat:a.seat||null,where:st.venue[a.roll]?.where||'NEVER'};
     if(finance||staff.role==='gate')r.phone=a.details?a.details.contact.replace(/\D/g,''):students[a.roll]?.phone||'';
     if(finance)Object.assign(r,{batch:a.details?.batch||'',fee:quotedFee_(a,now),suffix:a.suffix||'',utr:a.utr||a.claim?.utr||a.ocr?.utr||'',managed:!!a.receiver||managed&&!!a.file,issue:a.reviewReason||a.reason||'',image:!!a.file,sameImage:!!(a.digest&&digestHits[a.digest]>1),sameTail:!!(a.suffix&&suffixHits[a.suffix.slice(-4)]>1),delivery:a.mailUntil>now?'Sending email':a.delivery||''});
     return r;
@@ -101,9 +101,8 @@ function staffApprove(token,id,fullRef,confirmed){
     must_(validBatch_(a.details?.batch),'Ask the player to choose their batch in registration details. Their proof is saved.');
     must_(!a.suffix||fullRef.endsWith(a.suffix),'The visible receipt digits do not match this bank reference. Check the credit and proof again.');
     must_(!Object.values(st.attempts).some(v=>v.id!==id&&v.utr===fullRef),'This bank reference has already paid for another attempt.');
-    must_(Date.now()<EVENT_END&&a.wave>=st.game.next+(st.game.active?1:0)&&a.wave<WAVES,'Move this payment to an available qualifier before approving it.');
-    must_(Object.values(st.attempts).filter(other=>other.id!==a.id&&other.wave===a.wave&&occupied_(other)).length<CAP,'The wave is full. Move this payment to an available wave.');
-    const paid={...a,status:'PAID',utr:fullRef,verified:Date.now(),delivery:'Pending delivery'};
+    must_(Date.now()<EVENT_END&&waveFor_(st,a.roll,Date.now(),a.id)>=0,'Event capacity is full. Check availability at the registration desk.');
+    const paid={...a,wave:-1,capacityReserved:true,status:'PAID',utr:fullRef,verified:Date.now(),delivery:'Pending delivery'};
     commit_(st,'Payment approved',staff.name,{attempts:[paid],note:id});
   },false);
   return {status:deliverPass_(id,staff.name)};
@@ -124,7 +123,7 @@ function deskPayment(token,roll,kind,full,confirmed,verifiedFee,batch,phone){
     const wave=waveFor_(st,roll,now);must_(wave>=0,'No later Round 1 seat is available. Do not collect a payment.');
     const saved=existing?.details||latestRegistration_(st,roll)?.details;
     const details=registrationDetails_(roll,{fullName:saved?.fullName||people[roll].name,pgpId:roll,contact:validContact_(saved?.contact)?saved.contact:phone||people[roll].phone,batch:validBatch_(saved?.batch)?saved.batch:batch});
-    const a={...(existing||newAttempt_(roll,kind,wave,now)),details,detailsRevision:existing?.detailsRevision||1,fee,wave,status:'PAID',utr:full,verified:now,delivery:'Pending delivery'};
+    const a={...(existing||newAttempt_(roll,kind,wave,now)),details,detailsRevision:existing?.detailsRevision||1,fee,wave:-1,capacityReserved:true,status:'PAID',utr:full,verified:now,delivery:'Pending delivery'};
     const oldWait=Object.values(st.attempts).filter(v=>v.roll===roll&&v.id!==a.id&&v.status==='WAITLIST').map(v=>({...v,status:'RELEASED'}));
     commit_(st,'Desk payment verified',s.name,{attempts:[...oldWait,a],note:a.id});return a.id;
   },false);
@@ -134,7 +133,7 @@ function deskPayment(token,roll,kind,full,confirmed,verifiedFee,batch,phone){
 function releaseSeat(token,id,mode){
   const s=staff_(token,['desk','floor']);return locked_(()=>{const st=ledger_(),a=st.attempts[id];must_(a,'Attempt missing.');
     if(mode==='no-show'){must_(a.status==='PAID'&&!a.used,'Only an unused paid pass can be marked no-show.');commit_(st,'No-show',s.name,{attempts:[{...a,status:'NO_SHOW'}],note:id})}
-    else if(mode==='move'){must_(['REVIEW','WAITLIST'].includes(a.status),'Only a pending or waitlisted attempt can move.');const now=Date.now(),w=waveFor_(st,a.roll,now,a.id);must_(w>=0,'No wave has space.');const moved={...a,wave:a.status==='REVIEW'?w:-1,reservedAfterReview:a.status==='REVIEW'};if(a.status==='WAITLIST'){must_(paymentReadyFor_(settings_(),st)&&now<EVENT_END,'Checkout is currently unavailable.');Object.assign(moved,{fee:entryOffer_(now,a.kind).amount,status:'HOLD'})}commit_(st,'Seat offered',s.name,{attempts:[a.status==='WAITLIST'?attachReceiver_(moved,st,now):moved],note:id})}
+    else if(mode==='move'){must_(['REVIEW','WAITLIST'].includes(a.status),'Only a pending or waitlisted attempt can move.');const now=Date.now(),w=waveFor_(st,a.roll,now,a.id);must_(w>=0,'No event capacity is available.');const moved={...a,wave:-1,capacityReserved:a.status==='REVIEW',reservedAfterReview:a.status==='REVIEW'};if(a.status==='WAITLIST'){must_(paymentReadyFor_(settings_(),st)&&now<EVENT_END,'Checkout is currently unavailable.');Object.assign(moved,{fee:entryOffer_(now,a.kind).amount,status:'HOLD'})}commit_(st,'Registration capacity offered',s.name,{attempts:[a.status==='WAITLIST'?attachReceiver_(moved,st,now):moved],note:id})}
     else throw Error('Unknown seat action.');return true;
   });
 }

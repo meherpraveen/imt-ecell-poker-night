@@ -14,17 +14,22 @@ function byCode_(st,s){
 function passInfo(code){
   const st=ledger_(),a=byCode_(st,code);must_(a,'Invalid ticket');
   const active=ticketActive_(a,st,Date.now());
-  return {used:!!a.used,active,wave:a.wave+1,seat:a.seat||null,checkedInAt:a.checkedInAt||null,code:active?pass_(a.id):''};
+  return {used:!!a.used,active,wave:a.used?a.wave+1:0,allocation:a.used?'assigned':'desk',seat:a.seat||null,checkedInAt:a.checkedInAt||null,code:active?pass_(a.id):''};
 }
 
 const EVENT_MAIL_NAME = 'Poké Poker Night 2026';
 const EVENT_PAGE = 'https://pokernight.imtneversleeps.com/event.html';
+// Resuming ticket mail requires an explicit owner change. Verification and
+// registration never lift the owner's pause or discard the pending delivery.
+function passEmailsPaused_(){return props_().getProperty('PASS_EMAIL_DELIVERY')!=='enabled'}
 function sendEventMail_(recipient, subject, paragraphs) {
   const body = [...paragraphs, 'Entrepreneurship Cell, IMT Ghaziabad\nYou can reply to this email for help.'].join('\n\n');
   MailApp.sendEmail(recipient, subject, body, {name:EVENT_MAIL_NAME, replyTo:clubOwner_()});
 }
 function deliverPass_(id,actor,force=false){
+  if(passEmailsPaused_())return 'Email delivery paused';
   const plan=locked_(()=>{
+    if(passEmailsPaused_())return {status:'Email delivery paused'};
     const st=ledger_(),a=st.attempts[id],now=Date.now();
     must_(a&&issued_(a),'This payment has no authorized ticket.');
     if(force)must_(ticketActive_(a,st,now),'This ticket is no longer available for entry.');
@@ -48,7 +53,8 @@ function deliverPass_(id,actor,force=false){
     if(person&&emailAddress_(person.email)){
       const subject=EVENT_MAIL_NAME+' '+(a.kind==='retry'?'retry':'entry')+' pass';
       sendEventMail_(person.email,subject,[
-        'E-Cell verified your '+formatFee_(a.fee)+' payment for Round 1, wave '+(a.wave+1)+'.',
+        'E-Cell verified your '+formatFee_(a.fee)+' payment for Poké Poker Night.',
+        'Your round, table and seat will be allocated at the registration desk according to availability.',
         'Open your private pass to show or save your entry QR.\n'+EVENT_PAGE+'?view=pass#code='+encodeURIComponent(code),
         'You can also give the gate volunteer this code.\n'+code,
         'Bring your college ID on 27 November and keep your pass private.'
@@ -72,7 +78,7 @@ function staffPass(token,id,send){
   const st=ledger_(),a=st.attempts[id];
   must_(a&&ticketActive_(a,st,Date.now()),'This ticket is no longer available for entry.');
   const p=a.details||roster_()[a.roll]||{};
-  return {code:pass_(id),phone:(p.contact||p.phone||'').replace(/\D/g,''),name:p.fullName||p.name||'',wave:a.wave+1,delivery:a.mailUntil>Date.now()?'Sending email':a.delivery};
+  return {code:pass_(id),phone:(p.contact||p.phone||'').replace(/\D/g,''),name:p.fullName||p.name||'',wave:a.used?a.wave+1:0,allocation:a.used?'assigned':'desk',delivery:a.mailUntil>Date.now()?'Sending email':a.delivery==='Pending delivery'&&passEmailsPaused_()?'Email delivery paused':a.delivery};
 }
 function scannerLink_(token){
   // This capability can only admit tickets. Revoking the parent desk session also revokes the camera.
@@ -94,10 +100,11 @@ function admitTicket_(staff,value,op){
     if(!a.used&&!ticketActive_(a,st,Date.now()))return {status:'invalid'};
     const player=a.details?.fullName||roster_()[a.roll]?.name||a.roll;
     if(a.used)return {status:'used',player,wave:a.wave+1,seat:a.seat,checkedInAt:a.checkedInAt};
-    const seat=nextSeat_(st,a.wave),checkedInAt=Date.now();
+    const wave=deskWaveFor_(st,a.roll);must_(wave>=0,'No qualifier seat is available. Check with the registration desk.');
+    const seat=nextSeat_(st,wave),checkedInAt=Date.now();
     const venue={where:'IN',ops:[...(st.venue[a.roll]?.ops||[]).slice(-23),op]};
-    commit_(st,'Gate admit',staff.name,{attempts:[{...a,used:true,seat,checkedInAt}],venue:{[a.roll]:venue},note:a.roll});
-    return {status:'admitted',player,wave:a.wave+1,seat,checkedInAt};
+    commit_(st,'Gate admit',staff.name,{attempts:[{...a,wave,capacityReserved:true,used:true,seat,checkedInAt}],venue:{[a.roll]:venue},note:a.roll});
+    return {status:'admitted',player,wave:wave+1,seat,checkedInAt};
   },false);
 }
 function gateAction(token,action,value,op){

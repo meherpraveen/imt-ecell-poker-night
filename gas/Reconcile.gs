@@ -33,8 +33,8 @@ function paymentBlock_(st,a,row,bank){
   if(attempts.some(x=>x.id!==a.id&&x.status==='REVIEW'&&(x.claim?.utr===row.utr||x.digest&&x.digest===a.digest)))return 'Multiple registrations claim this credit or screenshot.';
   if(attempts.some(x=>x.id!==a.id&&x.digest===a.digest&&issued_(x)))return 'This screenshot already funded an entry.';
   if(attempts.some(x=>x.id!==a.id&&x.roll===a.roll&&['PAID','QUALIFIED','WINNER'].includes(x.status)))return 'This player already has an active entry.';
-  if(a.wave<st.game.next+(st.game.active?1:0)||a.wave<0||a.wave>=WAVES||Date.now()>=EVENT_END)return 'The booked wave has closed. Review seating with the floor.';
-  if(attempts.filter(x=>x.id!==a.id&&x.wave===a.wave&&occupied_(x,Date.now())).length>=CAP)return 'The wave is full. Move this payment to an available wave.';
+  if(Date.now()>=EVENT_END||st.game.next+(st.game.active?1:0)>=WAVES)return 'Qualifier registration has closed. Review this payment with the desk.';
+  if(waveFor_(st,a.roll,Date.now(),a.id)<0)return 'Event capacity is full. Review availability with the registration desk.';
   return '';
 }
 function autoReason_(st,a,row,bank){
@@ -127,6 +127,7 @@ function adminApplyStatement(token,id,version){
 }
 function adminDispatchPasses(token){
   const admin=staff_(token,[]),items=Object.values(ledger_().attempts).filter(a=>a.bankRow&&a.delivery==='Pending delivery');
+  if(passEmailsPaused_())return {remaining:items.length,failed:0,paused:true};
   let failed=0;
   for(const a of items.slice(0,4))if(deliverPass_(a.id,admin.name)==='Desk delivery needed')failed++;
   return {remaining:Math.max(0,items.length-4),failed};

@@ -39,7 +39,7 @@ function bankPlanDialog(plan){
 }
 async function dispatchBankPasses(){
   let failed=0,result;
-  do{result=await deskApi('adminDispatchPasses',token);failed+=result.failed}while(result.remaining);
+  do{result=await deskApi('adminDispatchPasses',token);if(result.paused)return 'Ticket emails are paused. '+result.remaining+' remain pending.';failed+=result.failed}while(result.remaining);
   return failed?failed+' pass email(s) need desk delivery.':'Pass delivery is up to date.';
 }
 function bankReviewDialog(id,query=''){
@@ -98,7 +98,7 @@ function renderBankReview(r,query){
     (rows?'<ul class="bank-list">'+rows+'</ul><label for="bankRow">Statement row to use</label><select id="bankRow"><option value="">Choose a row</option>'+options+'</select>':'<p>No matching applied statement rows. Upload or apply the receiver statement first.</p>')+
     input('bankReason','Reason for your decision','maxlength="240"')+
     (rows?checkbox('bankVerified','I checked the screenshot and the original bank credit.')+btn('bankApprove','Approve payment','primary wide')+btn('bankLink','Link row and keep pending'):'')+
-    btn('bankReject','Reject proof')+btn('move','Move to an open wave')+
+    btn('bankReject','Reject proof')+btn('move','Check registration capacity')+
     (r.rows.some(x=>x.ocr)?'<details><summary>Transcribe an unclear PDF credit</summary><p>Choose the original line above and verify it in the PDF.</p>'+input('pdfUtr','Full UTR on the PDF line','inputmode="numeric" maxlength="12"')+input('pdfAmount','Incoming amount on the PDF','inputmode="decimal"')+input('pdfDate','Bank credit date','type="date"')+btn('bankTranscribe','Record verified PDF values')+'</details>':''));
 
 }

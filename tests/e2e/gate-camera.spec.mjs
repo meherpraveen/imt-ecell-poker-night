@@ -12,12 +12,16 @@ test('the pass linked in the text email and its saved copy share one gate admiss
   expect(new URLSearchParams(link.hash.slice(1)).get('code')).toBe(gateCode);
   await page.goto(site.origin+'/event.html'+link.search+link.hash);
   const passQr=page.getByAltText('Single-use entry QR');await expect(passQr).toBeVisible();
+  await expect(page.locator('.wallet-facts')).toContainText('At registration desk');
+  await expect(page.locator('.wallet')).not.toContainText('Wave 1');
+  expect(mail.body).toContain('allocated at the registration desk');
+  expect(mail.body).not.toMatch(/wave\s+\d|round\s+\d|table\s+\d|seat\s+\d/i);
   const linkedQr=await passQr.getAttribute('src');
   const save=page.getByRole('link',{name:'Save pass to phone'});
   await expect(save).toBeVisible();
   const png=await save.getAttribute('href');
   const download=page.waitForEvent('download');await save.click();
-  expect((await download).suggestedFilename()).toBe('Poke-Poker-Night-Wave-1.png');
+  expect((await download).suggestedFilename()).toBe('Poke-Poker-Night-Entry-Pass.png');
   await page.emulateMedia({colorScheme:'dark',reducedMotion:'reduce'});
   await expect(page.locator('.wallet').getByRole('img',{name:'Poké Poker Night'})).toBeVisible();
   await expect(page.locator('.wallet .qr')).toHaveCSS('background-color','rgb(255, 255, 255)');
@@ -129,7 +133,7 @@ test('a lost camera response stays unconfirmed and retry recovers the original a
 });
 
 test('registration and checkout cross the same price boundary while a phone stays open',async({page,site},testInfo)=>{
-  site.at('2026-11-27T18:59:00+05:30');await page.clock.install({time:new Date(site.now())});
+  site.at('2026-11-27T15:59:00+05:30');await page.clock.install({time:new Date(site.now())});
   site.rows.Settings[1][1]='club@example';site.rows.Settings[2][1]='Sample Club';site.rows.Settings[5][1]='yes';
   await page.goto(site.register);
   const offer=page.locator('[data-entry-price]:visible');

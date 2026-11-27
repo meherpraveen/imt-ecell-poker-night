@@ -66,7 +66,7 @@ function playerUpload(session,ticket,suffix,data){
     must_(a.status==='HOLD'&&currentRegistration_(st,a).id===a.id,'Open your current registration to submit proof.');
     requirePlayerDetails_(a.details);
     const now=Date.now();
-    return {status:'REVIEW',wave:proofWave_(st,a,now),fee:quotedFee_(a,now),digest,suffix,submitted:now};
+    return {status:'REVIEW',...pendingAllocation_(st,a,now),fee:quotedFee_(a,now),digest,suffix,submitted:now};
   });
 }
 
@@ -310,7 +310,7 @@ function playerSubmitPayment(session,ticket,data,json){
     must_(['HOLD','REVIEW','REJECTED'].includes(a.status),'This registration cannot accept a payment. Contact the event desk.');
     const transferTime=Date.parse(claim.time+':00+05:30');
     const fee=entryOffer_(Math.max(a.quotedAt||a.created,Math.min(transferTime,now)),a.kind).amount;
-    return {wave:proofWave_(st,a,now),fee,digest,claim,ocr:trusted,suffix:claim.utr.slice(-4),proofVersion:form.revision+1,status:'REVIEW',paymentStatus:'PENDING',submitted:now,
+    return {...pendingAllocation_(st,a,now),fee,digest,claim,ocr:trusted,suffix:claim.utr.slice(-4),proofVersion:form.revision+1,status:'REVIEW',paymentStatus:'PENDING',submitted:now,
       late:false,reason:'',reviewReason:'',linkedRow:'',linkReason:'',fairPlayVersion:FAIR_PLAY_VERSION,agreement:FAIR_PLAY_DECLARATION};
   });
 }
@@ -330,7 +330,7 @@ function playerSubmitScreenshot(session,ticket,data,expectedRevision){
     const receiver=ocr?.payee&&receivers_(st).find(r=>r.upi===ocr.payee);
     const claim={source:'screenshot',beneficiary:roll,utr:ocr?.utr||'',amount:paise_(ocr?.amount),time:ocr?.time||'',
       paidReceiver:receiver?{id:receiver.id,name:receiver.name,upi:receiver.upi}:null};
-    return {status:'REVIEW',paymentStatus:'PENDING',proofVersion:revision+1,submitted:now,wave:proofWave_(st,a,now),fee,digest,ocr,claim,
+    return {status:'REVIEW',paymentStatus:'PENDING',proofVersion:revision+1,submitted:now,...pendingAllocation_(st,a,now),fee,digest,ocr,claim,
       suffix:claim.utr.slice(-4),reason:'',reviewReason:'',linkedRow:'',linkReason:'',late:false,fairPlayVersion:'',agreement:''};
   },(st,a)=>{
     if(!usesBankVerification_(st))return;

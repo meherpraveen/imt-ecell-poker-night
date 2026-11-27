@@ -4,11 +4,11 @@ function walletCard(r,player,standalone){
   const wordmark=document.querySelector('.appbar .event-wordmark');
   const name=wordmark?'<img class="wallet-wordmark" src="'+esc(wordmark.getAttribute('src'))+'" width="360" height="126" alt="Poké Poker Night">':'Poké Poker Night';
   const header='<header class="wallet-head"><div><p class="wallet-issuer">E-Cell · IMT Ghaziabad</p><h2>'+name+'</h2></div><span class="suit" aria-hidden="true">♠</span></header>';
-  const details='<dl class="wallet-facts"><div><dt>Event date</dt><dd>27 Nov 2026</dd></div><div><dt>Qualifier</dt><dd>Wave '+esc(r.wave)+'</dd></div></dl>';
+  const details='<dl class="wallet-facts"><div><dt>Event date</dt><dd>27 Nov 2026</dd></div><div><dt>Seating</dt><dd>'+(used?'Wave '+esc(r.wave):'At registration desk')+'</dd></div></dl>';
   const title=used?(standalone?'Pass already scanned':'Checked in'):(standalone?'Show at the gate':'Payment verified');
   const passUrl=publicEventLink('pass','code',code||'');
   const admission=used?'<strong class="wallet-seat">'+esc(seatLabel(r.seat))+'</strong><p>'+esc(seatLocation(r.wave,r.seat))+'</p><p class="sub">Checked in '+esc(scanTime(r.checkedInAt))+'</p>':
-    '<div id="passImage" class="pass-image" aria-busy="true"></div><p class="ticket-code">'+esc(code)+'</p><p class="sub">Show this QR with your college ID.</p>';
+    '<div id="passImage" class="pass-image" aria-busy="true"></div><p class="ticket-code">'+esc(code)+'</p><p class="sub">Show this QR with your college ID. Your round, table and seat will be allocated at the registration desk according to availability.</p>';
   const action=used?'':standalone?'<a id="savePass" class="button primary wide" hidden>Save pass to phone</a>':
     '<a class="button primary wide" href="'+esc(passUrl)+'">Open phone pass</a>';
   return '<article class="wallet">'+header+details+'<div class="wallet-body"><h3>'+title+'</h3>'+
@@ -26,7 +26,7 @@ function passPng(code,wave,matrix){
   if(wordmark?.complete&&wordmark.naturalWidth)ctx.drawImage(wordmark,48,80,320,112);
   else {ctx.fillStyle=theme.getPropertyValue('--poke-yellow').trim();ctx.font='bold 55px system-ui';ctx.fillText('Poké Poker Night',48,160)}
   ctx.fillStyle='#162b48';ctx.font='bold 32px system-ui';ctx.fillText('27 Nov 2026',48,285);
-  ctx.textAlign='right';ctx.fillText('Wave '+wave,672,285);
+  ctx.textAlign='right';ctx.font='24px system-ui';ctx.fillText('Seating at registration desk',672,285);
   ctx.strokeStyle='#a4b4c9';ctx.setLineDash([8,8]);ctx.beginPath();ctx.moveTo(0,335);ctx.lineTo(720,335);ctx.stroke();
   const count=matrix.getModuleCount(),cell=Math.floor(492/(count+8));
   const left=Math.floor((canvas.width-count*cell)/2),top=370+4*cell;
@@ -46,7 +46,7 @@ async function fillTicketQr(code,wave){
     if(!slot.isConnected)return;
     const matrix=ticketMatrix(code);slot.innerHTML=qr(code,matrix);
     const save=el('savePass');
-    if(save){save.href=passPng(code,wave,matrix);save.download='Poke-Poker-Night-Wave-'+wave+'.png';save.hidden=false}
+    if(save){save.href=passPng(code,wave,matrix);save.download='Poke-Poker-Night-Entry-Pass.png';save.hidden=false}
   }catch{if(slot.isConnected)slot.textContent='Show the entry code below at the gate.'}
   finally{slot.removeAttribute('aria-busy')}
 }
@@ -76,7 +76,7 @@ async function updateTicket(){
       if(currentReceipt!==before)return;
       if(next.used||!next.active){
         if(mode==='pass')drawPass(next);
-        else if(!el('registrationEditor')?.open)showReceipt({...before,entryCode:'',seat:next.seat,checkedInAt:next.checkedInAt});
+        else if(!el('registrationEditor')?.open)showReceipt({...before,entryCode:'',wave:next.wave,allocation:next.allocation,seat:next.seat,checkedInAt:next.checkedInAt});
         if(next.seat&&(mode==='pass'||playerSession))el('ticketAnnouncement').textContent='Checked in. '+seatLabel(next.seat)+'. '+seatLocation(next.wave,next.seat);
       }
     }else if(currentReceipt&&(['REGISTERED','REVIEW','WAITLIST'].includes(currentReceipt.status)||currentReceipt.status==='HOLD'&&currentReceipt.full)){

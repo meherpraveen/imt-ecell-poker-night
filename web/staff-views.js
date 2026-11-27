@@ -33,7 +33,7 @@ function deskEmpty(icon,title,hint=''){
   return '<div class="desk-empty">'+deskIcon(icon)+'<strong>'+esc(title)+'</strong>'+(hint?'<p>'+esc(hint)+'</p>':'')+'</div>';
 }
 function statusName(status){return paymentStates[status]||status}
-function waveText(record){return record.wave>0?'Wave '+record.wave:''}
+function waveText(record){return record.used&&record.wave>0?'Wave '+record.wave:record.allocation==='desk'?'Seating at registration desk':''}
 function paymentBadge(r){
   const state=r.sameImage||r.sameTail?'flag':r.status==='REVIEW'?'review':r.status==='PAID'?'paid':'';
   return '<span class="desk-status" data-state="'+state+'">'+(state==='flag'?'Check duplicate':esc(statusName(r.status)))+'</span>';

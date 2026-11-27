@@ -123,7 +123,7 @@ async function inspect(id){
   if(r.status==='REVIEW'&&!snapshot.managed){
     s+=reference('full')+'<small id="matchTail" role="status"></small>'+checkbox('verified','I checked the incoming credit, exact fee and payer in the coordinator’s account.')+
       btn('approve','Approve and send code','primary wide')+'<details class="desk-disclosure"><summary>Other payment actions'+deskIcon('chevron-down')+'</summary><div>'+
-      btn('move','Move to an open wave')+input('reason','Reason if rejecting proof')+btn('reject','Reject proof')+'</div></details>';
+      btn('move','Check registration capacity')+input('reason','Reason if rejecting proof')+btn('reject','Reject proof')+'</div></details>';
   }
   if(r.status==='WAITLIST')s+=btn('move','Offer next available seat','primary');
   if(r.seat)s+='<p>'+esc(seatLabel(r.seat))+' · '+esc(seatLocation(r.wave,r.seat))+'</p>';
@@ -235,11 +235,11 @@ async function action(name,id){
     await finishDeskChange();msg('Attempt verified. '+r.status);return;
   }
   if(name==='reject'){await deskApi('staffReject',token,opened,val('reason'));await finishDeskChange();msg('Proof rejected. The reason is on the player’s receipt page.');return}
-  if(name==='move'||name==='no-show'){if(name==='no-show'&&!confirm('Mark this paid player as a no-show and release their seat?'))return;await deskApi('releaseSeat',token,opened,name);await finishDeskChange();msg('Seat updated.');return}
+  if(name==='move'||name==='no-show'){if(name==='no-show'&&!confirm('Mark this paid player as a no-show and release their registration capacity?'))return;await deskApi('releaseSeat',token,opened,name);await finishDeskChange();msg('Registration capacity updated.');return}
   if(name==='pass'||name==='resend'){if(name==='resend'&&!confirm('Email the same code again to the registered address?'))return;
     const p=await deskApi('staffPass',token,opened,name==='resend');const phone=p.phone.length===10?'91'+p.phone:p.phone;
-    const share='E-Cell Poké Poker Night: your Round 1 wave '+p.wave+' code is '+p.code+'. Bring your college ID.';
-    detail('<h2>Player pass</h2><p>'+esc(p.name)+' · Wave '+p.wave+'</p>'+qr(p.code)+'<p><code>'+esc(p.code)+'</code></p><p>'+esc(p.delivery)+'</p>'+btn('resend','Resend email')+(/^\d{10,15}$/.test(phone)?'<a class="button" href="https://wa.me/'+phone+'?text='+encodeURIComponent(share)+'" target="_blank" rel="noopener noreferrer">Send via WhatsApp</a>':'')+'<p class="sub">For in-person delivery, verify the college ID.</p>');return}
+    const share='E-Cell Poké Poker Night: your entry code is '+p.code+'. Bring your college ID. Seating will be allocated at the registration desk.';
+    detail('<h2>Player pass</h2><p>'+esc(p.name)+' · Seating at registration desk</p>'+qr(p.code)+'<p><code>'+esc(p.code)+'</code></p><p>'+esc(p.delivery)+'</p>'+btn('resend','Resend email')+(/^\d{10,15}$/.test(phone)?'<a class="button" href="https://wa.me/'+phone+'?text='+encodeURIComponent(share)+'" target="_blank" rel="noopener noreferrer">Send via WhatsApp</a>':'')+'<p class="sub">For in-person delivery, verify the college ID.</p>');return}
   if(name==='gate'){await gateOp();return}if(name==='nextGateResult'){nextGateResult();return}
   if(name==='preview'){draft=await deskApi('gamePreview',token);previewDraw();return}
   if(name==='startStage'||name==='skip'){if(!confirm(name==='skip'?'Close this empty wave?':'Lock this draw and start all tables?'))return;

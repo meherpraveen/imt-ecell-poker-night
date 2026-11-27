@@ -10,7 +10,7 @@ function apply_(state,patch,action,time){
   if(patch.bankCorrection)state.bankCorrections[patch.bankCorrection.key]=patch.bankCorrection;
   for(const d of patch.bankDecisions||[]){
     const a=state.attempts[d.id];must_(a,'Missing payment in the reconciliation journal.');
-    state.attempts[d.id]={...a,status:'PAID',paymentStatus:'AUTHORIZED',fee:d.fee??a.fee,utr:d.utr,bankRow:d.row,bankStatement:patch.bankStatement,verified:patch.bankTime,reviewReason:'',decisionReason:d.reason||'',delivery:'Pending delivery'};
+    state.attempts[d.id]={...a,...(!a.used?{wave:-1,capacityReserved:true}:{}),status:'PAID',paymentStatus:'AUTHORIZED',fee:d.fee??a.fee,utr:d.utr,bankRow:d.row,bankStatement:patch.bankStatement,verified:patch.bankTime,reviewReason:'',decisionReason:d.reason||'',delivery:'Pending delivery'};
   }
   for(const [id,reason] of patch.bankFlags||[])state.attempts[id]={...state.attempts[id],reviewReason:reason};
   for(const a of patch.attempts||[]){

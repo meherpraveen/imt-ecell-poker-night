@@ -25,15 +25,27 @@ function currentRegistration_(st,a){
   return latestRegistration_(st,a.roll)||a;
 }
 function waveFor_(st,roll,now,exceptId){
-  const past=new Set(),booked=Array(WAVES).fill(0);
+  const past=new Set(),booked=Array(WAVES).fill(0);let waiting=0;
   for(const attempt of Object.values(st.attempts)){
-    if(attempt.roll===roll&&issued_(attempt))past.add(attempt.wave);
-    if(attempt.wave>=0&&attempt.wave<WAVES&&attempt.id!==exceptId&&occupied_(attempt))booked[attempt.wave]++;
+    if(attempt.roll===roll&&issued_(attempt)&&attempt.used)past.add(attempt.wave);
+    if(attempt.id===exceptId)continue;
+    if(attempt.used&&attempt.wave>=0&&attempt.wave<WAVES){booked[attempt.wave]++;continue;}
+    if(occupied_(attempt)&&(attempt.status==='PAID'||attempt.capacityReserved===true||attempt.capacityReserved===undefined&&attempt.wave>=0))waiting++;
   }
   const start=st.game.next+(st.game.active?1:0);
-  for(let wave=start;wave<WAVES;wave++)if(!past.has(wave)&&booked[wave]<CAP)return wave;
+  let free=0,first=-1;
+  for(let wave=start;wave<WAVES;wave++)if(!past.has(wave)&&booked[wave]<CAP){free+=CAP-booked[wave];if(first<0)first=wave;}
+  // Reserve event capacity only. A registration has no particular wave until
+  // the desk checks it in; another player's arrival order cannot bind it early.
+  return free>waiting?first:-1;
+}
+function deskWaveFor_(st,roll){
+  const past=new Set(Object.values(st.attempts).filter(a=>a.roll===roll&&a.used).map(a=>a.wave));
+  const start=st.game.next+(st.game.active?1:0);
+  for(let wave=start;wave<WAVES;wave++)if(!past.has(wave)&&Object.values(st.attempts).filter(a=>a.used&&a.wave===wave).length<CAP)return wave;
   return -1;
 }
+function pendingAllocation_(st,a,now){return {wave:-1,capacityReserved:proofWave_(st,a,now)>=0}}
 function eligibility_(st,roll,kind,now,exceptId){
   must_(now<EVENT_END,'The event has closed.');
   if(kind!=='retry')must_(now<NEW_CLOSE,'New registrations closed at 11 PM IST.');
@@ -51,8 +63,6 @@ function newAttempt_(roll,kind,availableWave,now){
 }
 function proofWave_(st,a,now){
   if(now>=EVENT_END)return -1;
-  const first=st.game.next+(st.game.active?1:0);
-  if(a.status==='REVIEW'&&a.wave>=first&&a.wave<WAVES&&Object.values(st.attempts).filter(other=>other.id!==a.id&&other.wave===a.wave&&occupied_(other)).length<CAP)return a.wave;
   return waveFor_(st,a.roll,now,a.id);
 }
 function publicInfo(){
@@ -109,7 +119,7 @@ function ownReceipt_(st,ticket,roll){
   return attempt;
 }
 function ticketActive_(a,st,now){
-  return a.status==='PAID'&&!a.used&&now<EVENT_END&&a.wave>=st.game.next+(st.game.active?1:0)&&a.wave<WAVES;
+  return a.status==='PAID'&&!a.used&&now<EVENT_END&&deskWaveFor_(st,a.roll)>=0;
 }
 function receipt_(a,set,st){
   const now=Date.now(),offer=entryOffer_(now,a.kind),ready=paymentReadyFor_(set,st),managed=usesBankVerification_(st),selected=a.receiver;
@@ -125,7 +135,7 @@ function receipt_(a,set,st){
     try{paymentQr=checkoutQr_({id:'legacy',upi:payee.upi,qrFile:payee.qrFile})}
     catch{console.warn('Legacy payment QR unavailable')}
   }
-  return {ticket:a.id+'.'+mac_('receipt:'+a.id),id:a.id,fee:quotedFee_(a,now),offer,wave:checkout?0:a.wave+1,status:a.status,
+  return {ticket:a.id+'.'+mac_('receipt:'+a.id),id:a.id,fee:quotedFee_(a,now),offer,wave:a.used?a.wave+1:0,allocation:a.used?'assigned':'desk',status:a.status,
     // Older clients use expires to discard an outdated UPI amount at the pricing cutoff.
     paymentsCloseAt:EVENT_END,expires:checkout&&offer.early?Math.min(offer.endsAt,EVENT_END):checkout?EVENT_END:0,full,upi:payable?payee.upi:'',name:payable?payee.name:'',paymentQr,
     checkoutReceivers,chosenReceiverId:chosenReceiver_(a,checkoutReceivers),receiverChoiceVersion:a.receiverChoiceVersion||0,

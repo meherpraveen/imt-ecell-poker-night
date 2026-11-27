@@ -4,6 +4,22 @@ import {club,credit,csvHeader,image,jpegQr,receiptText,testUpi,utr} from '../pay
 
 const button=(page,name)=>page.getByRole('button',{name,exact:true});
 const screenshot={name:'payment.jpg',mimeType:'image/jpeg',buffer:jpegQr()};
+test('paused ticket delivery leaves an approved pass unallocated and stops the admin dispatch loop',async({page,site})=>{
+  site.staff('props_',[]).deleteProperty('PASS_EMAIL_DELIVERY');
+  const api=club(site),receiver=api.makeReceiver(),student=api.student();
+  site.ocr(receiptText(utr));api.publicRpc('playerSubmitScreenshot',student.token,student.hold.ticket,image,'0');
+  api.apply(api.statement(receiver));
+  const receipt=api.publicRpc('playerStatus',student.token,student.hold.ticket);
+  expect(receipt.status).toBe('PAID');expect(receipt.wave).toBe(0);expect(receipt.allocation).toBe('desk');
+  expect(site.mail.some(m=>m.subject.endsWith('entry pass'))).toBe(false);
+  await page.addInitScript(({invite,token})=>sessionStorage.setItem('pn26:staff:'+invite,token),{invite:site.invite('admin'),token:api.admin});
+  await page.goto(site.staffUrl('admin'));await button(page,'Payments').click();
+  await button(page,'Send pending passes (1)').click();
+  await expect(page.locator('#msg')).toContainText('Ticket emails are paused. 1 remain pending.');
+  expect(site.calls.filter(name=>name==='adminDispatchPasses')).toHaveLength(1);
+  expect(site.mail.some(m=>m.subject.endsWith('entry pass'))).toBe(false);
+  const saved=site.staff('ledger_',[]).attempts[receipt.id];expect(saved.wave).toBe(-1);expect(saved.used).toBe(false);expect(saved.seat).toBeFalsy();expect(saved.delivery).toBe('Pending delivery');
+});
 test('a slow private screenshot leaves the desk usable and an incorrect saved amount can be reread from the original',async({page,site})=>{
   const api=club(site);api.makeReceiver();const student=api.student();
   site.ocr(receiptText(utr,'10'));api.publicRpc('playerSubmitScreenshot',student.token,student.hold.ticket,image,'0');
