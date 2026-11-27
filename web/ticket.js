@@ -120,7 +120,7 @@ async function refreshCheckoutQuote(){
     if(currentReceipt!==r||!slot.isConnected)return;
     const next=await playerApi('playerStatus',r.ticket);
     if(currentReceipt!==r||!slot.isConnected)return;
-    if(next.id!==r.id||next.status!==r.status){showReceipt(next);return}
+    if(next.id!==r.id||next.status!==r.status||next.checkoutEnded!==r.checkoutEnded){showReceipt(next);return}
     // Keep the file input and open details editor mounted.
     for(const key of ['fee','offer','paymentsCloseAt','checkoutEnded','full','upi','name','paymentQr','checkoutReceivers'])r[key]=next[key];
     if(next.receiverChoiceVersion>=r.receiverChoiceVersion){

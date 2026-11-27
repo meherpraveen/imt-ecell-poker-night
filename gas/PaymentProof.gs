@@ -244,11 +244,13 @@ function adminReadScreenshotReference(token,id,version){
 }
 function playerReadProof(session,ticket,data){
   const roll=playerRoll_(session),a=ownReceipt_(ledger_(),ticket,roll),image=proofImageBytes_(data),digest=proofDigest_(image.bytes);
+  requirePlayerPaymentOpen_(a,Date.now());
   must_(!issued_(a)&&['HOLD','REVIEW','REJECTED'].includes(a.status),'This receipt is not accepting proof.');
   const cache=CacheService.getScriptCache(),key='ocr:amount-v2:'+a.id+':'+digest;
   const cached=cache.get(key);if(cached)return JSON.parse(cached);
   must_(reserveScreenshotRead_(roll),'Too many screenshot reads. Try again in ten minutes.');
   const extracted=extractScreenshot_(a,image),fields=extracted||readPaymentText_('');
+  requirePlayerPaymentOpen_(a,Date.now());
   const message=extracted?'':'Automatic reading is unavailable. Enter the details from your screenshot for manual review.';
   const result={...fields,uploadRef:rememberProof_(cache,a.id,digest,data),seal:proofSeal_(a.id,digest,fields),message:message||(!fields.utr||!fields.amount||!fields.time?'Some details could not be read. Check the fields below.':'Check the details read from your screenshot.')};
   cache.put(key,JSON.stringify(result),600);return result;
@@ -257,10 +259,11 @@ function discardStagedFile_(file){
   if(file)try{file.setTrashed(true)}catch{console.warn('Could not discard staged event file '+file.getId())}
 }
 function saveProofFile_(roll,ticket,image,filename,changesFor,prepare){
-  const check=st=>{const a=ownReceipt_(st,ticket,roll);return {st,a,changes:changesFor(st,a)}};
+  const check=st=>{const a=ownReceipt_(st,ticket,roll),changes=changesFor(st,a);if(changes)requirePlayerPaymentOpen_(a,Date.now());return {st,a,changes}};
   const before=check(ledger_());
   if(!before.changes)return receipt_(before.a,settings_(),before.st);
   if(prepare)prepare(before.st,before.a);
+  requirePlayerPaymentOpen_(before.a,Date.now());
   const file=privateBlob_(image.bytes,image.mime,before.a.id+'-'+filename+'.'+image.ext);
   let journalAttempted=false;
   try{

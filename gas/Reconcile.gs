@@ -182,12 +182,20 @@ function adminOpenDeskPayment(token,roll,kind){
   must_(['walk','retry'].includes(kind),'Choose entry or retry.');
   return locked_(()=>{
     const st=ledger_(),now=Date.now();must_(roster_()[roll],'This roll is missing from the private directory.');
+    must_(now>=DESK_OPENS,'Registration at the Amphitheater desk opens at 7 PM IST.');
     const active=Object.values(st.attempts).find(a=>a.roll===roll&&['REVIEW','HOLD'].includes(a.status)&&currentRegistration_(st,a).id===a.id);
-    if(active)return {id:active.id,status:'This player already has a payment in progress.'};
+    if(active){
+      if(active.status==='HOLD'&&playerPaymentDeadline_(active)<=now){
+        eligibility_(st,roll,kind,now,active.id);must_(waveFor_(st,roll,now,active.id)>=0,'No later qualifier seat is available.');
+        const reopened={...active,kind,deskOpenedAt:now};
+        commit_(st,'Desk checkout reopened',user.name,{attempts:[reopened.receiver?reopened:attachReceiver_(reopened,st,now)],note:active.id});
+      }
+      return {id:active.id,status:active.status==='REVIEW'?'This player already has a payment in review.':'Desk checkout is open. The player can sign in to pay and upload proof.'};
+    }
     const saved=Object.values(st.attempts).find(a=>a.roll===roll&&['REGISTERED','WAITLIST'].includes(a.status)&&a.kind!=='retry'&&kind==='walk');
     eligibility_(st,roll,kind,now,saved?.id);const wave=waveFor_(st,roll,now);must_(wave>=0,'No later qualifier seat is available.');
     const details=saved?.details||latestRegistration_(st,roll)?.details||null;
-    const a=attachReceiver_({...newAttempt_(roll,kind,wave,now),...(saved?{id:saved.id}:{}),details,detailsRevision:saved?.detailsRevision||(details?1:0),status:'HOLD'},st,now);
+    const a=attachReceiver_({...newAttempt_(roll,kind,wave,now),...(saved?{id:saved.id}:{}),details,detailsRevision:saved?.detailsRevision||(details?1:0),status:'HOLD',deskOpenedAt:now},st,now);
     must_(a.receiver,'Configure a receiving account first.');
     commit_(st,'Desk payment opened',user.name,{attempts:[a],note:a.id});
     return {id:a.id,status:'Payment pending. The player can sign in to see their receiver and upload proof.'};

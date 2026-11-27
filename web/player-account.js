@@ -36,7 +36,16 @@ function registrationPage(){
   const info=accountInfo,person=info.player||{};
   const next=info.paymentsReady?'':'You can pay here when E-Cell opens checkout.';
   const form=registrationForm(person,'start',info.paymentsReady?'Continue to payment':'Save my registration',true,next);
-  accountScreen(0,panel(info.open?'Entry details':'Registration closed',info.open?form:'<p>'+esc(info.message)+'</p>'));
+  const closed=eventNow()>=registrationDeadline(),open=info.open&&!closed;
+  accountScreen(0,panel(open?'Entry details':'Registration closed',open?form:'<p>'+esc(closed?registrationClosedMessage():info.message)+'</p>'));
+}
+function enforceRegistrationDeadline(now){
+  const r=currentReceipt;
+  if(r&&!r.checkoutEnded&&!r.entryCode&&!r.checkedInAt&&['REGISTERED','WAITLIST','HOLD','REVIEW','REJECTED'].includes(r.status)&&now>=(r.paymentsCloseAt??registrationDeadline())){
+    showReceipt({...r,checkoutEnded:true,onlineClosed:true,registrationMessage:registrationClosedMessage()});
+  }else if(!r&&accountInfo?.open&&now>=registrationDeadline()){
+    accountInfo={...accountInfo,open:false,message:registrationClosedMessage()};registrationPage();
+  }
 }
 function renderAccount(info){
   accountInfo=info;syncOffer(info.offer);
@@ -45,6 +54,7 @@ function renderAccount(info){
 }
 function checkoutPanel(r){
   const price='<div data-entry-price class="offer"></div>';
+  if(r.onlineClosed)return panel('Online registration closed','<p>'+esc(r.registrationMessage||registrationClosedMessage())+'</p>');
   if(r.checkoutEnded||r.full)return panel(r.checkoutEnded?'Payments closed':'All waves are full','<p>If you already paid, submit your screenshot below for review.</p>');
   const help='<p class="sub payment-help">'+(r.paymentQr||r.checkoutReceivers?.some(x=>x.qr)?'Scan a QR and enter ':'Enter ')+esc(formatFee_(r.fee))+' in your UPI app.</p>';
   if(r.managed&&Array.isArray(r.checkoutReceivers))return panel('Pay '+formatFee_(r.fee),price+choosePaymentReceiver(r)+(r.checkoutReceivers.length?help:''));
@@ -62,6 +72,12 @@ function showReceipt(r){
   adoptInitialDetailsDraft(r);
   const proofKey=draftKey('proof',r.beneficiary,r.id),priorProof=draftValue(proofKey);
   if(priorProof&&(priorProof.revision!==(r.proofVersion||0)||!['HOLD','REVIEW','REJECTED'].includes(r.status)))removeProofDraft(proofKey,priorProof.marker);
+  if(r.onlineClosed&&!r.entryCode&&!r.checkedInAt&&['REGISTERED','WAITLIST','HOLD','REVIEW','REJECTED'].includes(r.status)){
+    heading('Poké Poker Night','Your registration');
+    const saved=r.status==='REVIEW'?'Your submitted payment is saved and remains under review. Your ticket will appear here after verification.':r.status==='REJECTED'?'Your payment needs attention. Bring your receipt and college ID to the registration desk.':'If you already paid, bring your receipt and college ID to the registration desk.';
+    accountScreen(1,panel('Online registration closed','<p>'+esc(r.registrationMessage||registrationClosedMessage())+'</p><p>'+saved+'</p>'+btn('receipt','Refresh status')));
+    scheduleTicketUpdate();return;
+  }
   const needsDetails=!r.details?.batch||!validPhone(r.details?.contact);
   if(needsDetails&&['REGISTERED','WAITLIST','HOLD','REVIEW','REJECTED'].includes(r.status)){
     heading('Poké Poker Night','Your registration');

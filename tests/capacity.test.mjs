@@ -221,7 +221,7 @@ test('sessions revalidate a single directory row and follow a moved player witho
 });
 
 test('sign-in, active sessions and pass delivery require one unambiguous directory identity',()=>{
-  const event=createEvent();event.at('2026-11-27T19:30:00+05:30');
+  const event=createEvent();event.at('2026-11-27T15:30:00+05:30');
   const api=club(event);
   const roll='123456789',email='student+one@example.test';
   event.rows.Students[1][2]='  '+email.toUpperCase()+' ';
@@ -233,6 +233,7 @@ test('sign-in, active sessions and pass delivery require one unambiguous directo
   event.rows.Students.pop();
   event.rows.Students.push(['323456789','Shared email',email,'']);
   assert.throws(()=>p.status(),/Sign in/);
+  event.at('2026-11-27T19:30:00+05:30');
   const purchase=api.rpc('deskPayment',api.admin,roll,'walk','123456789012',true,199,'2026-28','9876501234');
   assert.equal(purchase.status,'Desk delivery needed');
   assert.equal(event.mail.length,initialMail);

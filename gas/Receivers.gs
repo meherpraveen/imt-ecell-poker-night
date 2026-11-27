@@ -117,6 +117,7 @@ function playerSelectReceiver(session,ticket,id,expectedVersion){
   if(compact)must_(/^\d{1,9}$/.test(expectedVersion),"Refresh your checkout and try again.");
   const result=locked_(()=>{
     const st=ledger_(),a=ownReceipt_(st,ticket,roll),receiver=st.receivers[id];
+    requirePlayerPaymentOpen_(a,Date.now());
     must_(a.status==='HOLD'&&!a.file&&!a.legacyReceiver&&currentRegistration_(st,a).id===a.id,'Open your current checkout to select a receiver.');
     requirePlayerDetails_(a.details);
     must_(Date.now()<EVENT_END&&waveFor_(st,roll,Date.now())>=0,'Payments have closed or the event is full. If you already paid, submit your screenshot.');
@@ -136,6 +137,7 @@ function playerSelectReceiver(session,ticket,id,expectedVersion){
 function playerIdentifyReceiver(session,ticket,id){
   const roll=playerRoll_(session);return locked_(()=>{
     const st=ledger_(),a=ownReceipt_(st,ticket,roll),r=st.receivers[id];
+    requirePlayerPaymentOpen_(a,Date.now());
     must_(r&&['HOLD','REVIEW','REJECTED'].includes(a.status),'Choose the receiver from your original payment.');
     if(a.receiver){must_(a.receiver.id===id,'The payment receiver is already recorded.');return receipt_(a,settings_(),st)}
     const next={...a,receiver:receiverView_(r),legacyReceiver:true};commit_(st,'Original receiver identified by player',roll,{attempts:[next],note:a.id});return receipt_(next,settings_(),st);

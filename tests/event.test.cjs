@@ -56,17 +56,21 @@ test('registration opens on 23 November even before payments and the walk-in des
   assert.equal(pre.wave,0);assert.equal(pre.expires,0);assert.equal(pre.paymentQr,'');
   assert.equal(f.ctx.occupied_(f.st.attempts[pre.id],0),false);assert.equal(hold(f).id,pre.id);
   assert.equal(checkout(f,pre.ticket).status,'REGISTERED');assert.throws(()=>f.ctx.playerCheckout(''));
-  f.at('2026-11-27T19:00:00+05:30');
-  const walk=hold(f,'987654321');assert.equal(walk.fee,199);
+  f.at('2026-11-27T15:59:59+05:30');
   Object.assign(settings,{name:'Example Club',upi:'club@example',published:true});
   assert.equal(status(f,pre.ticket).status,'HOLD');
-  const seat=checkout(f,pre.ticket);assert.equal(seat.status,'HOLD');assert.equal(seat.fee,199);assert.equal(seat.wave,0);
+  const seat=checkout(f,pre.ticket);assert.equal(seat.status,'HOLD');assert.equal(seat.fee,149);assert.equal(seat.wave,0);
   assert.equal(checkout(f,pre.ticket).expires,seat.expires);
+  f.at('2026-11-27T16:00:00+05:30');
+  assert.equal(f.ctx.publicInfo().open,false);assert.throws(()=>hold(f,'987654321'),/4 PM/);
+  assert.equal(status(f,pre.ticket).checkoutEnded,true);assert.equal(checkout(f,pre.ticket).upi,'');
+  f.at('2026-11-27T19:00:00+05:30');
+  const walk=f.ctx.deskPayment('desk','987654321','walk','000000001111',true,199,'2026-28','9876501234');
+  assert.equal(f.st.attempts[walk.id].fee,199);assert.equal(f.st.attempts[walk.id].status,'PAID');
   settings.open=false;assert.equal(f.ctx.publicInfo().open,false);
   f.at('2026-11-27T23:00:00+05:30');settings.open=true;
-  assert.equal(f.ctx.publicInfo().open,false);assert.equal(status(f,walk.ticket).checkoutEnded,false);
-  assert.equal(checkout(f,walk.ticket).upi,'club@example');
-  f.at('2026-11-28T04:00:00+05:30');assert.equal(status(f,walk.ticket).checkoutEnded,true);assert.equal(checkout(f,walk.ticket).upi,'');
+  assert.equal(f.ctx.publicInfo().open,false);assert.equal(status(f,pre.ticket).checkoutEnded,true);
+  f.at('2026-11-28T04:00:00+05:30');assert.equal(status(f,pre.ticket).checkoutEnded,true);assert.equal(checkout(f,pre.ticket).upi,'');
 });
 test('an unpaid registration goes to the waitlist when all 216 qualifier places have proof',()=>{
   const f=fixture(),s={upi:'',name:'',open:true,published:false,qrFile:''};
@@ -75,6 +79,22 @@ test('an unpaid registration goes to the waitlist when all 216 qualifier places 
   for(let i=0;i<216;i++){const roll=String(400000000+i);f.people[roll]={email:roll+'@example.test'};pending(f,roll)}
   const r=checkout(f,saved.ticket);assert.equal(r.status,'WAITLIST');assert.equal(r.upi,'');assert.equal(r.paymentQr,'');
   assert.equal(checkout(f,saved.ticket).id,saved.id);
+});
+
+test('a directory lookup crossing 4 PM cannot commit a new online registration',()=>{
+  const f=fixture();f.at('2026-11-27T15:59:59.999+05:30');
+  const read=f.ctx.registrationDetails_;
+  f.ctx.registrationDetails_=(...args)=>{const details=read(...args);f.at('2026-11-27T16:00:00+05:30');return details};
+  assert.throws(()=>hold(f),/4 PM/);assert.equal(Object.keys(f.st.attempts).length,0);
+});
+
+test('a saved registration cannot reopen checkout while its receiver lookup crosses 4 PM',()=>{
+  const f=fixture(),settings={open:true,published:false,upi:'',name:'',qrFile:''};f.ctx.settings_=()=>settings;
+  const r=hold(f),attach=f.ctx.attachReceiver_;Object.assign(settings,{published:true,upi:'club@example',name:'Club'});
+  f.at('2026-11-27T15:59:59.999+05:30');
+  f.ctx.attachReceiver_=(...args)=>{const next=attach(...args);f.at('2026-11-27T16:00:00+05:30');return next};
+  const saved=status(f,r.ticket);assert.equal(saved.status,'REGISTERED');assert.equal(saved.checkoutEnded,true);
+  assert.equal(f.st.attempts[r.id].status,'REGISTERED');
 });
 test('an on-site verification reuses a saved pre-registration and checks the quoted fee',()=>{
   const f=fixture();f.ctx.settings_=()=>({open:true,published:false,upi:'',name:'',qrFile:''});const saved=hold(f);
@@ -402,13 +422,13 @@ test('all sign-in and pass emails use plain text, with one private link and a ga
     assert.deepEqual(plain.match(/https?:\/\/\S+/g),[url]);
   }
 });
-test('the Early Bird cutoff reprices an open registration in place and preserves submitted fees',()=>{
+test('the 4 PM cutoff closes an unpaid checkout and preserves submitted fees',()=>{
   const f=fixture(),c=f.ctx;f.at('2026-11-27T15:59:59+05:30');
   const early=hold(f),other=pending(f,'987654321','4444');assert.equal(early.offer.early,true);
   f.st.attempts[early.id].expires=early.offer.endsAt; // An older journal row.
   f.at('2026-11-27T16:00:00+05:30');
   const current=status(f,early.ticket);
-  assert.equal(current.status,'HOLD');assert.equal(current.upi,'club@example');assert.equal(current.fee,199);
+  assert.equal(current.status,'HOLD');assert.equal(current.upi,'');assert.equal(current.fee,199);assert.equal(current.checkoutEnded,true);
   assert.equal(current.ticket,early.ticket);assert.equal(current.offer.early,false);
   c.staffApprove('admin',other.id,'000000004444',true);assert.equal(status(f,other.ticket).fee,149);
 });

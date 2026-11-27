@@ -30,13 +30,15 @@ const playerCode=read('web/player-storage.js')+'\n'+read('web/player.js')
   .replace('__STUDENT_SIGN_IN_MODE__',studentSignInMode).replace('__EMAIL_CODE_VERSION__',emailCodeVersion).replace('__CLUB_LOGIN_VERSION__',clubLoginVersion);
 const pricing=read('gas/Pricing.gs');
 const publishedPrices=runInNewContext(pricing+'\nENTRY_PRICING');
+const registrationSchedule=runInNewContext(pricing+'\nONLINE_REGISTRATION');
 const money=new Intl.NumberFormat('en-IN',{style:'currency',currency:publishedPrices.currency,maximumFractionDigits:0});
 const fees={label:'Entry fees',entry:money.format(publishedPrices.earlyBird)+'–'+money.format(publishedPrices.standard),
   standard:money.format(publishedPrices.standard),retry:money.format(publishedPrices.retry)};
 const deadline=new Date(publishedPrices.earlyBirdEndsAt).toLocaleString('en-IN',{day:'numeric',month:'short',hour:'numeric',minute:'2-digit',timeZone:'Asia/Kolkata'})+' IST';
 const feeMarkup='<div class="price-label">Published entry fees</div><div class="price-values"><strong>'+fees.entry+'</strong></div>'+
-  '<p class="price-time">Early Bird ends '+deadline+'</p>';
-const priceDisplay=read('web/prices.js').replace('__PUBLISHED_SCHEDULE__',()=>JSON.stringify({fees,endsAt:Date.parse(publishedPrices.earlyBirdEndsAt),markup:feeMarkup}));
+  '<p class="price-time">Online registration closes '+deadline+'</p>';
+const priceDisplay=read('web/prices.js').replace('__PUBLISHED_SCHEDULE__',()=>JSON.stringify({fees,endsAt:Date.parse(publishedPrices.earlyBirdEndsAt),markup:feeMarkup,
+  registrationClosesAt:Date.parse(registrationSchedule.closesAt),standard:publishedPrices.standard}));
 function withPublishedFees(html){
   return html.replace(/<!-- FEES:START -->[\s\S]*?<!-- FEES:END -->/g,()=>'<!-- FEES:START -->'+feeMarkup+'<!-- FEES:END -->')
     .replace(/(<(?:span|strong|dd) data-home-fee="(label|entry|standard|retry)">)[^<]*/g,(_,tag,key)=>tag+fees[key]);

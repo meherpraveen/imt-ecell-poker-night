@@ -1,10 +1,19 @@
 function paymentsReady_(s){return !!(s.published&&s.name&&(s.upi||s.qrFile))}
 function publicPrices(){return {...entryOffer_(Date.now()),retry:ENTRY_PRICING.retry}}
+function onlineRegistrationClosed_(now){return now>=Date.parse(ONLINE_REGISTRATION.closesAt)}
+function onlineRegistrationMessage_(){return 'Online registration closed at 4 PM IST on 27 November. Register at the registration desk at the Amphitheater from 7 PM IST.'}
+function playerPaymentDeadline_(a){
+  // Only the authenticated desk can grant a post-cutoff checkout. A student
+  // cannot supply this journal field through any registration or proof input.
+  const desk=Number.isFinite(a.deskOpenedAt)&&a.deskOpenedAt>=DESK_OPENS&&a.deskOpenedAt<=Date.now()&&['walk','retry'].includes(a.kind);
+  return desk?EVENT_END:Date.parse(ONLINE_REGISTRATION.closesAt);
+}
+function requirePlayerPaymentOpen_(a,now){must_(now<playerPaymentDeadline_(a),now>=EVENT_END?'The event has closed.':onlineRegistrationMessage_())}
 function signupInfo_(s,now,st){
-  const open=s.open&&now>=PRE_OPENS&&now<NEW_CLOSE;
+  const open=s.open&&now>=PRE_OPENS&&!onlineRegistrationClosed_(now);
   const offer=entryOffer_(now);
   const info={open,paymentsReady:paymentReadyFor_(s,st||ledger_()),offer,fee:offer.amount};
-  if(!open)info.message=now<PRE_OPENS?'Pre-registration starts on 23 November.':now>=NEW_CLOSE?'New registrations have ended.':'The club has paused new registrations.';
+  if(!open)info.message=now<PRE_OPENS?'Pre-registration starts on 23 November.':onlineRegistrationClosed_(now)?onlineRegistrationMessage_():'The club has paused new registrations.';
   return info;
 }
 
@@ -108,6 +117,7 @@ function playerStart(session,previous,requestId,detailsJson){
     if(!info.paymentsReady)a.status='REGISTERED';
     a.details=registrationDetails_(roll,detailsJson);a.detailsRevision=1;
     if(startHash)a.startHash=startHash;
+    must_(!onlineRegistrationClosed_(Date.now()),onlineRegistrationMessage_());
     commit_(st,a.status==='HOLD'?'Checkout opened':'Registration saved','Player',{attempts:[a],note:a.id});return {a,set,st};
   },false);
   return resumeReceipt_(result.a,result.set,result.st);
@@ -123,7 +133,7 @@ function ticketActive_(a,st,now){
 }
 function receipt_(a,set,st){
   const now=Date.now(),offer=entryOffer_(now,a.kind),ready=paymentReadyFor_(set,st),managed=usesBankVerification_(st),selected=a.receiver;
-  const checkout=a.status==='HOLD',ended=now>=EVENT_END;
+  const paymentsCloseAt=playerPaymentDeadline_(a),checkout=a.status==='HOLD',ended=now>=paymentsCloseAt;
   const full=checkout&&!ended&&waveFor_(st,a.roll,now)<0;
   const open=checkout&&!ended&&!full&&!missingDetail_(a.details)&&currentRegistration_(st,a).id===a.id;
   const payable=open&&(managed?!!selected&&st.receivers[selected.id]?.active&&st.receivers[selected.id]?.upi===selected.upi:ready);
@@ -137,7 +147,8 @@ function receipt_(a,set,st){
   }
   return {ticket:a.id+'.'+mac_('receipt:'+a.id),id:a.id,fee:quotedFee_(a,now),offer,wave:a.used?a.wave+1:0,allocation:a.used?'assigned':'desk',status:a.status,
     // Older clients use expires to discard an outdated UPI amount at the pricing cutoff.
-    paymentsCloseAt:EVENT_END,expires:checkout&&offer.early?Math.min(offer.endsAt,EVENT_END):checkout?EVENT_END:0,full,upi:payable?payee.upi:'',name:payable?payee.name:'',paymentQr,
+    paymentsCloseAt,expires:checkout&&offer.early?Math.min(offer.endsAt,paymentsCloseAt):checkout?paymentsCloseAt:0,full,upi:payable?payee.upi:'',name:payable?payee.name:'',paymentQr,
+    onlineClosed:ended&&now<EVENT_END,registrationMessage:ended?onlineRegistrationMessage_():'',
     checkoutReceivers,chosenReceiverId:chosenReceiver_(a,checkoutReceivers),receiverChoiceVersion:a.receiverChoiceVersion||0,
     managed,canChooseReceiver:open&&!!selected&&!a.file&&!a.legacyReceiver,details:a.details||null,detailsRevision:a.detailsRevision||0,fairPlay:FAIR_PLAY_DECLARATION,fairPlayVersion:FAIR_PLAY_VERSION,
     paymentRecipients:selected?receivers_(st).filter(r=>r.active||r.id===selected.id||r.id===a.claim?.paidReceiver?.id||a.offeredReceivers?.some(option=>option.id===r.id)).map(receiverView_):[],
@@ -148,13 +159,14 @@ function receipt_(a,set,st){
     seat:a.seat||null,checkedInAt:a.checkedInAt||null,entryCode:ticketActive_(a,st,now)?pass_(a.id):''};
 }
 function canResumeCheckout_(a,set,st,now){
-  if(!['REGISTERED','WAITLIST'].includes(a.status)||missingDetail_(a.details)||now>=EVENT_END||!paymentReadyFor_(set,st))return false;
+  if(!['REGISTERED','WAITLIST'].includes(a.status)||missingDetail_(a.details)||now>=playerPaymentDeadline_(a)||!paymentReadyFor_(set,st))return false;
   return a.status==='REGISTERED'||waveFor_(st,a.roll,now)>=0;
 }
 function openSavedCheckout_(a,set,st,now){
   if(!canResumeCheckout_(a,set,st,now))return a;
   const available=waveFor_(st,a.roll,now)>=0;
   const next=attachReceiver_({...a,wave:-1,fee:entryOffer_(now,a.kind).amount,status:available?'HOLD':'WAITLIST'},st,now);
+  if(!canResumeCheckout_(a,set,st,Date.now()))return a;
   commit_(st,available?'Checkout opened':'Added to waitlist','Player',{attempts:[next],note:a.id});
   return next;
 }

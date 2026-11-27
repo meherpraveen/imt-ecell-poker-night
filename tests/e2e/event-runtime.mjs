@@ -1,12 +1,15 @@
 import {randomBytes, randomUUID, createHash, createHmac} from 'node:crypto';
 import {readFileSync} from 'node:fs';
 import {gzipSync, gunzipSync} from 'node:zlib';
+import {resolve} from 'node:path';
 import vm from 'node:vm';
 import {sheet} from '../sheet-fixture.cjs';
 
 const read = name => readFileSync(new URL('../../'+name,import.meta.url),'utf8');
-const source = ['Code','Auth','Floor'].map(name=>read('.deploy/'+name+'.gs')).join('\n');
-const template = read('.deploy/App.html');
+// Also exercise the exact candidate release, including preserved live-only code.
+const deployFile=name=>process.env.POKER_TEST_DEPLOY_DIR?readFileSync(resolve(process.env.POKER_TEST_DEPLOY_DIR,name),'utf8'):read('.deploy/'+name);
+const source = ['Code','Auth','Floor'].map(name=>deployFile(name+'.gs')).join('\n');
+const template = deployFile('App.html');
 export const player = {roll:'123456789',email:'player@example.test'};
 export const owner = 'owner@example.test';
 

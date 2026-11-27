@@ -360,6 +360,7 @@ test('a later submission uses the transfer-time price and a conflicting bank tim
     const event=createEvent();event.at('2026-11-27T15:00:00+05:30');
     const f=club(event),receiver=f.makeReceiver(),p=f.student();
     event.at('2026-11-27T21:00:00+05:30');
+    f.rpc('adminOpenDeskPayment',f.admin,p.hold.beneficiary,'walk');
     assert.equal(p.status().fee,199);assert.equal(p.status().ticket,p.hold.ticket);
     const date='2026-11-27',raw=receiptText(utr,paid).replace('23 Nov 2026 3:00 PM',date+' '+clock);
     const proof=f.submission(p,{amount:paid,time:date+'T'+clock},image,raw);f.submit(p,proof);
@@ -497,7 +498,8 @@ test('a screenshot alone cannot authorize failed, duplicate or underpaid transfe
 
 test('statement time resolves an unreadable screenshot across the Early Bird boundary',()=>{
   const event=createEvent();event.at('2026-11-27T15:50:00+05:30');
-  const f=club(event),receiver=f.makeReceiver(),p=f.student();event.advance(20*60000);event.ocr(null);
+  const f=club(event),receiver=f.makeReceiver(),p=f.student();event.at('2026-11-27T19:00:00+05:30');event.ocr(null);
+  f.rpc('adminOpenDeskPayment',f.admin,p.hold.beneficiary,'walk');
   assert.equal(f.publicRpc('playerSubmitScreenshot',p.token,p.hold.ticket,image,'0').fee,199);
   const raw='Date,Time,UTR,Credit,Debit,Receiver UPI,Description\r\n2026-11-27,15:59,'+utr+',149,,'+testUpi+',UPI credit';
   const plan=f.importFile(receiver.id,'bank.csv',raw);assert.equal(f.apply(plan).authorized,0);

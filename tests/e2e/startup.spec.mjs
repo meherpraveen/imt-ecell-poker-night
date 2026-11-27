@@ -20,7 +20,8 @@ test.describe('cold mobile assets',()=>{
     expect(await imageSize('.appbar .event-wordmark')).toBeLessThan(14*1024);
     const runtime=await request.get(await page.locator('#event-runtime').evaluate(node=>node.src));
     expect(runtime.ok()).toBe(true);
-    expect((await runtime.body()).length).toBeLessThan(32*1024);
+    // Includes the automatic registration cutoff and offline closure notice.
+    expect((await runtime.body()).length).toBeLessThan(33*1024);
   });
 });
 
@@ -29,7 +30,7 @@ for(const studentSignIn of ['email','directory'])test.describe('published fees b
   test('entry fees and their deadline arrive with both public pages',async({page,site})=>{
     await page.goto(site.origin);
     const schedule=page.locator('[data-entry-price]:visible');
-    await expect(schedule).toContainText('Early Bird ends');
+    await expect(schedule).toContainText('Online registration closes');
     const range=await schedule.locator('strong').innerText();
     expect(range).toMatch(/^₹[\d,]+–₹[\d,]+$/);
     await page.getByRole('link',{name:'Sign in to register'}).click();

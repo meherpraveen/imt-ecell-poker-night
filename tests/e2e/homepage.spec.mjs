@@ -41,7 +41,13 @@ test('the homepage updates both entry quotes at the cutoff and keeps its event l
   await expect(hero.locator('s')).toBeHidden();
   await expect(details.locator('.price-values strong')).toHaveText(format(pricing.standard));
   await expect(details.locator('.price-time')).toHaveCount(0);
-  await expect(hero.getByRole('link',{name:'Sign in to register'})).toHaveAttribute('href','event.html?view=register');
+  await expect(hero.getByRole('link',{name:'View registration or ticket'})).toHaveAttribute('href','event.html?view=register');
+  await expect(hero.locator('[data-registration-closed]')).toContainText('Amphitheater registration desk from 7 PM IST');
+  await page.setViewportSize({width:320,height:750});
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+  await page.screenshot({path:'.local/online-close-home-mobile.png',fullPage:true});
+  await page.setViewportSize({width:1280,height:900});
+  await page.screenshot({path:'.local/online-close-home-desktop.png',fullPage:true});
   await expect(page.getByRole('link',{name:'Live floor'})).toHaveAttribute('href','event.html?view=board');
   await page.getByRole('link',{name:'Format',exact:true}).focus();
   await page.keyboard.press('Enter');
@@ -63,7 +69,7 @@ test('the hero countdown uses server time, fits below sign-in and does not shift
   const guideTop=await page.locator('.event-guide').evaluate(node=>node.getBoundingClientRect().top);
   release();await expect(countdown).toBeVisible();
   await expect(page.getByRole('timer')).toHaveText('02h 05m 08s');
-  await expect(countdown).toContainText('Price rises to '+format(pricing.standard));
+  await expect(countdown).toContainText('Amphitheater desk: 7 PM · '+format(pricing.standard));
   expect(await page.locator('.event-guide').evaluate(node=>node.getBoundingClientRect().top)).toBe(guideTop);
   const buttonBox=await button.boundingBox(),timerBox=await countdown.boundingBox();expect(timerBox.y).toBeGreaterThanOrEqual(buttonBox.y+buttonBox.height);
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);

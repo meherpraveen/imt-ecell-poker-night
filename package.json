@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "build": "node tools/build.mjs",
-    "test": "node tools/build.mjs && node --test tests/event.test.cjs tests/gate-race.test.cjs tests/payments.test.mjs tests/receipt-amounts.test.mjs tests/student-sign-in.test.mjs tests/owner-password.test.mjs tests/capacity.test.mjs",
+    "test": "node tools/build.mjs && node --test tests/event.test.cjs tests/gate-race.test.cjs tests/payments.test.mjs tests/receipt-amounts.test.mjs tests/student-sign-in.test.mjs tests/owner-password.test.mjs tests/capacity.test.mjs tests/online-close.test.mjs",
     "test:e2e": "node tools/build.mjs && playwright test --grep-invert @deployed",
     "test:deploy": "playwright test deployed.spec.mjs",
     "test:perf": "node tools/measure-pages.mjs",

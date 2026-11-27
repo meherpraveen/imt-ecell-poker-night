@@ -313,24 +313,24 @@ test('a returning registration with a missing batch opens payment as soon as the
   expect(Object.values(site.staff('ledger_',[]).attempts)).toHaveLength(1);
 });
 
-test('a receiver choice in flight at the price cutoff stays selected alongside the new price',async({page,site})=>{
+test('a receiver choice crossing the online cutoff cannot restore payment controls or change the saved receiver',async({page,site})=>{
   site.at('2026-11-27T15:59:45+05:30');await page.clock.install({time:new Date(site.now())});
   const {player,second}=await openCheckout(page,site);
+  const original=player.status().chosenReceiverId;
   const pending=await holdRequest(page,site.endpoint,'playerSelectReceiver');
   await page.getByRole('radio',{name:second.name}).check();await pending.seen;
   site.advance(16000);await page.clock.fastForward(16000);
-  await expect(page.locator('#checkoutUpdate')).toHaveText('Checking the current entry fee…');
-  await expect(page.locator('#checkoutUpdate')).toBeVisible();
+  await expect(page.getByRole('heading',{name:'Online registration closed'})).toBeVisible();
   await expect(page.getByRole('button',{name:/Copy UPI ID/})).toHaveCount(0);
   pending.release();
-  await expect(page.getByRole('button',{name:'Copy UPI ID for Second receiver'})).toHaveAttribute('data-value',alternate);
-  await expect(page.getByRole('radio',{name:second.name})).toBeChecked();
-  expect(player.status().chosenReceiverId).toBe(second.id);
+  await expect.poll(()=>site.calls.filter(name=>name==='playerSelectReceiver').length).toBe(1);
+  await expect(page.getByRole('button',{name:/Copy UPI ID/})).toHaveCount(0);
+  expect(player.status().chosenReceiverId).toBe(original);
 });
 
-test('a pricing change temporarily hides payment actions and keeps the details and proof drafts during a retry',async({page,site})=>{
+test('closing keeps the details and screenshot draft until staff reopen the checkout at the desk',async({page,site})=>{
   site.at('2026-11-27T15:55:00+05:30');await page.clock.install({time:new Date(site.now())});
-  const {first}=await openCheckout(page,site);
+  const {first,api,player}=await openCheckout(page,site);
   await page.getByRole('radio',{name:first.name}).check();
   const copyId=page.getByRole('button',{name:/Copy UPI ID/});await expect(copyId).toHaveAttribute('data-value',first.upi);
   site.ocr(receiptText());await page.getByLabel('Payment screenshot').setInputFiles(image);
@@ -343,12 +343,17 @@ test('a pricing change temporarily hides payment actions and keeps the details a
     return route.fallback();
   });
   site.advance(6*60000);await page.clock.fastForward(6*60000);
-  const retry=page.getByRole('button',{name:'Retry payment details'});await expect(retry).toBeVisible();
-  await expect(copyId).toHaveCount(0);await retry.click();
+  await expect(page.getByRole('heading',{name:'Online registration closed'})).toBeVisible();
+  await expect(copyId).toHaveCount(0);await expect(page.getByLabel('Payment screenshot')).toHaveCount(0);
+  await expect(page.getByLabel('Full Name')).toHaveValue('Still editing');
+  site.at('2026-11-27T19:00:00+05:30');await page.clock.fastForward(179*60000);
+  api.rpc('adminOpenDeskPayment',api.admin,player.hold.beneficiary,'walk');
+  const refresh=page.getByRole('button',{name:'Refresh status'});await refresh.click();
+  await expect(page.locator('#msg')).toContainText('Could not reach');await refresh.click();
   await expect(copyId).toHaveAttribute('data-value',first.upi);await expect(page.getByRole('heading',{name:'Pay ₹199'})).toBeVisible();
   await expect(page.getByLabel('Full Name')).toHaveValue('Still editing');
   await expect(page.getByLabel('Payment screenshot')).toHaveValue(/payment\.jpg$/);
-  await expect(page.locator('#proofDraftNote')).toContainText('saved on this device');
+  await expect(page.locator('#proofDraftNote')).toContainText('Restored screenshot');
 });
 
 test('clearing a file recovers, and proof still submits while the receiver choice is unresolved',async({page,site})=>{

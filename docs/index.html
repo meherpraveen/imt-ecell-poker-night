@@ -168,8 +168,8 @@ footer .wrap {flex-wrap: wrap; font-size: .9rem}
 .hero-actions {display: flex; align-items: center; flex-wrap: wrap; gap: 13px 20px; margin-top: clamp(23px,2.7vw,36px)}
 .home a.register-link {display: inline-flex; justify-content: center; align-items: center; gap: 12px; min-height: 49px; border-radius: 100px; padding: 11px 22px; color: var(--primary-ink); background: var(--primary); border: 1px solid var(--primary-edge); font-size: .98rem; font-weight: 610; text-decoration: none; transition: background-color 180ms ease, transform 170ms ease}
 .home a.register-link:hover {background: var(--primary-hover)}
-.register-link span {display: inline-block; font-size: 1.15em; line-height: 1; transition: transform 180ms ease}
-.register-link:hover span {transform: translateX(2px)}
+.register-link span[aria-hidden] {display: inline-block; font-size: 1.15em; line-height: 1; transition: transform 180ms ease}
+.register-link:hover span[aria-hidden] {transform: translateX(2px)}
 .register-link:active {transform: scale(.98)}
 .entry-quote {display: flex; flex-direction: column; gap: 2px; min-width: 7.5rem; margin: 0; line-height: 1.25}
 .entry-quote>[data-home-fee=label] {font-size: .77rem; color: var(--muted); font-weight: 550}
@@ -295,7 +295,7 @@ footer .wrap {flex-wrap: wrap; font-size: .9rem}
   <!-- HOME-STYLES:END -->
   <link rel="preconnect" href="https://script.google.com" crossorigin>
   <link rel="preconnect" href="https://script.googleusercontent.com" crossorigin>
-  <script defer src="assets/entry-prices.js?v=39bfa88e4a26"></script>
+  <script defer src="assets/entry-prices.js?v=2b75ac2ef88f"></script>
 </head>
 <body class="home">
   <a class="home-skip" href="#main">Skip to event details</a>
@@ -320,7 +320,7 @@ footer .wrap {flex-wrap: wrap; font-size: .9rem}
           <p class="event-when"><time datetime="2026-11-27">Friday, 27 November 2026</time><span>IMT Ghaziabad</span></p>
           <p class="event-intro">Three rounds of Texas Hold’em, six seats at the final table, and <strong>prizes worth ₹1 lakh</strong>.</p>
           <div class="hero-actions">
-            <a class="register-link" data-view="register" href="event.html?view=register">Sign in to register <span aria-hidden="true">→</span></a>
+            <a class="register-link" data-view="register" href="event.html?view=register"><span data-registration-label>Sign in to register</span> <span aria-hidden="true">→</span></a>
             <p class="entry-quote">
               <span data-home-fee="label">Entry fees</span>
               <span class="quote-amount"><strong data-home-fee="entry">₹149–₹199</strong><s data-early-only hidden><span class="visually-hidden">Standard price </span><span data-home-fee="standard">₹199</span></s></span>
@@ -328,10 +328,11 @@ footer .wrap {flex-wrap: wrap; font-size: .9rem}
           </div>
           <div class="hero-countdown-slot">
             <p class="hero-countdown" data-home-countdown hidden>
-              <span class="countdown-label">Early bird ends in</span>
+              <span class="countdown-label">Online registration closes in</span>
               <strong class="countdown-clock" data-countdown-clock role="timer" aria-live="off"></strong>
               <span class="countdown-next" data-countdown-next></span>
             </p>
+            <p class="hero-countdown" data-registration-closed hidden><strong>Online registration closed</strong><span>Register at the Amphitheater registration desk from 7 PM IST.</span></p>
           </div>
         </div>
         <div class="playing-hand" aria-hidden="true">
@@ -358,9 +359,10 @@ footer .wrap {flex-wrap: wrap; font-size: .9rem}
         </section>
         <section class="entry-section" aria-labelledby="entry-title">
           <h2 id="entry-title">Entry details</h2>
-          <div class="entry-breakdown" data-entry-price data-rendered="schedule"><!-- FEES:START --><div class="price-label">Published entry fees</div><div class="price-values"><strong>₹149–₹199</strong></div><p class="price-time">Early Bird ends 27 Nov, 4:00 pm IST</p><!-- FEES:END --></div>
+          <div class="entry-breakdown" data-entry-price data-rendered="schedule"><!-- FEES:START --><div class="price-label">Published entry fees</div><div class="price-values"><strong>₹149–₹199</strong></div><p class="price-time">Online registration closes 27 Nov, 4:00 pm IST</p><!-- FEES:END --></div>
           <dl class="entry-facts">
-            <div><dt>Walk-ins</dt><dd>7–11 pm IST</dd></div>
+            <div><dt>Online registration</dt><dd>Closes 27 Nov, 4 pm IST</dd></div>
+            <div><dt>Registration desk</dt><dd>Amphitheater · 7–11 pm IST</dd></div>
             <div><dt>Round 1 retry</dt><dd data-home-fee="retry">₹149</dd></div>
           </dl>
           <p class="entry-note">After elimination, you can buy a retry if a later qualifier has a seat. Use your existing pass to return to the venue.</p>

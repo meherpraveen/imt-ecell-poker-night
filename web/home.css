@@ -33,8 +33,8 @@
 .hero-actions {display: flex; align-items: center; flex-wrap: wrap; gap: 13px 20px; margin-top: clamp(23px,2.7vw,36px)}
 .home a.register-link {display: inline-flex; justify-content: center; align-items: center; gap: 12px; min-height: 49px; border-radius: 100px; padding: 11px 22px; color: var(--primary-ink); background: var(--primary); border: 1px solid var(--primary-edge); font-size: .98rem; font-weight: 610; text-decoration: none; transition: background-color 180ms ease, transform 170ms ease}
 .home a.register-link:hover {background: var(--primary-hover)}
-.register-link span {display: inline-block; font-size: 1.15em; line-height: 1; transition: transform 180ms ease}
-.register-link:hover span {transform: translateX(2px)}
+.register-link span[aria-hidden] {display: inline-block; font-size: 1.15em; line-height: 1; transition: transform 180ms ease}
+.register-link:hover span[aria-hidden] {transform: translateX(2px)}
 .register-link:active {transform: scale(.98)}
 .entry-quote {display: flex; flex-direction: column; gap: 2px; min-width: 7.5rem; margin: 0; line-height: 1.25}
 .entry-quote>[data-home-fee=label] {font-size: .77rem; color: var(--muted); font-weight: 550}

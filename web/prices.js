@@ -18,6 +18,8 @@ function restorePublicQuote(){
   }catch{}
 }
 function eventNow(){return displayedOffer?displayedOffer.now+(Date.now()-offerReceived):Date.now()}
+function registrationDeadline(){return displayedOffer?.registrationClosesAt??publishedSchedule.registrationClosesAt}
+function registrationClosedMessage(){return 'Online registration closed at 4 PM IST on 27 November. Register at the registration desk at the Amphitheater from 7 PM IST.'}
 function syncOffer(offer){
   if(!validOffer(offer))return;
   if(displayedOffer&&offer.now<displayedOffer.now)return;
@@ -61,11 +63,15 @@ function schedulePrices(delay){
 function updatePrices(){
   clearTimeout(priceTimer);
   if(document.hidden||document.body.dataset.mode&&document.body.dataset.mode!=='register')return;
+  const now=eventNow(),closed=now>=registrationDeadline();
+  if(typeof enforceRegistrationDeadline==='function')enforceRegistrationDeadline(now);
+  if(!closed)schedulePrices(registrationDeadline()-now);
   const offers=[...document.querySelectorAll('[data-entry-price]')].filter(el=>{
     const shell=el.closest('[data-shell]');return !shell||shell.dataset.shell===document.documentElement.dataset.entry;
   }),homeFees=document.querySelectorAll('[data-home-fee]');
   if(!offers.length&&!homeFees.length)return;
-  const offer=displayedOffer,now=eventNow();
+  const desk=closed&&!document.getElementById('checkoutPayment');
+  const offer=desk?{...displayedOffer,early:false,amount:publishedSchedule.standard,standard:publishedSchedule.standard,currency:'INR',endsAt:registrationDeadline()}:displayedOffer;
   const countdownVisible=typeof updateHomeCountdown==='function'&&updateHomeCountdown(offer,now);
   if(!offer||offer.early&&now>=offer.endsAt){
     if(homeFees.length||offers.some(box=>box.closest('.login-card')))showPublishedFees(offers,homeFees);
@@ -76,26 +82,27 @@ function updatePrices(){
     loadOffer();if(!offerRequest)schedulePrices(Math.max(1000,retryOfferAt-Date.now()));return;
   }
   const amount=formatFee_(offer.amount,offer.currency),standard=formatFee_(offer.standard,offer.currency);
-  const end=offerDeadline(offer.endsAt);
+  const end=offerDeadline(offer.endsAt),label=closed?'Registration desk entry':offer.early?'Early Bird':'Standard entry';
   for(const box of offers){
     box.removeAttribute('aria-busy');
-    const remaining=offer.early?remainingTime(offer.endsAt-now):'',key=[amount,standard,end,remaining].join('|');
+    const remaining=offer.early?remainingTime(offer.endsAt-now):'',key=[amount,standard,end,remaining,desk].join('|');
     if(box.dataset.rendered===key)continue;
     box.dataset.rendered=key;
-    box.innerHTML='<div class="price-label">'+(offer.early?'Early Bird':'Standard entry')+'</div><div class="price-values"><strong>'+amount+'</strong>'+
+    box.innerHTML='<div class="price-label">'+label+'</div><div class="price-values"><strong>'+amount+'</strong>'+
       (offer.early?'<s><span class="sr-only">Standard price </span>'+standard+'</s>':'')+'</div>'+
-      (offer.early?'<p class="price-time"><b>'+remaining+'</b> · Ends '+end+'</p>':'');
+      (offer.early?'<p class="price-time"><b>'+remaining+'</b> · Ends '+end+'</p>':desk?'<p>'+registrationClosedMessage()+'</p>':'');
   }
   for(const row of document.querySelectorAll('[data-early-only]'))row.hidden=!offer.early;
   for(const node of homeFees){
     const kind=node.dataset.homeFee;
-    const value=kind==='retry'?(offer.retry!=null?formatFee_(offer.retry,offer.currency):'See the desk'):kind==='standard'?standard:kind==='label'?(offer.early?'Early Bird':'Standard entry'):amount;
+    const value=kind==='retry'?(offer.retry!=null?formatFee_(offer.retry,offer.currency):publishedSchedule.fees.retry):kind==='standard'?standard:kind==='label'?label:amount;
     if(node.textContent!==value)node.textContent=value;
   }
   if(offer.early){
     const interval=countdownVisible?1000:60000;
     schedulePrices((offer.endsAt-now)%interval||interval);
   }
+  if(!displayedOffer)loadOffer();
 }
 restorePublicQuote();updatePrices();
 document.addEventListener('visibilitychange',updatePrices);

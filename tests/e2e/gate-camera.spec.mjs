@@ -132,7 +132,7 @@ test('a lost camera response stays unconfirmed and retry recovers the original a
   await expect(page.getByText('Seat 01')).toBeVisible();expect(site.rows.Journal.filter(row=>row[1]==='Gate admit')).toHaveLength(1);
 });
 
-test('registration and checkout cross the same price boundary while a phone stays open',async({page,site},testInfo)=>{
+test('an open phone checkout closes at 4 PM and directs the student to the Amphitheater desk',async({page,site},testInfo)=>{
   site.at('2026-11-27T15:59:00+05:30');await page.clock.install({time:new Date(site.now())});
   site.rows.Settings[1][1]='club@example';site.rows.Settings[2][1]='Sample Club';site.rows.Settings[5][1]='yes';
   await page.goto(site.register);
@@ -148,10 +148,10 @@ test('registration and checkout cross the same price boundary while a phone stay
   await page.getByRole('button',{name:'Submit screenshot'}).click();
   await expect(page.getByLabel('Payment screenshot')).toHaveAttribute('aria-invalid','true');
   site.advance(60000);await page.clock.fastForward(60000);
-  await expect(page.getByRole('heading',{name:'Pay ₹199'})).toBeVisible();
-  await expect(offer).toContainText('Standard entry');await expect(offer.locator('s')).toHaveCount(0);
+  await expect(page.getByRole('heading',{name:'Online registration closed'})).toBeVisible();
+  await expect(page.locator('#content')).toContainText('Amphitheater from 7 PM IST');
   expect(site.calls.filter(method=>method==='playerStart')).toHaveLength(1);
-  await expect(page.getByRole('button',{name:/Copy UPI ID/})).toHaveAttribute('data-value','club@example');
-  await expect(page.locator('.payment-help')).toContainText('Enter ₹199');
-  await expect(offer).not.toContainText('149');await expect(offer).not.toContainText('Early Bird');
+  await expect(page.getByRole('button',{name:/Copy UPI ID/})).toHaveCount(0);
+  await expect(page.getByRole('button',{name:'Submit screenshot'})).toHaveCount(0);
+  await expect(page.getByLabel('Payment screenshot')).toHaveCount(0);
 });
